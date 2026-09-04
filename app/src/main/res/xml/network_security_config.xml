@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Allow cleartext (plain HTTP) traffic to the Tailscale clipboard server.
+    Tailscale itself encrypts the traffic end-to-end at the network layer,
+    so plain HTTP inside the Tailscale tunnel is safe for this use case.
+-->
+<network-security-config>
+    <!-- Allow cleartext over Tailscale (WireGuard already encrypts). Using base-config
+         avoids hardcoding any specific Tailscale IP in the build. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

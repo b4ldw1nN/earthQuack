@@ -1,0 +1,29 @@
+# Build outputs
+app/build/
+build/
+.gradle/
+
+# Gradle wrapper (keep .jar for offline builds)
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local config
+local.properties
+*.keystore
+*.jks
+
+# Logs
+*.log
+/tmp/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+.basemem.code.db
+
+# Compiled daemon binary (build locally: cc -O2 -o clipsyncd clipsyncd.c)
+clipsyncd
+daemon/__pycache__/
+__pycache__/
+*.pyc
+*.pyo

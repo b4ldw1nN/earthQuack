@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network access for HTTP / SSE -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Ignore battery optimization to prevent Vivo/FuntouchOS from killing background tasks -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
+        "Draw over other apps" — used to briefly show a 1×1 transparent overlay
+        when a clipboard change is detected in the background. The overlay gains
+        window focus, which grants clipboard read access (Android 10+ restriction).
+        The overlay is removed in <400ms and is invisible (alpha=0, 1×1 pixel).
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Keep the CPU awake during sync (partial wake lock) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Foreground service: base permission -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+        Android 14+ requires the exact foreground-service type permission.
+        We use "specialUse" because clipboard sync does not map cleanly to
+        any of the standard types (camera, microphone, location, dataSync, etc.).
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Post notifications (Android 13 / API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Receive connectivity broadcasts so we can reconnect on network change -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+        File sharing: read shared files from other apps (photos, documents, etc.)
+        Android 13+ uses granular media permissions; older versions use READ_EXTERNAL_STORAGE.
+    -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- All files access permission for direct folder watch on public Download directory -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.ClipboardSync">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Share-sheet target — appears as "Clipboard Sync" in the Android share sheet.
+            Accepts any single file or multiple files from any app.
+            The activity is transparent (Theme.Translucent.NoTitleBar) and finishes
+            immediately after starting FileTransferService.
+        -->
+        <activity
+            android:name=".FileShareActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="Clipboard Sync">
+            <!-- Single file share -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <!-- Multiple files share -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".ClipboardSyncService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <!--
+                Required for specialUse: describe why none of the standard types apply.
+                Clipboard sync requires continuous SSE connection (not dataSync which
+                implies user-initiated file transfers) and reads the Android clipboard
+                which has no dedicated foreground-service type.
+            -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Clipboard synchronisation: maintains a persistent SSE
+                    connection to receive clipboard updates from the paired desktop and
+                    monitors the Android clipboard to push changes to the desktop.
+                    No other foreground-service type covers clipboard access." />
+        </service>
+
+        <!-- File transfer service: handles uploads and downloads with progress notifications -->
+        <service
+            android:name=".FileTransferService"
+            android:exported="false" />
+
+        <!-- Input Method Service for reliable background clipboard monitoring -->
+        <service
+            android:name=".ClipboardImeService"
+            android:label="Clipboard Sync Service"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <!-- Quick Settings Tile for toggling sync ON/OFF -->
+        <service
+            android:name=".SyncTileService"
+            android:icon="@drawable/ic_launcher"
+            android:label="Clipboard Sync"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Handles the Stop action tap from the persistent notification -->
+        <receiver
+            android:name=".StopReceiver"
+            android:exported="false" />
+
+
+    </application>
+</manifest>
+
