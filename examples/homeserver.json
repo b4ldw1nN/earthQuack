@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "storage",
+    "docker"
+  ],
+  "services": [
+    {
+      "capability": "storage",
+      "name": "storage",
+      "port": 9000,
+      "version": "0.1.0"
+    },
+    {
+      "capability": "docker",
+      "name": "docker",
+      "port": 0,
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "reverse-proxy",
+    "docker"
+  ],
+  "services": [
+    {
+      "capability": "reverse-proxy",
+      "name": "reverse-proxy",
+      "port": 80,
+      "version": "0.1.0"
+    },
+    {
+      "capability": "docker",
+      "name": "docker",
+      "port": 0,
+      "version": "0.1.0"
+    }
+  ]
+}

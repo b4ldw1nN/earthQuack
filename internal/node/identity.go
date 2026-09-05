@@ -22,13 +22,18 @@ const (
 	identityDirName  = "earthquack"
 )
 
+// machineIDPaths lists the locations consulted for a stable machine
+// identifier, in order. It is a variable solely so tests can point it
+// at fixture files; production code must not modify it.
+var machineIDPaths = []string{machineIDPath, altMachineIDPath}
+
 // ErrNoIdentity is returned when no stable identity can be established.
 var ErrNoIdentity = errors.New("node: unable to determine machine identity")
 
 // ResolveLocalIdentity returns the stable identity for this machine.
 // It is called once at startup; the result should be reused.
 func ResolveLocalIdentity() (Identity, error) {
-	for _, path := range []string{machineIDPath, altMachineIDPath} {
+	for _, path := range machineIDPaths {
 		data, err := os.ReadFile(path)
 		if err == nil {
 			if id := strings.TrimSpace(string(data)); id != "" {
