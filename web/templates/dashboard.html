@@ -13,6 +13,7 @@
       {{with .Local}}{{if .Online}}<span class="dot on"></span><span class="state on">ONLINE</span>{{else}}<span class="dot off"></span><span class="state off">OFFLINE</span>{{end}}{{end}}
       <span class="ts">as of {{.Now.Format "15:04:05 MST"}}</span>
       <a class="refresh" href="/">refresh</a>
+      <form method="post" action="/logout" class="inline-form"><button type="submit" class="logout">logout</button></form>
     </span>
   </header>
 

@@ -19,6 +19,11 @@ func DashboardTemplate() (*template.Template, error) {
 	return template.ParseFS(assets, "templates/dashboard.html")
 }
 
+// LoginTemplate parses the embedded browser login template.
+func LoginTemplate() (*template.Template, error) {
+	return template.ParseFS(assets, "templates/login.html")
+}
+
 // StyleSheet returns the raw embedded dashboard stylesheet.
 func StyleSheet() ([]byte, error) {
 	return assets.ReadFile("static/style.css")

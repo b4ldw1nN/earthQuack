@@ -88,3 +88,29 @@ main { max-width: 720px; margin: 0 auto; padding: 20px; }
 .svc-extra { color: var(--muted); font-size: 12px; }
 
 .empty { color: var(--muted); }
+
+/* Browser login + logout */
+.inline-form { display: inline; margin: 0; }
+.logout {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font: inherit; font-size: 12px; padding: 2px 8px; margin-left: 12px;
+  cursor: pointer; border-radius: 4px;
+}
+.logout:hover { color: var(--text); border-color: var(--text); }
+.login-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 8vh; }
+.login-card {
+  width: min(420px, 90vw); margin-top: 8vh; padding: 28px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.login-card h2 { margin-top: 0; }
+.login-card form { display: flex; flex-direction: column; gap: 12px; }
+.login-card input[type=password] {
+  font: inherit; padding: 10px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--bg); color: var(--text);
+}
+.login-card button {
+  font: inherit; padding: 10px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--text); color: var(--bg);
+  font-weight: 600; cursor: pointer;
+}
+.muted { color: var(--muted); }

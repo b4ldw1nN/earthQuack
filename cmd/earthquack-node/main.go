@@ -130,13 +130,22 @@ func main() {
 	go refresher.Run(ctx)
 
 	addr := net.JoinHostPort(*host, fmt.Sprint(*port))
-	handler, err := node.NewAPI(reg, version)
+
+	// Secure cookie is opt-in: the dashboard is served over http on the
+	// Tailscale address by default, where a Secure flag would block the
+	// cookie. Enable via EARTHQUACK_SECURE_COOKIE=1 once TLS is present.
+	secureCookie := os.Getenv("EARTHQUACK_SECURE_COOKIE") == "1"
+	handler, err := node.NewServer(reg, version, node.ServerAuthConfig{
+		Token:        authToken,
+		SecureCookie: secureCookie,
+	})
 	if err != nil {
 		log.Fatalf("api: %v", err)
 	}
-	// Application authentication: bearer-token middleware around all
-	// endpoints (/api/health and /static/style.css remain public).
-	handler = node.AuthMiddleware(handler, authToken)
+	// Authentication boundaries are applied inside NewServer:
+	//   /api/*        — bearer token (fail-closed)
+	//   /static/*     — public
+	//   / (browser)   — session cookie + login page
 	srv := &http.Server{Addr: addr, Handler: handler}
 	go func() {
 		<-ctx.Done()
