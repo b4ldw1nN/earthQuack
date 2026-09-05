@@ -387,6 +387,32 @@
                     </LinearLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/til_auth_token"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:startIconDrawable="@drawable/ic_shield_24"
+                        app:startIconTint="@color/outline"
+                        app:endIconMode="password_toggle"
+                        app:boxStrokeColor="@color/outline"
+                        android:hint="Auth token (Bearer — optional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edit_auth_token"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textPassword"
+                            android:singleLine="true"
+                            android:fontFamily="monospace"
+                            android:textSize="11sp" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/til_aes_key"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

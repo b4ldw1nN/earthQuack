@@ -50,6 +50,10 @@ class FileTransferService : Service() {
         .readTimeout(0, TimeUnit.SECONDS)    // unlimited for large downloads
         .build()
 
+    /** Returns the configured earthQuack bearer token, or null if unset. */
+    private fun serverAuthToken(): String? =
+        ServerConfig.getAuthToken(this).ifBlank { null }
+
     companion object {
         const val ACTION_UPLOAD   = "com.example.earthquack.ACTION_UPLOAD"
         const val ACTION_DOWNLOAD = "com.example.earthquack.ACTION_DOWNLOAD"
@@ -158,6 +162,7 @@ class FileTransferService : Service() {
             val body = streamingBody(stream, size, nid, name)
             val req  = Request.Builder()
                 .url(url)
+                .apply { serverAuthToken()?.let { header("Authorization", "Bearer $it") } }
                 .addHeader("X-Filename", name)
                 .addHeader("X-Origin",   ORIGIN_PHONE)
                 .post(body)
@@ -228,7 +233,9 @@ class FileTransferService : Service() {
 
         try {
             val url = "${ServerConfig.getFileBaseUrl(this@FileTransferService)}/download/$fileId"
-            val req = Request.Builder().url(url).get().build()
+            val req = Request.Builder().url(url)
+                .apply { serverAuthToken()?.let { header("Authorization", "Bearer $it") } }
+                .get().build()
 
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")

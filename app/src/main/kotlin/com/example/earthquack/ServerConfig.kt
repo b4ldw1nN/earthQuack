@@ -20,6 +20,7 @@ object ServerConfig {
     private const val KEY_PAUSE_ON_SCREEN_OFF = "pause_on_screen_off"
     private const val KEY_AES_ENABLED = "aes_enabled"
     private const val KEY_AES_KEY = "aes_key_b64"
+    private const val KEY_AUTH_TOKEN = "auth_token"
 
     // Fallback default — the IP that was previously hardcoded
     const val DEFAULT_HOST = "YOUR_TAILSCALE_IP"
@@ -81,5 +82,19 @@ object ServerConfig {
     fun hasValidAesKey(context: Context): Boolean {
         val k = getAesKey(context)
         return k.isNotBlank() && CryptoUtil.isValidKeyBase64(k)
+    }
+
+    // ── Shared bearer token (earthQuack auth) ───────────────────────────────
+    // The same EARTHQUACK_AUTH_TOKEN used by the Go node / future Go daemon.
+    // Sent as "Authorization: Bearer <token>" on HTTP + SSE + file transfers.
+    // The current Python daemon ignores it (harmless); it becomes required once
+    // the daemon is migrated to Go and enforces auth. Never store a real token
+    // in source — set it from the app UI.
+
+    fun getAuthToken(context: Context): String =
+        prefs(context).getString(KEY_AUTH_TOKEN, "") ?: ""
+
+    fun setAuthToken(context: Context, token: String) {
+        prefs(context).edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
     }
 }

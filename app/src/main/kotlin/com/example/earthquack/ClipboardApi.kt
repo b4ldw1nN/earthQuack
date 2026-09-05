@@ -21,9 +21,9 @@ private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
  * [baseUrl] is resolved from ServerConfig at construction time so the
  * Tailscale IP is user-configurable without recompiling.
  */
-class ClipboardApi(private val baseUrl: String) {
+class ClipboardApi(private val baseUrl: String, private val token: String = "") {
 
-    /** Backwards-compat constructor — uses hardcoded fallback URL. */
+    /** Backwards-compat constructor — uses hardcoded fallback URL and no token. */
     constructor() : this(SERVER_BASE_URL)
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -55,7 +55,7 @@ class ClipboardApi(private val baseUrl: String) {
 
         val request = Request.Builder()
             .url("$baseUrl/clipboard")
-            // .header("Authorization", "Bearer $token")   // <-- auth hook
+            .apply { if (token.isNotBlank()) header("Authorization", "Bearer $token") }
             .post(body)
             .build()
 
@@ -83,7 +83,7 @@ class ClipboardApi(private val baseUrl: String) {
         .url("$baseUrl/events")
         .header("Accept", "text/event-stream")
         .header("Cache-Control", "no-cache")
-        // .header("Authorization", "Bearer $token")   // <-- auth hook
+        .apply { if (token.isNotBlank()) header("Authorization", "Bearer $token") }
         .get()
         .build()
 

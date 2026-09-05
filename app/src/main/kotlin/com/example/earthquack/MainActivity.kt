@@ -117,6 +117,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Security — bearer auth token (EARTHQUACK_AUTH_TOKEN, optional).
+        // Sent as "Authorization: Bearer <token>" on clipboard + file calls.
+        // The current Python daemon ignores it; it is required once the daemon
+        // is migrated to Go and enforces the shared token.
+        binding.editAuthToken.setText(ServerConfig.getAuthToken(this))
+        binding.editAuthToken.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                ServerConfig.setAuthToken(this, binding.editAuthToken.text.toString())
+            }
+        }
+
         binding.btnToggle.setOnClickListener {
             if (serviceRunning) stopSync() else startSync()
         }

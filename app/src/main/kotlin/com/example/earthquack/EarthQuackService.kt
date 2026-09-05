@@ -136,7 +136,7 @@ class EarthQuackService : LifecycleService() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         windowManager     = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         powerManager      = getSystemService(Context.POWER_SERVICE) as PowerManager
-        api               = ClipboardApi(ServerConfig.getBaseUrl(this))
+        api               = ClipboardApi(ServerConfig.getBaseUrl(this), ServerConfig.getAuthToken(this))
         syncState         = SyncState()
         isScreenOn        = powerManager.isInteractive
         createNotificationChannel()
@@ -201,7 +201,7 @@ class EarthQuackService : LifecycleService() {
                         if (::api.isInitialized) {
                             try { api.shutdown() } catch (_: Exception) {}
                         }
-                        api = ClipboardApi(ServerConfig.getBaseUrl(this@EarthQuackService))
+                        api = ClipboardApi(ServerConfig.getBaseUrl(this@EarthQuackService), ServerConfig.getAuthToken(this@EarthQuackService))
                     }
                 }
             }
@@ -209,7 +209,7 @@ class EarthQuackService : LifecycleService() {
         if (::api.isInitialized) {
             try { api.shutdown() } catch (_: Exception) {}
         }
-        api = ClipboardApi(ServerConfig.getBaseUrl(this))
+        api = ClipboardApi(ServerConfig.getBaseUrl(this), ServerConfig.getAuthToken(this))
         isScreenOn = powerManager.isInteractive
         Log.i(TAG, "Starting foreground service (host=$newHost)")
         isManuallyPaused = false
