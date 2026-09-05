@@ -61,6 +61,7 @@ type Node struct {
 	Capabilities []string    `json:"capabilities"`
 	Services     []Service   `json:"services"`
 	Network      NetworkInfo `json:"network"`
+	System       *SystemInfo `json:"system,omitempty"`
 	LastSeen     time.Time   `json:"last_seen,omitempty"`
 }
 

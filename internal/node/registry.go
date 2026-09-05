@@ -25,14 +25,15 @@ import (
 //	registered node = probed successfully via NodeClient; its
 //	                  self-reported Identity is authoritative
 type Registry struct {
-	mu        sync.RWMutex
-	local     Node
-	peers     map[Identity]peerEntry
-	alias     map[Identity]Identity // discovery identity -> authoritative identity
-	lastProbe map[Identity]time.Time
-	providers []NetworkProvider
-	client    *NodeClient // nil disables peer probing
-	now       func() time.Time
+	mu          sync.RWMutex
+	local       Node
+	peers       map[Identity]peerEntry
+	alias       map[Identity]Identity // discovery identity -> authoritative identity
+	lastProbe   map[Identity]time.Time
+	providers   []NetworkProvider
+	client      *NodeClient // nil disables peer probing
+	sysProvider SysInfoProvider
+	now         func() time.Time
 }
 
 type peerEntry struct {
@@ -73,14 +74,23 @@ func NewRegistry(identity Identity, providers []NetworkProvider, now func() time
 		LastSeen:     now(),
 	}
 	return &Registry{
-		local:     local,
-		peers:     make(map[Identity]peerEntry),
-		alias:     make(map[Identity]Identity),
-		lastProbe: make(map[Identity]time.Time),
-		providers: providers,
-		client:    client,
-		now:       now,
+		local:       local,
+		peers:       make(map[Identity]peerEntry),
+		alias:       make(map[Identity]Identity),
+		lastProbe:   make(map[Identity]time.Time),
+		providers:   providers,
+		client:      client,
+		sysProvider: newSysInfoProvider(),
+		now:         now,
 	}, nil
+}
+
+// SetSysInfoProvider overrides the system-information collector. The
+// default is the Linux /proc-backed provider; tests inject fakes.
+func (r *Registry) SetSysInfoProvider(p SysInfoProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sysProvider = p
 }
 
 // RegisterCapability declares that this node provides a capability.
@@ -118,8 +128,14 @@ func (r *Registry) RegisterService(s Service) {
 // Local returns a copy of the local node definition.
 func (r *Registry) Local() Node {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	n := r.local
+	sys := r.sysProvider
+	r.mu.RUnlock()
+	if sys != nil {
+		if s := sys.Collect(); s.HasInfo() {
+			n.System = &s
+		}
+	}
 	return n
 }
 
@@ -251,6 +267,17 @@ func (r *Registry) Nodes() []Node {
 		nodes = append(nodes, n)
 	}
 	SortNodes(nodes)
+
+	// Attach a current local system snapshot to the local entry.
+	if r.sysProvider != nil {
+		if s := r.sysProvider.Collect(); s.HasInfo() {
+			for i := range nodes {
+				if nodes[i].Identity == r.local.Identity {
+					nodes[i].System = &s
+				}
+			}
+		}
+	}
 	return nodes
 }
 

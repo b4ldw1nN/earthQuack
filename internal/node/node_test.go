@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/b4ldw1nN/earthquack/web"
 )
 
 const sampleStatus = `{
@@ -229,6 +232,138 @@ func TestDashboardRendersNodeModel(t *testing.T) {
 	}
 	if ct := css.Header.Get("Content-Type"); ct != "text/css; charset=utf-8" {
 		t.Fatalf("css content-type: %q", ct)
+	}
+}
+
+func TestDashboardRendersNodeCategories(t *testing.T) {
+	tmpl, err := web.DashboardTemplate()
+	if err != nil {
+		t.Fatalf("DashboardTemplate: %v", err)
+	}
+	// Exercise every node-state the dashboard must distinguish, built
+	// purely from the Node model (no transport details).
+	view := dashboardView{
+		Local: Node{
+			Identity: "machine:a", Hostname: "archii", OS: "linux", Online: true, Registered: true,
+			Capabilities: []string{"clipboard", "file-transfer"},
+			Services: []Service{
+				{Name: "clipboard", Status: ServiceRunning, Endpoint: ":8875"},
+				{Name: "file-transfer", Status: ServiceStopped, Endpoint: ":8876"},
+			},
+			Network: NetworkInfo{Transport: "tailscale", Addresses: []string{"100.92.160.31"}},
+		},
+		Nodes: []Node{
+			{ // local registered node
+				Identity: "machine:a", Hostname: "archii", OS: "linux", Online: true, Registered: true,
+				Capabilities: []string{"clipboard", "file-transfer"},
+				Services: []Service{
+					{Name: "clipboard", Status: ServiceRunning, Endpoint: ":8875"},
+					{Name: "file-transfer", Status: ServiceStopped, Endpoint: ":8876"},
+				},
+				System: &SystemInfo{
+					CPUCount: 16,
+					Memory:   Memory{Total: 32 << 30, Available: 24 << 30, Used: 8 << 30},
+					Uptime:   (3*24 + 12) * 3600,
+					Load:     LoadAvg{One: 1.42, Five: 1.18, Fifteen: 0.91},
+				},
+				Network: NetworkInfo{Transport: "tailscale", Addresses: []string{"100.92.160.31"}},
+			},
+			{ // registered remote, multiple capabilities, zero services
+				Identity: "machine:b", Hostname: "homeserver", OS: "linux", Online: true, Registered: true,
+				Capabilities: []string{"storage", "docker"},
+				Network:      NetworkInfo{Transport: "tailscale", Addresses: []string{"100.1.1.1"}},
+			},
+			{ // registered remote, zero capabilities and zero services
+				Identity: "machine:c", Hostname: "vps", OS: "linux", Online: false, Registered: true,
+				Network: NetworkInfo{Transport: "tailscale", Addresses: []string{"100.2.2.2"}},
+			},
+			{ // online discovered peer (no earthQuack)
+				Identity: "tailscale:n1", Hostname: "DESKTOP-9S55DRM", OS: "windows", Online: true, Registered: false,
+				Network: NetworkInfo{Transport: "tailscale", Addresses: []string{"100.3.3.3"}},
+			},
+			{ // offline discovered peer
+				Identity: "tailscale:n2", Hostname: "V2253", OS: "android", Online: false, Registered: false,
+				Network: NetworkInfo{Transport: "tailscale", Addresses: []string{"100.4.4.4"}},
+			},
+		},
+		Now: time.Now(),
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, view); err != nil {
+		t.Fatalf("template execute: %v", err)
+	}
+	html := buf.String()
+
+	// "this node" badge appears exactly once and only on the local node.
+	if got := strings.Count(html, `class="badge">this node`); got != 1 {
+		t.Fatalf("expected 1 'this node' badge, got %d", got)
+	}
+
+	// Two top-level sections: registered nodes then discovered peers.
+	if !strings.Contains(html, ">NODES<") || !strings.Contains(html, "DISCOVERED PEERS") {
+		t.Fatalf("expected NODES and DISCOVERED PEERS sections")
+	}
+	idx := strings.Index(html, "DISCOVERED PEERS")
+	registeredSec := html[:idx]
+	peerSec := html[idx:]
+
+	// Registered section renders every registered node...
+	for _, want := range []string{"archii", "homeserver", "vps", "100.92.160.31", "100.1.1.1", "100.2.2.2"} {
+		if !strings.Contains(registeredSec, want) {
+			t.Errorf("registered section missing %q", want)
+		}
+	}
+	// ...and ONLY the nodes that declared them show capability/service
+	// sections: archii + homeserver declare capabilities (2 headings),
+	// only archii declares services (1 heading). vps has neither.
+	if got := strings.Count(registeredSec, `<h3>Capabilities</h3>`); got != 2 {
+		t.Errorf("expected 2 capability headings (archii, homeserver), got %d", got)
+	}
+	if got := strings.Count(registeredSec, `<h3>Services</h3>`); got != 1 {
+		t.Errorf("expected 1 service heading (archii only), got %d", got)
+	}
+	// Multiple capabilities render as chips.
+	for _, cap := range []string{">clipboard<", ">file-transfer<", ">storage<", ">docker<"} {
+		if !strings.Contains(html, cap) {
+			t.Errorf("missing capability chip %q", cap)
+		}
+	}
+	// Running and stopped service states both render.
+	if !strings.Contains(html, ">running<") || !strings.Contains(html, ">stopped<") {
+		t.Errorf("running/stopped service states not rendered")
+	}
+	if !strings.Contains(html, ":8875") || !strings.Contains(html, ":8876") {
+		t.Errorf("service endpoints not rendered")
+	}
+	// System section renders for the registered local node (its own
+	// authoritative snapshot) and only there.
+	if !strings.Contains(registeredSec, "<h3>System</h3>") {
+		t.Errorf("system section not rendered for registered node")
+	}
+	for _, want := range []string{">16 logical", "8.0 / 32.0 GB", "3d 12h", "1.42"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("system value %q not rendered", want)
+		}
+	}
+
+	// Discovered-peer section shows both states but NEVER fabricates
+	// capabilities/services for unregistered peers.
+	for _, want := range []string{"DESKTOP-9S55DRM", "V2253", "earthQuack not responding", "earthQuack unavailable"} {
+		if !strings.Contains(peerSec, want) {
+			t.Errorf("peer section missing %q", want)
+		}
+	}
+	if strings.Contains(peerSec, `<h3>Capabilities</h3>`) || strings.Contains(peerSec, `<h3>Services</h3>`) {
+		t.Errorf("discovered peers fabricated capabilities/services")
+	}
+	if strings.Contains(peerSec, `<h3>System</h3>`) {
+		t.Errorf("discovered peers fabricated system information")
+	}
+	// No transport detail leaks into the template output.
+	for _, forbidden := range []string{"nodekey", "BackendState", "tailscale status", "peer map"} {
+		if strings.Contains(html, forbidden) {
+			t.Errorf("dashboard leaked transport detail %q", forbidden)
+		}
 	}
 }
 

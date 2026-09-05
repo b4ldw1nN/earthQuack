@@ -17,10 +17,10 @@
   </header>
 
   <main>
-    <h2 class="section">NODES</h2>
-
     {{$localID := .Local.Identity}}
-    {{range .Nodes}}
+
+    <h2 class="section">NODES</h2>
+    {{range .Nodes}}{{if .Registered}}
     <article class="node {{if .Online}}online{{else}}offline{{end}}">
       <div class="node-head">
         <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
@@ -38,11 +38,7 @@
           {{if .Addresses}}{{index .Addresses 0}}{{if gt (len .Addresses) 1}} +{{else}}{{end}}{{end}}
         </div>
         {{end}}
-        {{if .Registered}}
         <div><span class="k">earthQuack node</span> · {{if .Online}}online{{else}}offline{{end}}</div>
-        {{else}}
-        <div class="unverified">{{if .Online}}Tailscale peer · earthQuack not responding{{else}}Tailscale peer · earthQuack unavailable{{end}}</div>
-        {{end}}
       </div>
 
       {{if .Capabilities}}
@@ -70,10 +66,51 @@
         </ul>
       </div>
       {{end}}
+
+      {{if .System}}{{if .System.HasInfo}}
+      <div class="group">
+        <h3>System</h3>
+        <ul class="services">
+          <li><span class="svc-name">CPU</span><span class="svc-status">{{.System.CPUHuman}} logical</span></li>
+          {{if .System.MemoryHuman}}
+          <li><span class="svc-name">Memory</span><span class="svc-status">{{.System.MemoryHuman}}</span></li>
+          {{end}}
+          {{if .System.UptimeHuman}}
+          <li><span class="svc-name">Uptime</span><span class="svc-status">{{.System.UptimeHuman}}</span></li>
+          {{end}}
+          {{if .System.LoadString}}
+          <li><span class="svc-name">Load</span><span class="svc-status">{{.System.LoadString}}</span></li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}{{end}}
     </article>
-    {{else}}
-    <p class="empty">No nodes known.</p>
-    {{end}}
+    {{end}}{{end}}
+
+    <h2 class="section">DISCOVERED PEERS</h2>
+    {{$peers := 0}}
+    {{range .Nodes}}{{if not .Registered}}{{$peers = 1}}
+    <article class="node peer {{if .Online}}online{{else}}offline{{end}}">
+      <div class="node-head">
+        <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+        <span class="hostname">{{.Hostname}}</span>
+        <span class="state {{if .Online}}on{{else}}off{{end}}">
+          {{if .Online}}ONLINE{{else}}OFFLINE{{end}}
+        </span>
+      </div>
+
+      <div class="facts">
+        <div><span class="k">OS</span> {{.OS}}</div>
+        {{with .Network}}
+        <div><span class="k">{{.Transport}}</span>
+          {{if .Addresses}}{{index .Addresses 0}}{{if gt (len .Addresses) 1}} +{{else}}{{end}}{{end}}
+        </div>
+        {{end}}
+        <div class="unverified">{{if .Online}}{{.Network.Transport}} peer · earthQuack not responding{{else}}{{.Network.Transport}} peer · earthQuack unavailable{{end}}</div>
+      </div>
+    </article>
+    {{end}}{{end}}
+    {{if not $peers}}<p class="empty">No discovered peers.</p>{{end}}
   </main>
 </body>
 </html>
