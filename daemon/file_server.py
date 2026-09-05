@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-File transfer server for Clipboard Sync — port 8766
+File transfer server for Clipboard Sync — port 8876
 Runs on the Desktop machine (Tailscale IP YOUR_TAILSCALE_IP).
 
 Endpoints:
@@ -24,10 +24,17 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-DEFAULT_HOST = "YOUR_TAILSCALE_IP"
-HOST         = os.environ.get("CLIPBOARD_SERVER_HOST", DEFAULT_HOST)   # Desktop Tailscale IP
-PORT         = int(os.environ.get("CLIPBOARD_FILE_PORT", "8766"))
-SIGNAL_URL   = f"http://{HOST}:{os.environ.get('CLIPBOARD_SERVER_PORT', '8765')}/signal"
+from config import (
+    SERVER_HOST,
+    SERVER_PORT,
+    FILE_SERVER_PORT,
+)
+
+HOST = SERVER_HOST
+PORT = FILE_SERVER_PORT
+
+SIGNAL_URL = f"http://{HOST}:{SERVER_PORT}/signal"
+
 PHONE_SAVE_DIR  = Path.home() / "Downloads" / "from-phone"
 STAGE_DIR      = Path("/tmp/cs-files")
 
@@ -206,8 +213,8 @@ def main():
     global HOST, PORT, SIGNAL_URL
     parser = argparse.ArgumentParser(description="Clipboard file server")
     parser.add_argument("--host", default=HOST, help="Bind host (default: env CLIPBOARD_SERVER_HOST or YOUR_TAILSCALE_IP)")
-    parser.add_argument("--port", type=int, default=PORT, help="Bind port (default: 8766)")
-    parser.add_argument("--signal-port", default=os.environ.get("CLIPBOARD_SERVER_PORT", "8765"), help="Clipboard server port for SSE signals")
+    parser.add_argument("--port", type=int, default=PORT, help="Bind port (default: 8876)")
+    parser.add_argument("--signal-port", default=os.environ.get("CLIPBOARD_SERVER_PORT", "8875"), help="Clipboard server port for SSE signals")
     args = parser.parse_args()
     HOST = args.host
     PORT = args.port

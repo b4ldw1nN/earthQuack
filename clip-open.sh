@@ -28,7 +28,7 @@ if [ -z "$CLIPBOARD_SERVER_HOST" ] || [ "$CLIPBOARD_SERVER_HOST" = "YOUR_TAILSCA
   fi
 fi
 HOST="${CLIPBOARD_SERVER_HOST:-127.0.0.1}"
-PORT="${CLIPBOARD_SERVER_PORT:-8765}"
+PORT="${CLIPBOARD_SERVER_PORT:-8875}"
 curl -s -X POST "http://$HOST:$PORT/signal" \
   -H "Content-Type: application/json" \
   -d "{\"type\":\"open_url\",\"url\":\"$URL\"}"

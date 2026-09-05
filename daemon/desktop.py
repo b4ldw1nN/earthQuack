@@ -23,7 +23,7 @@ except ImportError:
 
 DEFAULT_HOST = "YOUR_TAILSCALE_IP"
 SERVER_HOST = os.environ.get("CLIPBOARD_SERVER_HOST", DEFAULT_HOST)
-SERVER_PORT = os.environ.get("CLIPBOARD_SERVER_PORT", "8765")
+SERVER_PORT = os.environ.get("CLIPBOARD_SERVER_PORT", "8875")
 SERVER_URL  = f"http://{SERVER_HOST}:{SERVER_PORT}"
 POST_URL    = f"{SERVER_URL}/clipboard"
 EVENTS_URL  = f"{SERVER_URL}/events"
@@ -204,7 +204,7 @@ def main():
     global SERVER_URL, POST_URL, EVENTS_URL
     parser = argparse.ArgumentParser(description="Desktop clipboard sync")
     parser.add_argument("--host", default=SERVER_HOST, help="Server host (default: auto discover via Tailscale or env CLIPBOARD_SERVER_HOST)")
-    parser.add_argument("--port", default=SERVER_PORT, help="Server port (default: 8765)")
+    parser.add_argument("--port", default=SERVER_PORT, help="Server port (default: 8875)")
     args = parser.parse_args()
 
     host = args.host

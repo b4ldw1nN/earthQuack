@@ -32,10 +32,10 @@ def main():
                     try:
                         import urllib.request
                         host = os.environ.get("CLIPBOARD_SERVER_HOST", "")
-                        port = os.environ.get("CLIPBOARD_FILE_PORT", "8766")
+                        port = os.environ.get("CLIPBOARD_FILE_PORT", "8876")
                         if not host or host == "YOUR_TAILSCALE_IP":
                             from tailscale_discovery import discover_clipboard_server
-                            discovered = discover_clipboard_server(port=8765)
+                            discovered = discover_clipboard_server(port=8875)
                             host = discovered if discovered else "127.0.0.1"
                         url = f"http://{host}:{port}/upload"
                         with open(f, "rb") as fp:

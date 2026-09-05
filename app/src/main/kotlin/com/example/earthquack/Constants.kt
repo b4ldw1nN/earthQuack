@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 // ────────────────────────────────────────────────────────────────────────────
 // Network configuration — see ServerConfig.kt for the runtime-configurable host
@@ -6,12 +6,12 @@ package com.example.clipboardsync
 
 /** Default Tailscale IP (fallback; actual host is in SharedPreferences via ServerConfig). */
 const val SERVER_HOST      = "YOUR_TAILSCALE_IP"
-const val SERVER_PORT      = 8765
+const val SERVER_PORT      = 8875
 @Deprecated("Use ServerConfig.getBaseUrl(context) for user-configurable host")
 const val SERVER_BASE_URL  = "http://$SERVER_HOST:$SERVER_PORT"
 
-/** File transfer server (file-server.py) — separate process, port 8766. */
-const val FILE_SERVER_PORT     = 8766
+/** File transfer server (file-server.py) — separate process, port 8876. */
+const val FILE_SERVER_PORT     = 8876
 @Deprecated("Use ServerConfig.getFileBaseUrl(context) for user-configurable host")
 const val FILE_SERVER_BASE_URL = "http://$SERVER_HOST:$FILE_SERVER_PORT"
 
@@ -23,16 +23,16 @@ const val ORIGIN_DESKTOP = "desktop"
 // Notification channel / IDs
 // ────────────────────────────────────────────────────────────────────────────
 
-const val NOTIFICATION_CHANNEL_ID = "clipboard_sync_channel"
+const val NOTIFICATION_CHANNEL_ID = "earthquack_channel"
 const val NOTIFICATION_ID = 1001
 
 // ────────────────────────────────────────────────────────────────────────────
 // Intent actions (service ↔ activity ↔ notification receiver)
 // ────────────────────────────────────────────────────────────────────────────
 
-const val ACTION_START_SYNC  = "com.example.clipboardsync.ACTION_START_SYNC"
-const val ACTION_STOP_SYNC   = "com.example.clipboardsync.ACTION_STOP_SYNC"
-const val ACTION_STATUS_UPDATE = "com.example.clipboardsync.ACTION_STATUS_UPDATE"
+const val ACTION_START_SYNC  = "com.example.earthquack.ACTION_START_SYNC"
+const val ACTION_STOP_SYNC   = "com.example.earthquack.ACTION_STOP_SYNC"
+const val ACTION_STATUS_UPDATE = "com.example.earthquack.ACTION_STATUS_UPDATE"
 
 // ────────────────────────────────────────────────────────────────────────────
 // Intent extras
@@ -83,8 +83,8 @@ const val SSE_RECONNECT_BACKOFF_FACTOR   = 2.0
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Extra to pause/resume without fully stopping the service. */
-const val ACTION_PAUSE_SYNC  = "com.example.clipboardsync.ACTION_PAUSE_SYNC"
-const val ACTION_RESUME_SYNC = "com.example.clipboardsync.ACTION_RESUME_SYNC"
+const val ACTION_PAUSE_SYNC  = "com.example.earthquack.ACTION_PAUSE_SYNC"
+const val ACTION_RESUME_SYNC = "com.example.earthquack.ACTION_RESUME_SYNC"
 
 /** Status for paused state. */
 const val EXTRA_IS_PAUSED    = "extra_is_paused"

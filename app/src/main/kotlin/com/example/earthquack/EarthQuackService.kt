@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -35,7 +35,7 @@ import kotlin.math.min
 
 
 /**
- * ClipboardSyncService
+ * EarthQuackService
  * ====================
  * Foreground service with two concurrent coroutines:
  *
@@ -56,7 +56,7 @@ import kotlin.math.min
  * It requires the user to grant "Draw over other apps" permission once.
  * If the permission is not granted we fall back to foreground-only reads.
  */
-class ClipboardSyncService : LifecycleService() {
+class EarthQuackService : LifecycleService() {
 
     private val TAG = "ClipSyncService"
 
@@ -83,7 +83,7 @@ class ClipboardSyncService : LifecycleService() {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
                     Log.i(TAG, "Screen OFF")
-                    if (ServerConfig.isPauseOnScreenOff(this@ClipboardSyncService)) {
+                    if (ServerConfig.isPauseOnScreenOff(this@EarthQuackService)) {
                         updateNotification(SyncStatus.PAUSED)
                         broadcastStatus(SyncStatus.PAUSED)
                         currentSseCall?.cancel()
@@ -94,7 +94,7 @@ class ClipboardSyncService : LifecycleService() {
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
                     Log.i(TAG, "Screen ON")
-                    if (ServerConfig.isPauseOnScreenOff(this@ClipboardSyncService)) {
+                    if (ServerConfig.isPauseOnScreenOff(this@EarthQuackService)) {
                         updateNotification(SyncStatus.CONNECTING)
                         broadcastStatus(SyncStatus.CONNECTING)
                         sseJob?.cancel()
@@ -197,11 +197,11 @@ class ClipboardSyncService : LifecycleService() {
                 if (discovered != null) {
                     Log.i(TAG, "Auto-discovered Tailscale clipboard server IP: $discovered")
                     withContext(Dispatchers.Main) {
-                        ServerConfig.setHost(this@ClipboardSyncService, discovered)
+                        ServerConfig.setHost(this@EarthQuackService, discovered)
                         if (::api.isInitialized) {
                             try { api.shutdown() } catch (_: Exception) {}
                         }
-                        api = ClipboardApi(ServerConfig.getBaseUrl(this@ClipboardSyncService))
+                        api = ClipboardApi(ServerConfig.getBaseUrl(this@EarthQuackService))
                     }
                 }
             }
@@ -242,7 +242,7 @@ class ClipboardSyncService : LifecycleService() {
     /** Acquire a short 10s wake lock so a clipboard POST isn't killed mid-flight. */
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ClipboardSync:WakeLock")
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "earthQuack:WakeLock")
             .also { it.acquire(10_000L) }
     }
 
@@ -296,10 +296,10 @@ class ClipboardSyncService : LifecycleService() {
             }
             if (currentCoroutineContext().isActive) {
                 // When battery saver is on and screen was off, don't hammer reconnect
-                val effectiveDelay = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@ClipboardSyncService)) 15_000L else delayMs
+                val effectiveDelay = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@EarthQuackService)) 15_000L else delayMs
                 Log.i(TAG, "SSE reconnecting in ${effectiveDelay}ms")
                 try { delay(effectiveDelay) } catch (_: CancellationException) { break }
-                if (isScreenOn || !ServerConfig.isBatterySaverEnabled(this@ClipboardSyncService)) {
+                if (isScreenOn || !ServerConfig.isBatterySaverEnabled(this@EarthQuackService)) {
                     delayMs = min((delayMs * SSE_RECONNECT_BACKOFF_FACTOR).toLong(), SSE_RECONNECT_MAX_DELAY_MS)
                 }
             }
@@ -372,7 +372,7 @@ class ClipboardSyncService : LifecycleService() {
             if (!syncState.tryClaimRemoteEvent(text, version)) return
 
             withContext(Dispatchers.Main) {
-                val clip = android.content.ClipData.newPlainText("Clipboard Sync", text)
+                val clip = android.content.ClipData.newPlainText("earthQuack", text)
                 clipboardManager.setPrimaryClip(clip)
             }
             broadcastStatus(SyncStatus.RUNNING, "← $text")
@@ -431,7 +431,7 @@ class ClipboardSyncService : LifecycleService() {
                     delay(15_000)
                     continue
                 }
-                val interval = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@ClipboardSyncService))
+                val interval = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@EarthQuackService))
                     CLIPBOARD_POLL_THROTTLED_MS else CLIPBOARD_POLL_INTERVAL_MS
                     delay(interval)
                 if (isSyncPaused()) continue
@@ -486,7 +486,7 @@ class ClipboardSyncService : LifecycleService() {
                 flags = flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
             }
 
-            val view = object : View(this@ClipboardSyncService) {
+            val view = object : View(this@EarthQuackService) {
                 override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
                     super.onWindowFocusChanged(hasWindowFocus)
                     if (hasWindowFocus && cont.isActive) {
@@ -560,7 +560,7 @@ class ClipboardSyncService : LifecycleService() {
 
     // ─── Folder watch — auto-upload Phone→Desktop ────────────────────────────────
     //
-    //  Watches public  Downloads/ClipboardSync-send/  folder using direct
+    //  Watches public  Downloads/earthQuack-send/  folder using direct
     //  file system polling (bypasses MediaStore owner package restrictions).
     //  Any new file dropped here by Google Files or any file manager will be
     //  uploaded to file-server.py on Desktop.
@@ -579,7 +579,7 @@ class ClipboardSyncService : LifecycleService() {
             Log.w(TAG, "Folder watch disabled — no public Downloads dir (scoped storage)")
             return
         }
-        val sendDir = File(downloadDir, "ClipboardSync-send")
+        val sendDir = File(downloadDir, "earthQuack-send")
         try {
             if (!sendDir.exists()) sendDir.mkdirs()
         } catch (e: Exception) {
@@ -596,7 +596,7 @@ class ClipboardSyncService : LifecycleService() {
                     seenFiles.add(file.name)
                     Log.i(TAG, "Folder watch upload trigger: '${file.name}' (${file.length()} bytes)")
                     val uri = Uri.fromFile(file)
-                    FileTransferService.startUpload(this@ClipboardSyncService, uri.toString(), file.name)
+                    FileTransferService.startUpload(this@EarthQuackService, uri.toString(), file.name)
                 }
             }
         }
@@ -634,7 +634,7 @@ class ClipboardSyncService : LifecycleService() {
                 } catch (e: Exception) {
                     Log.w(TAG, "Folder watch error: ${e.message}")
                 }
-                val pollMs = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@ClipboardSyncService)) 30_000L else 1_000L
+                val pollMs = if (!isScreenOn && ServerConfig.isBatterySaverEnabled(this@EarthQuackService)) 30_000L else 1_000L
                 delay(pollMs)
             }
         } finally {
@@ -653,7 +653,7 @@ class ClipboardSyncService : LifecycleService() {
 
     private fun createNotificationChannel() {
         notificationManager.createNotificationChannel(
-            NotificationChannel(NOTIFICATION_CHANNEL_ID, "Clipboard Sync", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(NOTIFICATION_CHANNEL_ID, "earthQuack", NotificationManager.IMPORTANCE_LOW)
                 .apply { description = "Clipboard synchronisation status" }
         )
     }
@@ -685,7 +685,7 @@ class ClipboardSyncService : LifecycleService() {
             SyncStatus.STOPPED    -> "Stopped"
         }
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Clipboard Sync")
+            .setContentTitle("earthQuack")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .setContentIntent(openIntent)

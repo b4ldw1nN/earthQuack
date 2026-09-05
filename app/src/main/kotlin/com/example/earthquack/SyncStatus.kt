@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 /**
  * Sync status reported by the service to the UI.

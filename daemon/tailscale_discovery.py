@@ -2,7 +2,7 @@
 """
 tailscale_discovery.py — Automatic Tailscale peer discovery for Clipboard Sync.
 
-Discovers online Tailscale peers running the clipboard server (:8765).
+Discovers online Tailscale peers running the clipboard server (:8875).
 """
 
 import json
@@ -148,7 +148,7 @@ def parse_tailscale_status(json_str: str) -> Tuple[Optional[Dict], List[Dict]]:
     return self_info, peers
 
 
-def check_app_service(ip: str, port: int = 8765, timeout: float = 1.5) -> bool:
+def check_app_service(ip: str, port: int = 8875, timeout: float = 1.5) -> bool:
     """
     Perform application-level discovery:
     Try /health endpoint first, fallback to /clipboard endpoint if /health returns 404.
@@ -183,7 +183,7 @@ def check_app_service(ip: str, port: int = 8765, timeout: float = 1.5) -> bool:
 
 
 def discover_clipboard_server(
-    port: int = 8765,
+    port: int = 8875,
     json_str_override: Optional[str] = None,
     check_service_fn=check_app_service,
     force_refresh: bool = False
@@ -195,7 +195,7 @@ def discover_clipboard_server(
     - Determine current machine from Self object.
     - Only consider peers that are currently Online.
     - Filter peers with valid Tailscale IPv4 addresses.
-    - Test application reachability on port 8765.
+    - Test application reachability on port 8875.
     - Handle multiple clipboard servers deterministically by sorting IPs (or hostname).
     """
     global _DISCOVERY_CACHE
@@ -286,7 +286,7 @@ def prompt_select_device(working_servers: List[Dict], interactive: bool = True) 
 
 
 def discover_clipboard_server(
-    port: int = 8765,
+    port: int = 8875,
     json_str_override: Optional[str] = None,
     check_service_fn=check_app_service,
     force_refresh: bool = False,

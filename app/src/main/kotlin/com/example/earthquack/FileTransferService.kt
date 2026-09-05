@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,12 +30,12 @@ import java.util.concurrent.TimeUnit
  *
  * UPLOAD (Phone → Desktop):
  *   Started by FileShareActivity when the user shares a file.
- *   Streams file bytes to POST /upload on file-server.py (port 8766).
+ *   Streams file bytes to POST /upload on file-server.py (port 8876).
  *   Shows upload progress notification.
  *
  * DOWNLOAD (Desktop → Phone):
- *   Triggered by ClipboardSyncService when it receives a "file_ready" SSE event.
- *   Streams GET /download/<id> and saves to Downloads/ClipboardSync/ via MediaStore.
+ *   Triggered by EarthQuackService when it receives a "file_ready" SSE event.
+ *   Streams GET /download/<id> and saves to Downloads/earthQuack/ via MediaStore.
  *   Shows download progress notification.
  */
 class FileTransferService : Service() {
@@ -51,8 +51,8 @@ class FileTransferService : Service() {
         .build()
 
     companion object {
-        const val ACTION_UPLOAD   = "com.example.clipboardsync.ACTION_UPLOAD"
-        const val ACTION_DOWNLOAD = "com.example.clipboardsync.ACTION_DOWNLOAD"
+        const val ACTION_UPLOAD   = "com.example.earthquack.ACTION_UPLOAD"
+        const val ACTION_DOWNLOAD = "com.example.earthquack.ACTION_DOWNLOAD"
 
         const val EXTRA_FILE_URI   = "extra_file_uri"
         const val EXTRA_FILE_NAME  = "extra_file_name"
@@ -171,7 +171,7 @@ class FileTransferService : Service() {
             notifyDone(nid, "↑ $name — sent to Desktop", success = true)
 
             // Delete file after successful send (same as Desktop watch-send-folder.py)
-            if (file != null && file.exists() && file.parentFile?.name == "ClipboardSync-send") {
+            if (file != null && file.exists() && file.parentFile?.name == "earthQuack-send") {
                 val deleted = file.delete()
                 Log.i(TAG, "Deleted sent file from watch folder: $name (success=$deleted)")
             }
@@ -238,7 +238,7 @@ class FileTransferService : Service() {
             }
 
             Log.i(TAG, "Download done: $name")
-            notifyDone(nid, "↓ $name — saved to Downloads/ClipboardSync/", success = true)
+            notifyDone(nid, "↓ $name — saved to Downloads/earthQuack/", success = true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -250,7 +250,7 @@ class FileTransferService : Service() {
     }
 
     /**
-     * Save downloaded bytes into the public Downloads/ClipboardSync/ folder.
+     * Save downloaded bytes into the public Downloads/earthQuack/ folder.
      * Uses MediaStore on Android 10+ (no storage permission needed).
      */
     private fun saveToDownloads(
@@ -261,7 +261,7 @@ class FileTransferService : Service() {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
                 put(MediaStore.Downloads.MIME_TYPE, guessMime(name))
-                put(MediaStore.Downloads.RELATIVE_PATH, "Download/ClipboardSync")
+                put(MediaStore.Downloads.RELATIVE_PATH, "Download/earthQuack")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = contentResolver.insert(
@@ -282,7 +282,7 @@ class FileTransferService : Service() {
         } else {
             // Android 9 and below — write directly to public Downloads
             val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val sub = File(dir, "ClipboardSync").also { it.mkdirs() }
+            val sub = File(dir, "earthQuack").also { it.mkdirs() }
             val out = File(sub, name).outputStream()
             out.use { copyWithProgress(stream, it, totalSize, nid, name) }
         }

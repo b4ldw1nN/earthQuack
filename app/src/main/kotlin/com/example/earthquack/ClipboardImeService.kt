@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.inputmethodservice.InputMethodService
 import android.util.Log

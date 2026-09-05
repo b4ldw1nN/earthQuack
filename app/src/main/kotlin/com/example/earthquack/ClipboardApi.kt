@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType

@@ -8,7 +8,7 @@ import urllib.request
 
 DEFAULT_HOST = "YOUR_TAILSCALE_IP"
 SERVER_HOST = os.environ.get("CLIPBOARD_SERVER_HOST", DEFAULT_HOST)
-SERVER_PORT = os.environ.get("CLIPBOARD_SERVER_PORT", "8765")
+SERVER_PORT = os.environ.get("CLIPBOARD_SERVER_PORT", "8875")
 SERVER = f"http://{SERVER_HOST}:{SERVER_PORT}/clipboard"
 
 text = subprocess.run(

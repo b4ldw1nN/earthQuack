@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.util.Base64
 import java.security.SecureRandom

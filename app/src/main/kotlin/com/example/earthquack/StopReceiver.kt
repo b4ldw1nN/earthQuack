@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -18,15 +18,15 @@ class StopReceiver : BroadcastReceiver() {
         when (intent?.action) {
             ACTION_STOP_SYNC -> {
                 Log.i("StopReceiver", "Stop broadcast received — stopping service")
-                context.startService(Intent(context, ClipboardSyncService::class.java).apply { action = ACTION_STOP_SYNC })
+                context.startService(Intent(context, EarthQuackService::class.java).apply { action = ACTION_STOP_SYNC })
             }
             ACTION_PAUSE_SYNC -> {
                 Log.i("StopReceiver", "Pause broadcast received")
-                context.startService(Intent(context, ClipboardSyncService::class.java).apply { action = ACTION_PAUSE_SYNC })
+                context.startService(Intent(context, EarthQuackService::class.java).apply { action = ACTION_PAUSE_SYNC })
             }
             ACTION_RESUME_SYNC -> {
                 Log.i("StopReceiver", "Resume broadcast received")
-                context.startService(Intent(context, ClipboardSyncService::class.java).apply { action = ACTION_RESUME_SYNC })
+                context.startService(Intent(context, EarthQuackService::class.java).apply { action = ACTION_RESUME_SYNC })
             }
         }
     }

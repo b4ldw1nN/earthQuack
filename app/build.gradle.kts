@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.clipboardsync"
+    namespace = "com.example.earthquack"
     compileSdk = 34   // Android 14 (SDK 34 already installed)
 
     defaultConfig {
-        applicationId = "com.example.clipboardsync"
+        applicationId = "com.example.earthquack"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

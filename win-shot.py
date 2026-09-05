@@ -23,12 +23,12 @@ def capture_and_send():
     img.save(filepath, "PNG")
 
     host = os.environ.get("CLIPBOARD_SERVER_HOST", "")
-    port = os.environ.get("CLIPBOARD_FILE_PORT", "8766")
+    port = os.environ.get("CLIPBOARD_FILE_PORT", "8876")
     if not host or host == "YOUR_TAILSCALE_IP":
         try:
             sys.path.insert(0, str(Path(__file__).parent / "daemon"))
             from tailscale_discovery import discover_clipboard_server
-            discovered = discover_clipboard_server(port=8765)
+            discovered = discover_clipboard_server(port=8875)
             host = discovered if discovered else "127.0.0.1"
         except Exception:
             host = "127.0.0.1"

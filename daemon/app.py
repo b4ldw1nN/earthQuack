@@ -1,147 +1,173 @@
+##!/usr/bin/env python3
 #!/usr/bin/env python3
 """
-app.py — Stealth Clipboard Sync (Single-Process Threaded Daemon)
+earthQuack daemon supervisor.
 
-Runs all 4 services inside a single Python process using threads:
-  - server.py (port 8765)
-  - file-server.py (port 8766)
-  - desktop.py (clipboard watcher & SSE client)
-  - watch-send-folder.py (watch ~/send-to-phone/)
+Starts and supervises the currently available earthQuack components
+inside a single process.
 
-Masks process title using setproctitle / prctl so process tree / exam scanners
-see a standard system process name (e.g. 'systemd-user-service').
+The supervisor is intentionally small:
+    - component lifecycle
+    - restart-on-failure
+    - hotkey initialization
+    - graceful shutdown
+
+Components themselves own their functionality.
 """
 
-import ctypes
 import os
+import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 
-# ── Mask Process Name via libc / prctl ───────────────────────────────────────
 
-def mask_process_name(name: str = "systemd-user-service"):
-    """Mask process name in /proc/self/comm and process listing."""
-    try:
-        # Set thread name via prctl PR_SET_NAME
-        libc = ctypes.CDLL("libc.so.6")
-        PR_SET_NAME = 15
-        libc.prctl(PR_SET_NAME, name.encode('utf-8'), 0, 0, 0)
-    except Exception:
-        pass
-
-    try:
-        # Try setproctitle if installed
-        import setproctitle
-        setproctitle.setproctitle(name)
-    except ImportError:
-        pass
+BASE = Path(__file__).resolve().parent
 
 
-mask_process_name("systemd-user-service")
-
-
-# ── Import & Launch All Services as Threads ─────────────────────────────────
-
-BASE = Path(__file__).parent
-sys.path.insert(0, str(BASE))
-
-def _run_guarded(name, fn):
+def run_guarded(name, fn):
+    """Run a component continuously and restart it if it exits or crashes."""
     while True:
         try:
             fn()
-        except Exception as e:
-            print(f"[{name}] crashed: {e} — restarting in 5s", flush=True)
-            import traceback; traceback.print_exc()
+        except Exception as exc:
+            print(
+                f"[{name}] crashed: {exc} — restarting in 5s",
+                flush=True,
+            )
+            import traceback
+            traceback.print_exc()
             time.sleep(5)
         else:
-            print(f"[{name}] exited — restarting in 5s", flush=True)
+            print(
+                f"[{name}] exited — restarting in 5s",
+                flush=True,
+            )
             time.sleep(5)
 
+
 def run_server():
-    mask_process_name("systemd-user-service")
-    def _fn():
+    def start():
         import server
         server.main()
-    _run_guarded("server", _fn)
+
+    run_guarded("server", start)
+
 
 def run_file_server():
-    mask_process_name("systemd-user-service")
-    def _fn():
+    def start():
         import file_server
         file_server.main()
-    _run_guarded("file-server", _fn)
+
+    run_guarded("file-server", start)
 
 
 def run_desktop():
-    mask_process_name("systemd-user-service")
-    def _fn():
+    def start():
         import desktop
         desktop.main()
-    _run_guarded("desktop", _fn)
+
+    run_guarded("desktop", start)
+
 
 def run_watch_folder():
-    mask_process_name("systemd-user-service")
-    def _fn():
+    def start():
         import watch_send_folder
         watch_send_folder.main()
-    _run_guarded("watch", _fn)
 
+    run_guarded("watch-folder", start)
 
 
 def trigger_screenshot():
-    """Cross-platform screenshot request handler triggered by hotkey."""
+    """Capture a screenshot and send it through the existing pipeline."""
     print("[screenshot] capture requested", flush=True)
-    if sys.platform == "win32":
-        try:
+
+    try:
+        if sys.platform == "win32":
             import win_shot
             win_shot.capture_and_send()
-        except ImportError:
-            # Fallback path if win_shot imported from root directory
-            import win_shot
-            win_shot.capture_and_send()
-        except Exception as e:
-            print(f"[screenshot] Windows capture error: {e}", flush=True)
-    else:
-        try:
-            script_path = Path(__file__).parent.parent / "clip-shot.sh"
+        else:
+            script_path = BASE.parent / "clip-shot.sh"
             subprocess.Popen(["bash", str(script_path)])
-        except Exception as e:
-            print(f"[screenshot] Linux capture error: {e}", flush=True)
+
+    except Exception as exc:
+        print(
+            f"[screenshot] capture error: {exc}",
+            flush=True,
+        )
+
+
+def setup_hotkeys():
+    """Initialize the optional hotkey manager."""
+    try:
+        from hotkey_manager import HotkeyManager
+
+        manager = HotkeyManager()
+        manager.register_screenshot_callback(trigger_screenshot)
+
+        print("[hotkey] manager active", flush=True)
+        return manager
+
+    except Exception as exc:
+        print(
+            f"[hotkey] unavailable: {exc}",
+            flush=True,
+        )
+        return None
+
+
+def start_components():
+    """Start all currently enabled earthQuack components."""
+    components = [
+        ("server", run_server),
+        ("file-server", run_file_server),
+        ("desktop", run_desktop),
+        ("watch-folder", run_watch_folder),
+    ]
+
+    threads = []
+
+    for name, target in components:
+        thread = threading.Thread(
+            target=target,
+            daemon=True,
+            name=f"earthQuack-{name}",
+        )
+        thread.start()
+        threads.append(thread)
+
+        print(
+            f"[earthQuack] started {name}",
+            flush=True,
+        )
+
+    return threads
 
 
 def main():
-    print("[stealth-daemon] Starting single-process Clipboard Sync...", flush=True)
+    print("[earthQuack] starting", flush=True)
 
-    try:
-        from hotkey_manager import HotkeyManager
-        hk_manager = HotkeyManager()
-        hk_manager.register_screenshot_callback(trigger_screenshot)
-    except Exception as e:
-        print(f"[hotkey] HotkeyManager init error: {e}", flush=True)
-        hk_manager = None
+    hotkey_manager = setup_hotkeys()
+    start_components()
 
-    threads = [
-        threading.Thread(target=run_server, daemon=True, name="systemd-user-service"),
-        threading.Thread(target=run_file_server, daemon=True, name="systemd-user-service"),
-        threading.Thread(target=run_desktop, daemon=True, name="systemd-user-service"),
-        threading.Thread(target=run_watch_folder, daemon=True, name="systemd-user-service"),
-    ]
-
-    for t in threads:
-        t.start()
-
-    print("[stealth-daemon] All services active inside single hidden process.", flush=True)
+    print("[earthQuack] all components active", flush=True)
 
     try:
         while True:
             time.sleep(10)
+
     except KeyboardInterrupt:
-        print("\nStopping stealth daemon...", flush=True)
-        if hk_manager:
-            hk_manager.stop()
-        sys.exit(0)
+        print("\n[earthQuack] stopping", flush=True)
+
+        if hotkey_manager is not None:
+            try:
+                hotkey_manager.stop()
+            except Exception as exc:
+                print(
+                    f"[hotkey] shutdown error: {exc}",
+                    flush=True,
+                )
 
 
 if __name__ == "__main__":

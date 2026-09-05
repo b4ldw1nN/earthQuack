@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -14,7 +14,7 @@ import android.content.SharedPreferences
  */
 object ServerConfig {
 
-    private const val PREFS_NAME = "clipboard_sync_prefs"
+    private const val PREFS_NAME = "earthquack_prefs"
     private const val KEY_HOST = "server_host"
     private const val KEY_BATTERY_SAVER = "battery_saver_enabled"
     private const val KEY_PAUSE_ON_SCREEN_OFF = "pause_on_screen_off"

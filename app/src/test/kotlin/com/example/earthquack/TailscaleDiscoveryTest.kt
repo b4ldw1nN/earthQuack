@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import org.junit.Assert.*
 import org.junit.Test

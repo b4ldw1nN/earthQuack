@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.content.Context
 import android.content.Intent
@@ -10,7 +10,7 @@ import android.util.Log
 /**
  * SyncTileService
  * ===============
- * Quick Settings Tile service allowing the user to toggle Clipboard Sync ON/OFF
+ * Quick Settings Tile service allowing the user to toggle earthQuack ON/OFF
  * directly from the Android quick settings / notification shade.
  */
 class SyncTileService : TileService() {
@@ -29,7 +29,7 @@ class SyncTileService : TileService() {
 
         if (isActive) {
             // Stop service
-            val stopIntent = Intent(this, ClipboardSyncService::class.java).apply {
+            val stopIntent = Intent(this, EarthQuackService::class.java).apply {
                 action = ACTION_STOP_SYNC
             }
             startService(stopIntent)
@@ -37,7 +37,7 @@ class SyncTileService : TileService() {
             tile.subtitle = "Stopped"
         } else {
             // Start service
-            val startIntent = Intent(this, ClipboardSyncService::class.java).apply {
+            val startIntent = Intent(this, EarthQuackService::class.java).apply {
                 action = ACTION_START_SYNC
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -55,7 +55,7 @@ class SyncTileService : TileService() {
         val tile = qsTile ?: return
         // Best-effort: derive from whether service was recently running
         // (TileService can't directly query service state without binding)
-        tile.label = "Clipboard Sync"
+        tile.label = "earthQuack"
         // Leave state as-is; onClick toggles it locally. A proper fix would
         // track status via SharedPreferences updated by the service.
         if (tile.state != Tile.STATE_ACTIVE && tile.state != Tile.STATE_INACTIVE) {

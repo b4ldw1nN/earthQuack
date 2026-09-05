@@ -1,4 +1,4 @@
-package com.example.clipboardsync
+package com.example.earthquack
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -14,7 +14,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.example.clipboardsync.databinding.ActivityMainBinding
+import com.example.earthquack.databinding.ActivityMainBinding
 import kotlinx.coroutines.*
 
 class MainActivity : AppCompatActivity() {
@@ -150,10 +150,10 @@ class MainActivity : AppCompatActivity() {
     private fun checkServiceRunningState() {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         val isRunning = am.getRunningServices(Int.MAX_VALUE).any {
-            it.service.className == ClipboardSyncService::class.java.name
+            it.service.className == EarthQuackService::class.java.name
         }
         if (isRunning) {
-            startService(Intent(this, ClipboardSyncService::class.java).apply { action = "QUERY_STATUS" })
+            startService(Intent(this, EarthQuackService::class.java).apply { action = "QUERY_STATUS" })
             if (currentStatus == SyncStatus.STOPPED) {
                 updateUi(SyncStatus.RUNNING)
             }
@@ -195,8 +195,8 @@ class MainActivity : AppCompatActivity() {
                 if (servers.isEmpty()) {
                     Toast.makeText(this@MainActivity, "No active clipboard servers found on Tailscale", Toast.LENGTH_LONG).show()
                 } else if (servers.size == 1) {
-                    val ip = servers[0].tailscaleIpv4[0]
-                    val name = if (servers[0].hostname.isNotBlank()) servers[0].hostname else ip
+                    val ip = servers[0]
+                    val name = if (servers[0].isNotBlank()) servers[0] else ip
                     Toast.makeText(this@MainActivity, "Discovered active server: $name ($ip)", Toast.LENGTH_LONG).show()
                     applyNewHost(ip)
                 } else {
@@ -208,24 +208,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun showDeviceSelectionDialog(servers: List<TailscaleDiscovery.PeerNode>, onSelected: (String) -> Unit) {
+    fun showDeviceSelectionDialog(
+        servers: List<String>,
+        onSelected: (String) -> Unit
+    ) {
         if (servers.isEmpty()) return
-        val items = mutableListOf("0) Sync with All Devices")
-        servers.forEachIndexed { i, node ->
-            val name = if (node.hostname.isNotBlank()) node.hostname else node.tailscaleIpv4[0]
-            items.add("${i + 1}) $name (${node.os}) — ${node.tailscaleIpv4[0]}")
+
+        val items = servers.mapIndexed { i, ip ->
+            "${i + 1}) $ip"
         }
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Select Target Tailscale Device")
+            .setTitle("Select EarthQuack Server")
             .setItems(items.toTypedArray()) { _, which ->
-                if (which == 0) {
-                    val firstIp = servers[0].tailscaleIpv4[0]
-                    onSelected(firstIp)
-                } else {
-                    val chosenIp = servers[which - 1].tailscaleIpv4[0]
-                    onSelected(chosenIp)
-                }
+                onSelected(servers[which])
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -238,11 +234,11 @@ class MainActivity : AppCompatActivity() {
         binding.textServer.text = "$host:$SERVER_PORT"
         if (wasRunning) {
             Toast.makeText(this, "Target changed to $host — restarting service…", Toast.LENGTH_SHORT).show()
-            startService(Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_STOP_SYNC })
+            startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_STOP_SYNC })
             binding.root.postDelayed({
                 ContextCompat.startForegroundService(
                     this,
-                    Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_START_SYNC }
+                    Intent(this, EarthQuackService::class.java).apply { action = ACTION_START_SYNC }
                 )
                 updateUi(SyncStatus.CONNECTING)
             }, 600)
@@ -274,25 +270,25 @@ class MainActivity : AppCompatActivity() {
     private fun doStartService() {
         ContextCompat.startForegroundService(
             this,
-            Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_START_SYNC }
+            Intent(this, EarthQuackService::class.java).apply { action = ACTION_START_SYNC }
         )
         serviceRunning = true
         updateUi(SyncStatus.CONNECTING)
     }
 
     private fun stopSync() {
-        startService(Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_STOP_SYNC })
+        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_STOP_SYNC })
         serviceRunning = false
         updateUi(SyncStatus.STOPPED)
     }
 
     private fun pauseSync() {
-        startService(Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_PAUSE_SYNC })
+        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_PAUSE_SYNC })
         updateUi(SyncStatus.PAUSED)
     }
 
     private fun resumeSync() {
-        startService(Intent(this, ClipboardSyncService::class.java).apply { action = ACTION_RESUME_SYNC })
+        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_RESUME_SYNC })
         updateUi(SyncStatus.CONNECTING)
     }
 

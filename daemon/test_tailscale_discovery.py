@@ -118,7 +118,7 @@ class TestTailscaleDiscovery(unittest.TestCase):
         self.assertIsNone(discovered)
 
     def test_discover_clipboard_server_multiple_servers_deterministic(self):
-        # Both peers respond to port 8765
+        # Both peers respond to port 8875
         def mock_check_service(ip, port):
             return True
 
