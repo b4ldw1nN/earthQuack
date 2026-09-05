@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>earthQuack</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">earthQuack</span>
+    <span class="meta">
+      {{with .Local}}{{if .Online}}<span class="dot on"></span><span class="state on">ONLINE</span>{{else}}<span class="dot off"></span><span class="state off">OFFLINE</span>{{end}}{{end}}
+      <span class="ts">as of {{.Now.Format "15:04:05 MST"}}</span>
+      <a class="refresh" href="/">refresh</a>
+    </span>
+  </header>
+
+  <main>
+    <h2 class="section">NODES</h2>
+
+    {{$localID := .Local.Identity}}
+    {{range .Nodes}}
+    <article class="node {{if .Online}}online{{else}}offline{{end}}">
+      <div class="node-head">
+        <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+        <span class="hostname">{{.Hostname}}</span>
+        <span class="state {{if .Online}}on{{else}}off{{end}}">
+          {{if .Online}}ONLINE{{else}}OFFLINE{{end}}
+        </span>
+        {{if eq .Identity $localID}}<span class="badge">this node</span>{{end}}
+      </div>
+
+      <div class="facts">
+        <div><span class="k">OS</span> {{.OS}}</div>
+        {{with .Network}}
+        <div><span class="k">{{.Transport}}</span>
+          {{if .Addresses}}{{index .Addresses 0}}{{if gt (len .Addresses) 1}} +{{else}}{{end}}{{end}}
+        </div>
+        {{end}}
+        {{if .Registered}}
+        <div><span class="k">earthQuack node</span> · {{if .Online}}online{{else}}offline{{end}}</div>
+        {{else}}
+        <div class="unverified">{{if .Online}}Tailscale peer · earthQuack not responding{{else}}Tailscale peer · earthQuack unavailable{{end}}</div>
+        {{end}}
+      </div>
+
+      {{if .Capabilities}}
+      <div class="group">
+        <h3>Capabilities</h3>
+        <div class="chips">
+          {{range .Capabilities}}<span class="chip">{{.}}</span>{{end}}
+        </div>
+      </div>
+      {{end}}
+
+      {{if .Services}}
+      <div class="group">
+        <h3>Services</h3>
+        <ul class="services">
+          {{range .Services}}
+          <li>
+            <span class="dot {{if eq (printf "%s" .Status) "running"}}on{{else}}off{{end}}"></span>
+            <span class="svc-name">{{.Name}}</span>
+            <span class="svc-status">{{.Status}}</span>
+            {{if .Version}}<span class="svc-extra">v{{.Version}}</span>{{end}}
+            {{if .Endpoint}}<span class="svc-extra">{{.Endpoint}}</span>{{end}}
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
+    </article>
+    {{else}}
+    <p class="empty">No nodes known.</p>
+    {{end}}
+  </main>
+</body>
+</html>

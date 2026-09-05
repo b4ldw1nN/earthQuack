@@ -1,0 +1,20 @@
+{
+  "capabilities": [
+    "clipboard",
+    "file-transfer"
+  ],
+  "services": [
+    {
+      "capability": "clipboard",
+      "name": "clipboard",
+      "port": 8875,
+      "version": "0.1.0"
+    },
+    {
+      "capability": "file-transfer",
+      "name": "file-transfer",
+      "port": 8876,
+      "version": "0.1.0"
+    }
+  ]
+}
