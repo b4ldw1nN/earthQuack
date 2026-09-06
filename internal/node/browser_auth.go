@@ -20,21 +20,41 @@ var browserSessionPaths = map[string]bool{
 // holds a random session identifier. The auth token itself is never in
 // a cookie, URL, page, or Referer.
 //
+// bearerOK is the credential pass-through for non-browser clients
+// (curl, scripts) that present the shared Bearer token directly; it
+// grants the same read-only dashboard view, never API access. Pass nil
+// to require a session for every browser route.
+//
 // This is intentionally only the browser boundary. API routes use the
 // separate Bearer-token middleware (AuthMiddleware) and are never gated
 // by a session cookie.
-func BrowserSessionMiddleware(next http.Handler, sessions *SessionStore, secureCookie bool) http.Handler {
+//
+// Fail-closed: when no token is configured (empty), there is no secret
+// a login could ever match, so every browser request — including
+// /login — answers 503 "authentication not configured" instead of
+// rendering a login page that can never succeed.
+func BrowserSessionMiddleware(next http.Handler, sessions *SessionStore, bearerOK func(*http.Request) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if browserSessionPaths[r.URL.Path] {
-			next.ServeHTTP(w, r)
-			return
-		}
-		c, err := r.Cookie(sessionCookieName)
-		if err != nil || !sessions.Valid(c.Value) {
+		if sessions.Configured() {
+			if browserSessionPaths[r.URL.Path] {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if c, err := r.Cookie(sessionCookieName); err == nil && sessions.Valid(c.Value) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if bearerOK != nil && bearerOK(r) {
+				// Non-browser client presenting the shared token:
+				// render the dashboard without creating a session.
+				next.ServeHTTP(w, r)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		next.ServeHTTP(w, r)
+		// No token configured: fail closed (same policy as the API).
+		http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
 	})
 }
 

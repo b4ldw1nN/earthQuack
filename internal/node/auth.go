@@ -82,3 +82,21 @@ func (m *authMiddleware) authorized(r *http.Request, configured string) bool {
 func AuthMiddleware(next http.Handler, token string) http.Handler {
 	return newAuthMiddleware(token).Middleware(next)
 }
+
+// bearerChecker reports whether a request presents exactly the given
+// shared Bearer token (constant-time comparison). It is the single
+// credential check shared by the API middleware and the browser
+// pass-through, so both boundaries accept identical credentials.
+func bearerChecker(token string) func(*http.Request) bool {
+	if token == "" {
+		return func(*http.Request) bool { return false }
+	}
+	return func(r *http.Request) bool {
+		const prefix = "Bearer "
+		h := r.Header.Get("Authorization")
+		if len(h) <= len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
+			return false
+		}
+		return subtle.ConstantTimeCompare([]byte(h[len(prefix):]), []byte(token)) == 1
+	}
+}

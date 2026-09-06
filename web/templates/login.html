@@ -15,6 +15,7 @@
     <section class="login-card">
       <h2>Authentication required</h2>
       <p class="muted">Enter the earthQuack token to access this node.</p>
+      {{if .Error}}<p class="login-error" role="alert">Invalid token</p>{{end}}
       <form method="post" action="/login" autocomplete="off">
         <input type="password" name="token" placeholder="token" required
                autofocus autocapitalize="none" spellcheck="false">

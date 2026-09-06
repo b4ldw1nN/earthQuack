@@ -113,4 +113,9 @@ main { max-width: 720px; margin: 0 auto; padding: 20px; }
   border-radius: 4px; background: var(--text); color: var(--bg);
   font-weight: 600; cursor: pointer;
 }
+.login-error {
+  color: #e5484d; font-size: 13px;
+  border: 1px solid rgba(229, 72, 77, 0.4); border-radius: 4px;
+  padding: 8px 10px; margin: 0 0 12px;
+}
 .muted { color: var(--muted); }

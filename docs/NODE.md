@@ -71,7 +71,36 @@ never returned by any endpoint, and never sent anywhere except in
 `Authorization: Bearer` headers to peer nodes.
 
 Without any token the node **fails closed**: `/api/health` works, all
-other endpoints return `503 authentication not configured`.
+other endpoints return `503 authentication not configured` — the API
+*and* the browser dashboard alike (no login page is shown when login
+could never succeed).
+
+### Browser sessions
+
+A plain browser cannot send `Authorization` headers, so the dashboard
+has its own browser layer derived from the same single token (no second
+secret):
+
+* `GET /login` — minimal sign-in page; `POST /login` validates the
+  token and issues a session cookie, then redirects to `/`.
+* `POST /logout` — invalidates the session, clears the cookie.
+* The cookie (`eq_session`) holds only a random 256-bit session id —
+  never the token. It is `HttpOnly`, `SameSite=Strict`, `Path=/`, and
+  `Secure` when `EARTHQUACK_SECURE_COOKIE=1` (opt-in until the node is
+  served over TLS; the default Tailscale-IP deployment is plain HTTP).
+* Sessions are in-memory only (12h TTL): a node restart signs every
+  browser out. No database, no persistent state.
+* API endpoints never accept the session cookie: `/api/node` and
+  `/api/nodes` require the Bearer token, exactly as before. The cookie
+  authorizes the dashboard only.
+* Conversely, `curl`-style clients may present the Bearer token to `/`
+  directly to read the dashboard without a session.
+* Wrong/missing login tokens render the same generic "Invalid token"
+  message; tokens are never echoed, logged, or put in URLs.
+* CSRF posture: `SameSite=Strict` + POST-only login/logout, and the
+  dashboard is read-only with no state-changing endpoints. Management
+  endpoints, when they ever exist, will need a real CSRF/auth design
+  first.
 
 ## 4. Bind address
 
@@ -112,9 +141,9 @@ curl -H "Authorization: Bearer $EARTHQUACK_AUTH_TOKEN" \
      http://127.0.0.1:8890/api/nodes                       # this node + peers
 ```
 
-Open `http://100.x.x.x:8890/` with the token from another tailnet
-machine (API clients and `curl` can send the header directly; a plain
-browser gets `401` — see the auth note in the project docs).
+Open `http://100.x.x.x:8890/` in a browser and sign in once with the
+token (see *Browser sessions* in section 3). API clients and `curl`
+can skip login by sending the Bearer header directly to `/`.
 
 ## 7. How a new machine joins the dashboard
 

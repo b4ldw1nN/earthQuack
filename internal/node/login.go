@@ -8,34 +8,46 @@ import (
 	"github.com/b4ldw1nN/earthquack/web"
 )
 
-// loginPage renders the minimal browser login page. It never contains
-// the configured token.
-func loginPage(w http.ResponseWriter) {
+// loginView is the data for the login template. It carries only the
+// error flag — never the submitted token, the configured token, or any
+// other secret.
+type loginView struct {
+	Error bool
+}
+
+// loginPage renders the minimal browser login page. failed shows the
+// generic "Invalid token" message. The page never contains the
+// configured token and never repopulates the submitted token.
+func loginPage(w http.ResponseWriter, failed bool) {
 	tmpl, err := web.LoginTemplate()
 	if err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = tmpl.Execute(w, nil)
+	_ = tmpl.Execute(w, loginView{Error: failed})
 }
 
 // loginGetHandler renders the login page, or redirects to the dashboard
-// if the browser already has a valid session.
+// if the browser already has a valid session. When no token is
+// configured the middleware has already failed closed; this handler is
+// unreachable in that state.
 func loginGetHandler(sessions *SessionStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookieName); err == nil && sessions.Valid(c.Value) {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		loginPage(w)
+		loginPage(w, false)
 	}
 }
 
 // loginPostHandler validates the submitted token against the configured
 // server token (constant-time comparison), then issues a random session
-// cookie. It never logs the submitted token and never reveals whether
-// the token was "close". If no token is configured, login fails closed.
+// cookie. Missing, malformed, and wrong tokens all produce the identical
+// generic login page with "Invalid token" — no distinction is ever
+// observable. The submitted token is never echoed back, logged, or put
+// in a redirect. If no token is configured, login fails closed (503).
 func loginPostHandler(sessions *SessionStore, configured string, secure bool, ttl time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if configured == "" {
@@ -47,8 +59,10 @@ func loginPostHandler(sessions *SessionStore, configured string, secure bool, tt
 			return
 		}
 		provided := r.PostForm.Get("token")
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(configured)) != 1 {
-			http.Error(w, "invalid token", http.StatusForbidden)
+		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(configured)) != 1 {
+			// Uniform failure: re-render the login page with a
+			// generic error. Never distinguish missing vs wrong.
+			loginPage(w, true)
 			return
 		}
 		id, err := sessions.Create()
@@ -64,7 +78,7 @@ func loginPostHandler(sessions *SessionStore, configured string, secure bool, tt
 // logoutHandler invalidates the session (if any) and clears the cookie.
 // It does not require the shared token again — a valid session, or even
 // just a browser that wants to clear an expired cookie, is enough to
-// log out.
+// log out. Logout only ever destroys state; it creates nothing.
 func logoutHandler(sessions *SessionStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {

@@ -71,7 +71,7 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handl
 	if auth.SessionTTL <= 0 {
 		auth.SessionTTL = DefaultSessionTTL
 	}
-	sessions := NewSessionStore(auth.SessionTTL, nil)
+	sessions := NewSessionStore(auth.SessionTTL, nil, auth.Token != "")
 	api := &API{registry: reg, version: version}
 
 	// API subtree: Bearer-token authenticated, /api/health still public.
@@ -81,13 +81,18 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handl
 	apiMux.HandleFunc("GET /api/nodes", api.handleNodes)
 	apiHandler := AuthMiddleware(apiMux, auth.Token)
 
-	// Browser subtree: session-cookie authenticated.
+	// Browser subtree: session-cookie authenticated, with a pass-through
+	// for valid Bearer credentials so API clients (curl, scripts) can
+	// read the dashboard directly. The browser itself only ever uses the
+	// session cookie; an invalid Bearer falls through to the normal
+	// session/login behavior.
+	bearerOK := bearerChecker(auth.Token)
 	browserMux := http.NewServeMux()
 	browserMux.HandleFunc("GET /{$}", dash)
 	browserMux.HandleFunc("GET /login", loginGetHandler(sessions))
 	browserMux.HandleFunc("POST /login", loginPostHandler(sessions, auth.Token, auth.SecureCookie, auth.SessionTTL))
 	browserMux.HandleFunc("POST /logout", logoutHandler(sessions))
-	browserHandler := BrowserSessionMiddleware(browserMux, sessions, auth.SecureCookie)
+	browserHandler := BrowserSessionMiddleware(browserMux, sessions, bearerOK)
 
 	root := http.NewServeMux()
 	root.Handle("/api/", apiHandler)

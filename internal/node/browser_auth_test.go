@@ -68,7 +68,8 @@ func TestBrowserLoginFlow(t *testing.T) {
 		t.Fatal("token leaked into login page")
 	}
 
-	// POST /login with the wrong token is rejected.
+	// POST /login with the wrong token re-renders the login page with a
+	// generic error — no session, no 403 distinction, no token echo.
 	if err := postLogin(t, c, srv, "wrong"); err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +126,9 @@ func TestBrowserLoginFlow(t *testing.T) {
 }
 
 // postLogin POSTs credentials using the given (non-redirect) client and
-// returns the issued session cookie. A "wrong" token returns 403 and no
-// cookie.
+// returns the issued session cookie. A "wrong" token must re-render the
+// login page (200) with the generic error and no session cookie; the
+// submitted token must not be echoed anywhere in the response.
 func postLogin(t *testing.T, c *http.Client, srv *httptest.Server, token string) *http.Cookie {
 	t.Helper()
 	form := url.Values{"token": {token}}
@@ -137,11 +139,21 @@ func postLogin(t *testing.T, c *http.Client, srv *httptest.Server, token string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if token == "wrong" {
-		if resp.StatusCode != http.StatusForbidden {
-			t.Fatalf("wrong token: want 403, got %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong token: want 200 login re-render, got %d", resp.StatusCode)
+		}
+		if !strings.Contains(string(body), "Invalid token") {
+			t.Errorf("wrong token: login page missing generic error")
+		}
+		if strings.Contains(string(body), "wrong") {
+			t.Errorf("submitted token echoed back in HTML")
+		}
+		if strings.Contains(resp.Header.Get("Location"), "wrong") ||
+			len(resp.Cookies()) > 0 {
+			t.Errorf("wrong token: redirect/cookie issued")
 		}
 		return nil
 	}

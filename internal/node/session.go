@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"time"
 )
@@ -10,6 +11,10 @@ import (
 // sessionCookieName is the browser session cookie. It holds only a
 // random session identifier — never the shared auth token.
 const sessionCookieName = "eq_session"
+
+// errSessionsNotConfigured is returned by Create when no login secret
+// exists; sessions can never be established in that state.
+var errSessionsNotConfigured = errors.New("sessions not configured")
 
 // DefaultSessionTTL is how long a browser session lives before the
 // user must log in again. Defined centrally here so handlers never
@@ -22,31 +27,52 @@ const DefaultSessionTTL = 12 * time.Hour
 // auth token. Sessions vanish on process restart (acceptable: the user
 // logs in again). No database.
 //
-// Safe for concurrent use.
+// configured records whether a login secret exists at all: with no
+// token configured, sessions can never be created and the browser
+// boundary fails closed instead of showing a login page. Safe for
+// concurrent use.
 type SessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]time.Time
-	ttl      time.Duration
-	now      func() time.Time
+	mu         sync.Mutex
+	sessions   map[string]time.Time
+	ttl        time.Duration
+	configured bool
+	now        func() time.Time
 }
 
 // NewSessionStore returns an empty store with the given session
 // lifetime. now may be nil to use time.Now (tests inject a clock).
-func NewSessionStore(ttl time.Duration, now func() time.Time) *SessionStore {
+// configured reports whether a login secret is configured; when false,
+// Create always fails and the browser boundary fails closed.
+func NewSessionStore(ttl time.Duration, now func() time.Time, configured bool) *SessionStore {
 	if now == nil {
 		now = time.Now
 	}
 	return &SessionStore{
-		sessions: make(map[string]time.Time),
-		ttl:      ttl,
-		now:      now,
+		sessions:   make(map[string]time.Time),
+		ttl:        ttl,
+		configured: configured,
+		now:        now,
 	}
 }
 
+// Configured reports whether login is possible at all (a token is
+// configured). It mirrors the fail-closed policy of the Bearer
+// middleware: no secret means no login, for anyone, ever.
+func (s *SessionStore) Configured() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.configured
+}
+
 // Create generates a cryptographically random session identifier,
-// records it with an expiry, and returns it. Expired sessions are
-// pruned during each create so the store never grows unbounded.
+// records it with an expiry, and returns it. It fails when no token is
+// configured (no secret to log in against) or when randomness is
+// unavailable. Expired sessions are pruned during each create so the
+// store never grows unbounded.
 func (s *SessionStore) Create() (string, error) {
+	if !s.Configured() {
+		return "", errSessionsNotConfigured
+	}
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
