@@ -74,6 +74,24 @@ func main() {
 		log.Fatalf("node identity: %v", err)
 	}
 
+	// ── Python daemon supervisor ───────────────────────────────────────
+	// The Go node is the single entry point: it owns the earthQuack
+	// daemon (app.py) that serves clipboard (8875) and file-transfer
+	// (8876). Start it before the refresher so those ports are up when
+	// registration happens. AES key MUST match the Android app or
+	// clipboard won't decrypt to plaintext there.
+	repoRoot := envOr("EARTHQUACK_REPO", ".")
+	daemonMgr := node.NewDaemonManager(node.PythonDaemonConfig{
+		RepoDir:       repoRoot + "/daemon",
+		Host:          envOr("EARTHQUACK_HOST", "127.0.0.1"),
+		ClipboardPort: fmt.Sprintf("%d", envIntOr("EARTHQUACK_PORT", 8875)),
+		FilePort:      fmt.Sprintf("%d", envIntOr("EARTHQUACK_FILE_PORT", 8876)),
+		AESKey:        os.Getenv("CLIPBOARD_AES_KEY"),
+	})
+	if err := daemonMgr.Start(); err != nil {
+		log.Printf("earthquack: failed to start python daemon: %v (continuing)", err)
+	}
+
 	ts := node.NewTailscaleProvider()
 	client := node.NewNodeClientWithToken(*port, authToken)
 	reg, err := node.NewRegistry(identity, []node.NetworkProvider{ts}, nil, client)
@@ -129,6 +147,9 @@ func main() {
 	refresher := node.NewServiceRefresher(reg, specs, probeHost, 500*time.Millisecond, 0)
 	go refresher.Run(ctx)
 
+	// Supervise the python daemon for its whole lifetime.
+	go daemonMgr.BeginRestartLoop(ctx)
+
 	addr := net.JoinHostPort(*host, fmt.Sprint(*port))
 
 	// Secure cookie is opt-in: the dashboard is served over http on the
@@ -152,12 +173,14 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
+		daemonMgr.Stop()
 	}()
 	log.Printf("earthQuack node %s listening on http://%s", version, addr)
 	log.Printf("identity: %s", identity)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server: %v", err)
 	}
+	daemonMgr.Stop()
 	log.Printf("earthQuack node stopped cleanly")
 }
 
