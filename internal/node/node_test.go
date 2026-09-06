@@ -51,6 +51,9 @@ func newTestRegistry(t *testing.T) (*Registry, *fakeProvider) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
+	// Hermetic by default: no test touches the real machine's mounts.
+	// Storage-specific tests inject their own fake below.
+	reg.SetStorageInfoProvider(fakeStorageProvider{})
 	// Explicit local capability/service registration (the node's own
 	// declarations; never inferred).
 	reg.RegisterCapability("clipboard")

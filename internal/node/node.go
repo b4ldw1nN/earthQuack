@@ -53,16 +53,17 @@ type NetworkInfo struct {
 // authoritative /api/node response; false means it is only a
 // discovered transport peer (no capabilities/services are claimed).
 type Node struct {
-	Identity     Identity    `json:"identity"`
-	Hostname     string      `json:"hostname"`
-	OS           string      `json:"os"`
-	Online       bool        `json:"online"`
-	Registered   bool        `json:"registered"`
-	Capabilities []string    `json:"capabilities"`
-	Services     []Service   `json:"services"`
-	Network      NetworkInfo `json:"network"`
-	System       *SystemInfo `json:"system,omitempty"`
-	LastSeen     time.Time   `json:"last_seen,omitempty"`
+	Identity     Identity     `json:"identity"`
+	Hostname     string       `json:"hostname"`
+	OS           string       `json:"os"`
+	Online       bool         `json:"online"`
+	Registered   bool         `json:"registered"`
+	Capabilities []string     `json:"capabilities"`
+	Services     []Service    `json:"services"`
+	Network      NetworkInfo  `json:"network"`
+	System       *SystemInfo  `json:"system,omitempty"`
+	Storage      *StorageInfo `json:"storage,omitempty"`
+	LastSeen     time.Time    `json:"last_seen,omitempty"`
 }
 
 // LocalNodeName is the name reported for this instance in /api/node.

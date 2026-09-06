@@ -10,8 +10,15 @@ import (
 // resources, reported authoritatively by the node itself. Fields are
 // zero/omitted when unavailable on the platform or in the snapshot.
 // It is runtime information only — never configurable.
+//
+// OS and Arch describe the host platform ("linux", "Arch Linux",
+// "amd64"). They are independent of the Node-level OS field, which is
+// a coarse transport-agnostic tag; SystemInfo.OS prefers the human
+// distro/product name.
 type SystemInfo struct {
 	CPUCount int     `json:"cpu_count,omitempty"`
+	OS       string  `json:"os,omitempty"`
+	Arch     string  `json:"arch,omitempty"`
 	Memory   Memory  `json:"memory,omitempty"`
 	Uptime   float64 `json:"uptime,omitempty"` // seconds
 	Load     LoadAvg `json:"load,omitempty"`
@@ -33,7 +40,8 @@ type LoadAvg struct {
 
 // HasInfo reports whether the snapshot carries any usable data.
 func (s SystemInfo) HasInfo() bool {
-	return s.CPUCount > 0 || s.Uptime > 0 || s.Memory.Total > 0
+	return s.CPUCount > 0 || s.Uptime > 0 || s.Memory.Total > 0 ||
+		s.OS != "" || s.Arch != ""
 }
 
 // The following human-formatted accessors keep presentation formatting
@@ -151,4 +159,44 @@ func parseProcLoadavg(data string) LoadAvg {
 		out.Fifteen, _ = strconv.ParseFloat(f[2], 64)
 	}
 	return out
+}
+
+// parseOsRelease extracts a human OS/product name from /etc/os-release
+// content. PRETTY_NAME is preferred; NAME is the fallback. Quoted
+// values are unquoted; comment lines and unset keys are skipped.
+// Returns "" when nothing usable is present. This is a pure parser so
+// tests can exercise it with fixed strings; the proc-backed collector
+// feeds it the real file contents (see system_linux.go).
+func parseOsRelease(data string) string {
+	lines := strings.Split(data, "\n")
+	// First pass: PRETTY_NAME (most descriptive).
+	if name := osReleaseField(lines, "PRETTY_NAME"); name != "" {
+		return name
+	}
+	// Fallback: generic NAME.
+	return osReleaseField(lines, "NAME")
+}
+
+// osReleaseField returns the (unquoted) value of the given key from
+// /etc/os-release-style lines, or "" if absent/empty.
+func osReleaseField(lines []string, key string) string {
+	prefix := key + "="
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || line[0] == '#' || line[0] == ';' {
+			continue
+		}
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		val := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if val == "" {
+			continue
+		}
+		if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+			return val[1 : len(val)-1]
+		}
+		return val
+	}
+	return ""
 }

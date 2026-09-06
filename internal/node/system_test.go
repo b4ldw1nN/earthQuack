@@ -74,11 +74,48 @@ func TestProcSysInfoDegradesOnUnreadable(t *testing.T) {
 	}
 }
 
+func TestParseOsRelease(t *testing.T) {
+	pretty := "PRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\n"
+	if got := parseOsRelease(pretty); got != "Ubuntu 24.04.1 LTS" {
+		t.Errorf("PRETTY_NAME not preferred: %q", got)
+	}
+	nameOnly := "# comment\nNAME=\"Debian GNU/Linux\"\nVERSION=\"12 (bookworm)\"\n"
+	if got := parseOsRelease(nameOnly); got != "Debian GNU/Linux" {
+		t.Errorf("NAME fallback failed: %q", got)
+	}
+	unquoted := "NAME=Arch\nextra=ignored\n"
+	if got := parseOsRelease(unquoted); got != "Arch" {
+		t.Errorf("unquoted NAME failed: %q", got)
+	}
+	blankOrder := "NAME=Base\nPRETTY_NAME=\"Base for Testing\"\nID=base\n"
+	if got := parseOsRelease(blankOrder); got != "Base for Testing" {
+		t.Errorf("PRETTY_NAME should win regardless of order: %q", got)
+	}
+	for name, in := range map[string]string{
+		"empty":      "",
+		"only-key":   "NAME=\nPRETTY_NAME=\n",
+		"no-release": "ID=arch\nBUILD_ID=rolling\n",
+	} {
+		if got := parseOsRelease(in); got != "" {
+			t.Errorf("%s: expected \"\", got %q", name, got)
+		}
+	}
+}
+
+func TestOsReleaseFallbackGOSO(t *testing.T) {
+	// An unreadable/invalid release file must not fabricate a distro;
+	// the collector (not the parser) falls back to GOOS.
+	if got := parseOsRelease(""); got != "" {
+		t.Errorf("empty release should parse to \"\", got %q", got)
+	}
+}
+
 func TestProcSysInfoReads(t *testing.T) {
 	fixtures := map[string]string{
-		meminfoPath: "MemTotal:       1000000 kB\nMemAvailable:   400000 kB\n",
-		uptimePath:  "1000.5 2000.5\n",
-		loadavgPath: "0.50 0.40 0.30 1/1 1\n",
+		meminfoPath:   "MemTotal:       1000000 kB\nMemAvailable:   400000 kB\n",
+		uptimePath:    "1000.5 2000.5\n",
+		loadavgPath:   "0.50 0.40 0.30 1/1 1\n",
+		osReleasePath: "PRETTY_NAME=\"TestOS 1.0\"\nID=testos\n",
 	}
 	p := &procSysInfo{read: func(path string) ([]byte, error) {
 		v, ok := fixtures[path]
@@ -91,6 +128,12 @@ func TestProcSysInfoReads(t *testing.T) {
 	if si.CPUCount == 0 {
 		t.Error("cpu_count should be non-zero")
 	}
+	if si.Arch == "" {
+		t.Error("arch should be set from runtime.GOARCH")
+	}
+	if si.OS != "TestOS 1.0" {
+		t.Errorf("OS from /etc/os-release fixture = %q, want %q", si.OS, "TestOS 1.0")
+	}
 	if si.Memory.Total != 1000000*1024 || si.Uptime != 1000.5 {
 		t.Errorf("system info not parsed from fixture reads: %+v", si)
 	}
@@ -102,6 +145,21 @@ func TestProcSysInfoReads(t *testing.T) {
 	}
 }
 
+func TestProcSysInfoOSFallback(t *testing.T) {
+	// When /etc/os-release is unreadable or lacks a value, Collect falls
+	// back to the coarse GOOS rather than leaving OS blank on Linux.
+	p := &procSysInfo{read: func(string) ([]byte, error) {
+		return nil, errors.New("ENOENT")
+	}}
+	si := p.Collect()
+	if si.OS != "linux" {
+		t.Errorf("expected GOOS fallback 'linux', got %q", si.OS)
+	}
+	if si.Arch == "" {
+		t.Error("arch should be present even when /proc reads fail")
+	}
+}
+
 // fakeSysProvider is a deterministic SysInfoProvider for tests.
 type fakeSysProvider struct{ info SystemInfo }
 
@@ -110,6 +168,8 @@ func (f fakeSysProvider) Collect() SystemInfo { return f.info }
 func testSystem() SystemInfo {
 	return SystemInfo{
 		CPUCount: 16,
+		OS:       "TestOS 1.0",
+		Arch:     "amd64",
 		Memory:   Memory{Total: 32 << 30, Available: 24 << 30, Used: 8 << 30},
 		Uptime:   (3*24 + 12) * 3600,
 		Load:     LoadAvg{One: 1.42, Five: 1.18, Fifteen: 0.91},
@@ -149,6 +209,9 @@ func TestAPINodeHasSystem(t *testing.T) {
 	}
 	if n.System == nil || n.System.CPUCount != 16 || n.System.Uptime != (3*24+12)*3600 {
 		t.Fatalf("system missing from /api/node: %+v", n.System)
+	}
+	if n.System.OS != "TestOS 1.0" || n.System.Arch != "amd64" {
+		t.Errorf("OS/arch not exposed on /api/node: %+v", n.System)
 	}
 }
 

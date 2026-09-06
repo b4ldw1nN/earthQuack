@@ -87,6 +87,13 @@ main { max-width: 720px; margin: 0 auto; padding: 20px; }
 .svc-status { color: var(--muted); }
 .svc-extra { color: var(--muted); font-size: 12px; }
 
+/* Storage usage bars */
+.storage { list-style: none; margin: 0; padding: 0; }
+.storage li { display: flex; align-items: center; gap: 12px; padding: 3px 0; }
+.storage .mnt { min-width: 160px; color: var(--text); }
+.storage .bar { color: var(--on); letter-spacing: -1px; font-size: 13px; white-space: pre; }
+.storage .usage { color: var(--muted); }
+
 .empty { color: var(--muted); }
 
 /* Browser login + logout */

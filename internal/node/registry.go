@@ -25,15 +25,16 @@ import (
 //	registered node = probed successfully via NodeClient; its
 //	                  self-reported Identity is authoritative
 type Registry struct {
-	mu          sync.RWMutex
-	local       Node
-	peers       map[Identity]peerEntry
-	alias       map[Identity]Identity // discovery identity -> authoritative identity
-	lastProbe   map[Identity]time.Time
-	providers   []NetworkProvider
-	client      *NodeClient // nil disables peer probing
-	sysProvider SysInfoProvider
-	now         func() time.Time
+	mu           sync.RWMutex
+	local        Node
+	peers        map[Identity]peerEntry
+	alias        map[Identity]Identity // discovery identity -> authoritative identity
+	lastProbe    map[Identity]time.Time
+	providers    []NetworkProvider
+	client       *NodeClient // nil disables peer probing
+	sysProvider  SysInfoProvider
+	storProvider StorageProvider
+	now          func() time.Time
 }
 
 type peerEntry struct {
@@ -74,14 +75,15 @@ func NewRegistry(identity Identity, providers []NetworkProvider, now func() time
 		LastSeen:     now(),
 	}
 	return &Registry{
-		local:       local,
-		peers:       make(map[Identity]peerEntry),
-		alias:       make(map[Identity]Identity),
-		lastProbe:   make(map[Identity]time.Time),
-		providers:   providers,
-		client:      client,
-		sysProvider: newSysInfoProvider(),
-		now:         now,
+		local:        local,
+		peers:        make(map[Identity]peerEntry),
+		alias:        make(map[Identity]Identity),
+		lastProbe:    make(map[Identity]time.Time),
+		providers:    providers,
+		client:       client,
+		sysProvider:  newSysInfoProvider(),
+		storProvider: newStorageProvider(),
+		now:          now,
 	}, nil
 }
 
@@ -91,6 +93,16 @@ func (r *Registry) SetSysInfoProvider(p SysInfoProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sysProvider = p
+}
+
+// SetStorageInfoProvider overrides the storage-information collector.
+// The default is the Linux mounts+statfs-backed provider; tests inject
+// fakes. Storage follows the same rules as SystemInfo: measured at
+// read time, attached to the local node only.
+func (r *Registry) SetStorageInfoProvider(p StorageProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.storProvider = p
 }
 
 // RegisterCapability declares that this node provides a capability.
@@ -130,10 +142,16 @@ func (r *Registry) Local() Node {
 	r.mu.RLock()
 	n := r.local
 	sys := r.sysProvider
+	stor := r.storProvider
 	r.mu.RUnlock()
 	if sys != nil {
 		if s := sys.Collect(); s.HasInfo() {
 			n.System = &s
+		}
+	}
+	if stor != nil {
+		if s := stor.Collect(); s.HasInfo() {
+			n.Storage = &s
 		}
 	}
 	return n
@@ -268,12 +286,27 @@ func (r *Registry) Nodes() []Node {
 	}
 	SortNodes(nodes)
 
-	// Attach a current local system snapshot to the local entry.
-	if r.sysProvider != nil {
-		if s := r.sysProvider.Collect(); s.HasInfo() {
+	// Attach current local system/storage snapshots to the local
+	// entry. Discovered peers get neither: they have not
+	// authoritatively reported it.
+	if r.sysProvider != nil || r.storProvider != nil {
+		var sysSnap *SystemInfo
+		if r.sysProvider != nil {
+			if s := r.sysProvider.Collect(); s.HasInfo() {
+				sysSnap = &s
+			}
+		}
+		var storSnap *StorageInfo
+		if r.storProvider != nil {
+			if s := r.storProvider.Collect(); s.HasInfo() {
+				storSnap = &s
+			}
+		}
+		if sysSnap != nil || storSnap != nil {
 			for i := range nodes {
 				if nodes[i].Identity == r.local.Identity {
-					nodes[i].System = &s
+					nodes[i].System = sysSnap
+					nodes[i].Storage = storSnap
 				}
 			}
 		}
