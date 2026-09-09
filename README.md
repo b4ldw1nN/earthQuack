@@ -3,7 +3,7 @@
 earthQuack is a personal multi-device platform: bidirectional **clipboard + file + URL sync**
 between a desktop (Linux/Windows) and an Android phone over **Tailscale**, unified behind a
 **Go node** that turns every machine into a first-class, observable member of your tailnet —
-with a multi-node dashboard, read-only system/storage telemetry, and strict authentication.
+with a multi-node dashboard, read-only system/storage/network telemetry, and strict authentication.
 
 One command runs the whole stack on a machine:
 
@@ -20,9 +20,9 @@ file transfer (`:8876`).
 ┌────────────────────────────────────┐      ┌──────────────────────────┐
 │ Desktop (Arch / Hyprland / Windows)│      │ Android 8+ (Kotlin app)  │
 │                                    │      │                          │
-│  earthquakes-node (Go, :8890)      │      │  EarthQuackService       │
+│  earthquack-node (Go, :8890)       │      │  EarthQuackService       │
 │  ├─ Node API + dashboard           │      │  ├─ clipboard sync (SSE) │
-│  ├─ system/storage telemetry       │      │  ├─ file transfer        │
+│  ├─ system/storage/net telemetry   │      │  ├─ file transfer        │
 │  ├─ Tailscale peer discovery       │      │  └─ pairing via shared   │
 │  └─ supervises ↓                   │      │     token + AES key      │
 │  python daemon (app.py)            │      │                          │
@@ -41,7 +41,7 @@ joins with **zero source changes**: build the binary, add a config file, run it.
 
 | Component | Location | What it does |
 |---|---|---|
-| **Go node** | `cmd/earthquack-node`, `internal/node` | Node API, dashboard, auth, identity, peer discovery/probing, telemetry, daemon supervision. Stdlib only, Go ≥ 1.24, no external dependencies. |
+| **Go node** | `cmd/earthquack-node`, `internal/node` | Node API, dashboard, auth, identity, peer discovery/probing, telemetry (system, storage, network), daemon supervision. Stdlib only, Go ≥ 1.24, no external dependencies. |
 | **Python daemon** | `daemon/` | The sync services themselves: clipboard broker + SSE, file staging/transfer, desktop clipboard bridge, send-folder watcher, AES-256-GCM crypto, Tailscale discovery, hotkeys. Python 3 stdlib only. |
 | **Android app** | `app/` | Foreground sync service, clipboard IME, file transfer/share, quick-settings tile, server config UI. Kotlin, minSdk 26 (Android 8+), target/compile SDK 34. |
 | **Shell helpers** | repo root | `clip-send`, `clip-open`, `clip-shot` — send files, open URLs on the phone, screenshot-to-phone from the desktop. |
@@ -162,7 +162,7 @@ All endpoints are read-only.
 | Endpoint | Auth | Returns |
 |---|---|---|
 | `GET /api/health` | public | `{"status":"ok","service":"earthQuack-node","version":"0.1.0"}` |
-| `GET /api/node` | Bearer | This node: identity, hostname, OS, capabilities, services (+status), network, `system`, `storage` |
+| `GET /api/node` | Bearer | This node: identity, hostname, OS, capabilities, services (+status), network, `system`, `storage`, `network_stats` |
 | `GET /api/nodes` | Bearer | Local node + all discovered peers |
 | `GET /` | session or Bearer | Human dashboard |
 | `GET /login`, `POST /login`, `POST /logout` | — | Browser session management |
@@ -181,11 +181,27 @@ local node's own entry — a node reports *itself*, never guesses at peers.
   statfs failures and zero-capacity mounts are skipped rather than
   fabricated; entries are sorted by mount point. Linux-only — other
   platforms omit the field (`omitempty`).
+* **`network_stats`** — network interfaces from the standard library's
+  `net.Interfaces` merged with per-device traffic counters from
+  `/proc/net/dev`: name, MTU, hardware address, current IP addresses,
+  and since-boot `rx/tx` byte/packet/error/drop counters (the same
+  numbers `ip -s link` shows — lifetime totals, not rates). Only **up**
+  interfaces are reported; an up interface with no counter row is
+  skipped rather than filled with invented zeros; unreadable sources
+  yield an empty snapshot. Linux-only (`omitempty` elsewhere).
 
-The dashboard renders both under each node card: system facts as a fact
-list, storage as `  ██████░░░░  210.2 / 369.5 GB · 62%` usage bars in a
-**Storage** group. Discovered peers show presence only until they report
-their own telemetry.
+  This is deliberately separate from the node's `network` field:
+  `network` is **discovery** (how earthQuack reaches the node —
+  transport + Tailscale addresses), while `network_stats` is **interface
+  telemetry** (what NICs the machine has and what they carry). Tailscale
+  discovery is never mixed into interface telemetry.
+
+The dashboard renders system facts as a fact list, storage as
+`  ██████░░░░  210.2 / 369.5 GB · 62%` usage bars in a **Storage**
+group, and interfaces as one line each in a **Network** group —
+`name  addresses  ·  rx 4.1 GB · tx 271.5 MB`, with nonzero
+error/drop counters shown when present. Discovered peers show presence
+only until they report their own telemetry.
 
 ## The Python daemon
 
@@ -255,7 +271,7 @@ cmd/earthquack-node/    Go entry point (flags, env, wiring, lifecycle)
 internal/node/          Node model, registry, Tailscale provider, peer client,
                         auth (bearer + browser sessions), API, dashboard,
                         service refresher, daemon supervisor, telemetry
-                        (system*.go, storage*.go) + tests
+                        (system*.go, storage*.go, netstats*.go) + tests
 web/                    Embedded dashboard template + stylesheet
 daemon/                 Python sync services (see table above)
 app/                    Android app (Kotlin)

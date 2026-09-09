@@ -83,7 +83,7 @@ func main() {
 	repoRoot := envOr("EARTHQUACK_REPO", ".")
 	daemonMgr := node.NewDaemonManager(node.PythonDaemonConfig{
 		RepoDir:       repoRoot + "/daemon",
-		Host:          envOr("EARTHQUACK_HOST", "127.0.0.1"),
+		Host:          envOr("EARTHQUACK_HOST", "0.0.0.0"),
 		ClipboardPort: fmt.Sprintf("%d", envIntOr("EARTHQUACK_PORT", 8875)),
 		FilePort:      fmt.Sprintf("%d", envIntOr("EARTHQUACK_FILE_PORT", 8876)),
 		AESKey:        os.Getenv("CLIPBOARD_AES_KEY"),
@@ -146,6 +146,13 @@ func main() {
 	// API/dashboard read registry state; they never probe.
 	refresher := node.NewServiceRefresher(reg, specs, probeHost, 500*time.Millisecond, 0)
 	go refresher.Run(ctx)
+
+	// Telemetry history: independent bounded sampler on its own ticker.
+	// It shares the registry (and the interval) with the refresher but
+	// is deliberately NOT coupled to service probing — this goroutine
+	// owns snapshots, the refresher owns port probes.
+	telemetry := node.NewTelemetrySampler(reg, 0)
+	go telemetry.Run(ctx)
 
 	// Supervise the python daemon for its whole lifetime.
 	go daemonMgr.BeginRestartLoop(ctx)

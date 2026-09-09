@@ -68,6 +68,9 @@ func (p *TailscaleProvider) DiscoverPeers() ([]Node, error) {
 	var nodes []Node
 	now := time.Now().UTC()
 	for key, peer := range st.Peer {
+		if strings.Contains(peer.HostName, "funnel-ingress") {
+			continue
+		}
 		id := peer.ID
 		if id == "" {
 			id = key // fall back to the map key (node key), still stable

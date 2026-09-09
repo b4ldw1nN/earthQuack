@@ -53,17 +53,23 @@ type NetworkInfo struct {
 // authoritative /api/node response; false means it is only a
 // discovered transport peer (no capabilities/services are claimed).
 type Node struct {
-	Identity     Identity     `json:"identity"`
-	Hostname     string       `json:"hostname"`
-	OS           string       `json:"os"`
-	Online       bool         `json:"online"`
-	Registered   bool         `json:"registered"`
-	Capabilities []string     `json:"capabilities"`
-	Services     []Service    `json:"services"`
-	Network      NetworkInfo  `json:"network"`
-	System       *SystemInfo  `json:"system,omitempty"`
-	Storage      *StorageInfo `json:"storage,omitempty"`
-	LastSeen     time.Time    `json:"last_seen,omitempty"`
+	Identity     Identity          `json:"identity"`
+	Hostname     string            `json:"hostname"`
+	OS           string            `json:"os"`
+	Online       bool              `json:"online"`
+	Registered   bool              `json:"registered"`
+	Capabilities []string          `json:"capabilities"`
+	Services     []Service         `json:"services"`
+	Network      NetworkInfo       `json:"network"`
+	System       *SystemInfo       `json:"system,omitempty"`
+	Storage      *StorageInfo      `json:"storage,omitempty"`
+	NetworkStats *NetworkStatsInfo `json:"network_stats,omitempty"`
+	// Health is the conservative runtime summary derived from this
+	// node's own state via EvaluateHealth (see health.go). It is
+	// measured, never configured, and absent (nil) for discovered
+	// peers, about which earthQuack has no authoritative knowledge.
+	Health   *HealthInfo `json:"health,omitempty"`
+	LastSeen time.Time   `json:"last_seen,omitempty"`
 }
 
 // LocalNodeName is the name reported for this instance in /api/node.

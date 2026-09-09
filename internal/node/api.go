@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -11,6 +12,13 @@ import (
 type API struct {
 	registry *Registry
 	version  string
+}
+
+// historyResponse is the JSON shape of GET /api/history. It carries
+// bounded, chronological metric samples plus recent transition events.
+type historyResponse struct {
+	Samples []MetricSample `json:"samples"`
+	Events  []HistoryEvent `json:"events,omitempty"`
 }
 
 // ServerAuthConfig carries the authentication settings for a node
@@ -50,6 +58,8 @@ func NewAPI(reg *Registry, version string) (http.Handler, error) {
 	mux.HandleFunc("GET /api/health", api.handleHealth)
 	mux.HandleFunc("GET /api/node", api.handleLocalNode)
 	mux.HandleFunc("GET /api/nodes", api.handleNodes)
+	mux.HandleFunc("GET /api/history", api.handleHistory)
+	mux.HandleFunc("GET /api/events", api.handleEvents)
 	return mux, nil
 }
 
@@ -79,6 +89,8 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handl
 	apiMux.HandleFunc("GET /api/health", api.handleHealth)
 	apiMux.HandleFunc("GET /api/node", api.handleLocalNode)
 	apiMux.HandleFunc("GET /api/nodes", api.handleNodes)
+	apiMux.HandleFunc("GET /api/history", api.handleHistory)
+	apiMux.HandleFunc("GET /api/events", api.handleEvents)
 	apiHandler := AuthMiddleware(apiMux, auth.Token)
 
 	// Browser subtree: session-cookie authenticated, with a pass-through
@@ -123,4 +135,45 @@ func (a *API) handleNodes(w http.ResponseWriter, _ *http.Request) {
 	a.writeJSON(w, http.StatusOK, map[string]any{
 		"nodes": a.registry.Nodes(),
 	})
+}
+
+// handleHistory serves the local node's bounded telemetry history.
+// It reads only the already-recorded rings — it never samples, never
+// reads /proc, and never probes. Bounded by construction:
+// LocalHistory caps the returned samples and the ring itself discards
+// the oldest once MaxHistorySamples is reached.
+func (a *API) handleHistory(w http.ResponseWriter, _ *http.Request) {
+	samples, events := a.registry.LocalHistory(0)
+	if samples == nil {
+		samples = []MetricSample{}
+	}
+	if events == nil {
+		events = []HistoryEvent{}
+	}
+	a.writeJSON(w, http.StatusOK, historyResponse{Samples: samples, Events: events})
+}
+
+// eventsResponse is the JSON shape of GET /api/events.
+type eventsResponse struct {
+	Events []Event `json:"events"`
+}
+
+// handleEvents serves the local node's recent events as the public typed
+// Event model. It is read-only and bounded by MaxHistoryEvents. Default
+// limit is 50; maximum is 200.
+func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			limit = v
+			if limit > 200 {
+				limit = 200
+			}
+		}
+	}
+	events := a.registry.History().RecentEvents(limit)
+	if events == nil {
+		events = []Event{}
+	}
+	a.writeJSON(w, http.StatusOK, eventsResponse{Events: events})
 }

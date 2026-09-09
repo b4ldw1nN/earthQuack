@@ -34,6 +34,8 @@ type Registry struct {
 	client       *NodeClient // nil disables peer probing
 	sysProvider  SysInfoProvider
 	storProvider StorageProvider
+	netProvider  NetworkStatsProvider
+	history      *History
 	now          func() time.Time
 }
 
@@ -83,6 +85,8 @@ func NewRegistry(identity Identity, providers []NetworkProvider, now func() time
 		client:       client,
 		sysProvider:  newSysInfoProvider(),
 		storProvider: newStorageProvider(),
+		netProvider:  newNetworkStatsProvider(),
+		history:      NewHistory(MaxHistorySamples, MaxHistoryEvents),
 		now:          now,
 	}, nil
 }
@@ -103,6 +107,17 @@ func (r *Registry) SetStorageInfoProvider(p StorageProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.storProvider = p
+}
+
+// SetNetworkStatsProvider overrides the network-telemetry collector.
+// The default is the Linux /proc/net/dev + net.Interfaces-backed
+// provider; tests inject fakes. Network stats follow the same rules
+// as System/Storage: measured at read time, attached to the local
+// node only, and entirely separate from NetworkInfo (discovery).
+func (r *Registry) SetNetworkStatsProvider(p NetworkStatsProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.netProvider = p
 }
 
 // RegisterCapability declares that this node provides a capability.
@@ -143,6 +158,7 @@ func (r *Registry) Local() Node {
 	n := r.local
 	sys := r.sysProvider
 	stor := r.storProvider
+	netp := r.netProvider
 	r.mu.RUnlock()
 	if sys != nil {
 		if s := sys.Collect(); s.HasInfo() {
@@ -154,7 +170,28 @@ func (r *Registry) Local() Node {
 			n.Storage = &s
 		}
 	}
+	if netp != nil {
+		if s := netp.Collect(); s.HasInfo() {
+			n.NetworkStats = &s
+		}
+	}
+	// Health is derived last, from the fully assembled local state.
+	n.Health = EvaluateHealth(n)
 	return n
+}
+
+// peers returns a copy of the current peer map for snapshot-style reads.
+// Callers must not mutate the returned map. Used by the sampler for
+// peer lifecycle detection; the registry itself remains the owner of
+// the real map.
+func (r *Registry) peerSnapshot() map[Identity]peerEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[Identity]peerEntry, len(r.peers))
+	for k, v := range r.peers {
+		out[k] = v
+	}
+	return out
 }
 
 // SetLocalNetwork updates the local node's transport information
@@ -201,7 +238,9 @@ func (r *Registry) Refresh() {
 		if err != nil {
 			continue
 		}
+		seen := make(map[Identity]bool, len(peers))
 		for _, peer := range peers {
+			seen[peer.Identity] = true
 			if peer.Identity == r.local.Identity {
 				continue // never probe/track ourselves
 			}
@@ -249,6 +288,15 @@ func (r *Registry) Refresh() {
 			peer.Registered = false
 			r.peers[peer.Identity] = peerEntry{node: peer, lastSeen: now}
 		}
+
+		// Prune discovered peers belonging to this provider that are no longer reported
+		for id, entry := range r.peers {
+			if !entry.node.Registered && entry.node.Network.Transport == p.Name() && !seen[id] {
+				delete(r.peers, id)
+				delete(r.alias, id)
+				delete(r.lastProbe, id)
+			}
+		}
 	}
 }
 
@@ -282,14 +330,25 @@ func (r *Registry) Nodes() []Node {
 	for _, e := range r.peers {
 		n := e.node
 		n.Online = n.Online && now.Sub(e.lastSeen) < PeerTTL
+		if !n.Online && n.Registered {
+			// Registered but unreachable: report offline only.
+			// Stale service/telemetry snapshots from the last good
+			// probe must not leak into the offline view or override
+			// the offline state — earthQuack has no fresh knowledge.
+			n.Services = nil
+			n.System = nil
+			n.Storage = nil
+			n.NetworkStats = nil
+		}
+		n.Health = EvaluateHealth(n)
 		nodes = append(nodes, n)
 	}
 	SortNodes(nodes)
 
-	// Attach current local system/storage snapshots to the local
-	// entry. Discovered peers get neither: they have not
-	// authoritatively reported it.
-	if r.sysProvider != nil || r.storProvider != nil {
+	// Attach current local system/storage/network snapshots to the
+	// local entry. Discovered peers get none of these: they have not
+	// authoritatively reported their own telemetry.
+	if r.sysProvider != nil || r.storProvider != nil || r.netProvider != nil {
 		var sysSnap *SystemInfo
 		if r.sysProvider != nil {
 			if s := r.sysProvider.Collect(); s.HasInfo() {
@@ -302,11 +361,23 @@ func (r *Registry) Nodes() []Node {
 				storSnap = &s
 			}
 		}
-		if sysSnap != nil || storSnap != nil {
+		var netSnap *NetworkStatsInfo
+		if r.netProvider != nil {
+			if s := r.netProvider.Collect(); s.HasInfo() {
+				netSnap = &s
+			}
+		}
+		if sysSnap != nil || storSnap != nil || netSnap != nil {
 			for i := range nodes {
 				if nodes[i].Identity == r.local.Identity {
 					nodes[i].System = sysSnap
 					nodes[i].Storage = storSnap
+					nodes[i].NetworkStats = netSnap
+					// Snapshots arrived after the local copy was made;
+					// re-derive its health from the final state.
+					// (Telemetry never influences health today, but
+					// the derivation must see what the API serves.)
+					nodes[i].Health = EvaluateHealth(nodes[i])
 				}
 			}
 		}

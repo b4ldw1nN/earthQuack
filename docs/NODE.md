@@ -50,6 +50,7 @@ CONFIG (declarations only)     RUNTIME (never configurable)
   services (name/port/version)   hostname, OS
   auth token                     online/offline, service status
                                  network addresses, peers
+                                 system/storage/interface telemetry
 ```
 
 A config file cannot set identity, hostname, OS, or network state —
@@ -124,7 +125,9 @@ not security — the bearer token protects the API regardless.
 Runs as an ordinary unprivileged user. Required access:
 
 * **read:** `/etc/machine-id` (node identity), Tailscale CLI
-  (`tailscale status --json`) for peer discovery
+  (`tailscale status --json`) for peer discovery, `/proc`
+  (`meminfo`, `uptime`, `loadavg`, `self/mounts`, `net/dev`) for
+  system/storage/network telemetry
 * **network:** bind the configured port, outbound HTTP to peers
 * **write:** nothing, unless `/etc/machine-id` is missing — then one
   small file is created under `~/.config/earthquack/node-id`

@@ -54,6 +54,9 @@ func newTestRegistry(t *testing.T) (*Registry, *fakeProvider) {
 	// Hermetic by default: no test touches the real machine's mounts.
 	// Storage-specific tests inject their own fake below.
 	reg.SetStorageInfoProvider(fakeStorageProvider{})
+	// Same for network telemetry: tests inject their own fake; the
+	// real /proc/net/dev-backed collector must not leak into tests.
+	reg.SetNetworkStatsProvider(fakeNetworkStatsProvider{})
 	// Explicit local capability/service registration (the node's own
 	// declarations; never inferred).
 	reg.RegisterCapability("clipboard")
