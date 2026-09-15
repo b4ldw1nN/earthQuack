@@ -211,9 +211,9 @@ func TestDashboardRendersNodeModel(t *testing.T) {
 	}
 	html := string(body)
 
-	// The template must render Node-model fields only.
+	// The overview template must render registered node-model fields.
 	for _, want := range []string{
-		"earthQuack", "archii", "linux", "homeserver", "vps",
+		"earthQuack", "archii", "linux",
 		"clipboard", "file-transfer", "running", "stopped",
 	} {
 		if !strings.Contains(html, want) {
@@ -224,6 +224,20 @@ func TestDashboardRendersNodeModel(t *testing.T) {
 	for _, forbidden := range []string{"tailscale status", "nodekey", "BackendState", "Peer"} {
 		if strings.Contains(html, forbidden) {
 			t.Errorf("dashboard HTML leaked transport detail %q", forbidden)
+		}
+	}
+
+	// Unregistered peers (homeserver, vps) now live on /peers.
+	peersResp, err := http.Get(srv.URL + "/peers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peersResp.Body.Close()
+	peersBody, _ := io.ReadAll(peersResp.Body)
+	peersHTML := string(peersBody)
+	for _, want := range []string{"homeserver", "vps"} {
+		if !strings.Contains(peersHTML, want) {
+			t.Errorf("peers page HTML missing %q", want)
 		}
 	}
 
@@ -242,9 +256,13 @@ func TestDashboardRendersNodeModel(t *testing.T) {
 }
 
 func TestDashboardRendersNodeCategories(t *testing.T) {
-	tmpl, err := web.DashboardTemplate()
+	nodesTmpl, err := web.NodesTemplate()
 	if err != nil {
-		t.Fatalf("DashboardTemplate: %v", err)
+		t.Fatalf("NodesTemplate: %v", err)
+	}
+	peersTmpl, err := web.PeersTemplate()
+	if err != nil {
+		t.Fatalf("PeersTemplate: %v", err)
 	}
 	// Exercise every node-state the dashboard must distinguish, built
 	// purely from the Node model (no transport details).
@@ -295,8 +313,8 @@ func TestDashboardRendersNodeCategories(t *testing.T) {
 		Now: time.Now(),
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, view); err != nil {
-		t.Fatalf("template execute: %v", err)
+	if err := nodesTmpl.Execute(&buf, view); err != nil {
+		t.Fatalf("nodes template execute: %v", err)
 	}
 	html := buf.String()
 
@@ -305,27 +323,24 @@ func TestDashboardRendersNodeCategories(t *testing.T) {
 		t.Fatalf("expected 1 'this node' badge, got %d", got)
 	}
 
-	// Two top-level sections: registered nodes then discovered peers.
-	if !strings.Contains(html, ">NODES<") || !strings.Contains(html, "DISCOVERED PEERS") {
-		t.Fatalf("expected NODES and DISCOVERED PEERS sections")
+	// Nodes section present.
+	if !strings.Contains(html, ">NODES<") {
+		t.Fatalf("expected NODES section")
 	}
-	idx := strings.Index(html, "DISCOVERED PEERS")
-	registeredSec := html[:idx]
-	peerSec := html[idx:]
 
 	// Registered section renders every registered node...
 	for _, want := range []string{"archii", "homeserver", "vps", "100.92.160.31", "100.1.1.1", "100.2.2.2"} {
-		if !strings.Contains(registeredSec, want) {
+		if !strings.Contains(html, want) {
 			t.Errorf("registered section missing %q", want)
 		}
 	}
 	// ...and ONLY the nodes that declared them show capability/service
 	// sections: archii + homeserver declare capabilities (2 headings),
 	// only archii declares services (1 heading). vps has neither.
-	if got := strings.Count(registeredSec, `<h3>Capabilities</h3>`); got != 2 {
+	if got := strings.Count(html, `<h3>Capabilities</h3>`); got != 2 {
 		t.Errorf("expected 2 capability headings (archii, homeserver), got %d", got)
 	}
-	if got := strings.Count(registeredSec, `<h3>Services</h3>`); got != 1 {
+	if got := strings.Count(html, `<h3>Services</h3>`); got != 1 {
 		t.Errorf("expected 1 service heading (archii only), got %d", got)
 	}
 	// Multiple capabilities render as chips.
@@ -341,9 +356,8 @@ func TestDashboardRendersNodeCategories(t *testing.T) {
 	if !strings.Contains(html, ":8875") || !strings.Contains(html, ":8876") {
 		t.Errorf("service endpoints not rendered")
 	}
-	// System section renders for the registered local node (its own
-	// authoritative snapshot) and only there.
-	if !strings.Contains(registeredSec, "<h3>System</h3>") {
+	// System section renders for the registered local node.
+	if !strings.Contains(html, `<h3>System</h3>`) {
 		t.Errorf("system section not rendered for registered node")
 	}
 	for _, want := range []string{">16 logical", "8.0 / 32.0 GB", "3d 12h", "1.42"} {
@@ -351,27 +365,35 @@ func TestDashboardRendersNodeCategories(t *testing.T) {
 			t.Errorf("system value %q not rendered", want)
 		}
 	}
-
-	// Discovered-peer section shows both states but NEVER fabricates
-	// capabilities/services for unregistered peers.
-	for _, want := range []string{"DESKTOP-9S55DRM", "V2253", "earthQuack not responding", "earthQuack unavailable"} {
-		if !strings.Contains(peerSec, want) {
-			t.Errorf("peer section missing %q", want)
-		}
-	}
-	if strings.Contains(peerSec, `<h3>Capabilities</h3>`) || strings.Contains(peerSec, `<h3>Services</h3>`) {
-		t.Errorf("discovered peers fabricated capabilities/services")
-	}
-	if strings.Contains(peerSec, `<h3>System</h3>`) {
-		t.Errorf("discovered peers fabricated system information")
-	}
-	// No transport detail leaks into the template output.
+	// No transport detail leaks into the nodes template output.
 	for _, forbidden := range []string{"nodekey", "BackendState", "tailscale status", "peer map"} {
 		if strings.Contains(html, forbidden) {
 			t.Errorf("dashboard leaked transport detail %q", forbidden)
 		}
 	}
+
+	// Peers page: render separately and verify peer content.
+	buf.Reset()
+	if err := peersTmpl.Execute(&buf, view); err != nil {
+		t.Fatalf("peers template execute: %v", err)
+	}
+	peerHTML := buf.String()
+
+	// Discovered-peer section shows both states but NEVER fabricates
+	// capabilities/services for unregistered peers.
+	for _, want := range []string{"DESKTOP-9S55DRM", "V2253", "earthQuack not responding", "earthQuack unavailable"} {
+		if !strings.Contains(peerHTML, want) {
+			t.Errorf("peer section missing %q", want)
+		}
+	}
+	if strings.Contains(peerHTML, `<h3>Capabilities</h3>`) || strings.Contains(peerHTML, `<h3>Services</h3>`) {
+		t.Errorf("discovered peers fabricated capabilities/services")
+	}
+	if strings.Contains(peerHTML, `<h3>System</h3>`) {
+		t.Errorf("discovered peers fabricated system information")
+	}
 }
+
 
 func findNode(nodes []Node, id Identity) Node {
 	for _, n := range nodes {

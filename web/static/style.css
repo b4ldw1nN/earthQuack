@@ -1337,7 +1337,169 @@ body {
 
 .inline-form { display: inline; margin: 0; }
 
-/* Responsive adjustments */
+/* ==========================================================================
+   Newer UI additions: background artwork layer, first-class services,
+   health "unknown" state, and the Local Node detail panel.
+   ========================================================================== */
+
+/* Atmospheric night-scene artwork behind the gradient + starfield.
+   Opacity is kept low so it never reduces text contrast. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: url("/static/background.svg") center / cover no-repeat;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+/* "Unknown" health state (registered node, online, insufficient info) */
+.health-pill.unknown {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--muted);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+/* First-class services: always visible on every registered node card */
+.card-services-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.card-services-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-services-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.card-services-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+
+.service-mini-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.service-mini-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 0;
+  font-size: 12px;
+}
+
+.service-mini-item.run .service-mini-state {
+  color: var(--on);
+  font-weight: 600;
+}
+
+.service-mini-item.stop .service-mini-state {
+  color: var(--off-alert);
+  font-weight: 600;
+}
+
+.service-mini-item.unk .service-mini-state {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.service-mini-name { color: var(--text); }
+.service-mini-state { font-size: 10.5px; text-transform: uppercase; margin-left: auto; }
+.service-mini-empty { font-size: 11px; font-style: italic; }
+
+/* Local Node detail panel: anchor "tabs" + stacked sub-sections.
+   Server-rendered; the tabs scroll to each section (no JS, no SPA). */
+.local-detail-panel { margin-top: 26px; }
+
+.local-tabnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.local-tabnav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 11.5px;
+  padding: 4px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  transition: all 0.15s ease;
+}
+
+.local-tabnav a:hover,
+.local-tabnav a:focus-visible {
+  color: var(--accent);
+  border-color: var(--border-glow);
+  outline: none;
+}
+
+.local-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.local-subsection {
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 14px 16px;
+  scroll-margin-top: 90px;
+}
+
+.local-subsection h4 {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.local-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.local-ov { display: flex; flex-direction: column; gap: 2px; }
+.local-ov .k {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.local-ov .mono { font-family: var(--font-mono); }
+
+/* Event state indicators (semantic class, independent of the escaped
+   per-type selectors; colour accompanies the text label, never alone). */
+.event-state-on .event-dot { background: var(--on); }
+.event-state-off .event-dot { background: var(--off-alert); }
+.event-state-warn .event-dot { background: var(--warn); }
+.event-state-muted .event-dot { background: var(--muted-dark); }
 @media (max-width: 1080px) {
   .summary-cards {
     grid-template-columns: repeat(2, 1fr);
@@ -1379,6 +1541,16 @@ body {
   }
   .summary-cards {
     grid-template-columns: 1fr;
+  }
+  .local-subsection {
+    padding: 12px 12px;
+  }
+  .local-overview-grid {
+    grid-template-columns: 1fr;
+  }
+  .card-services-inline .service-mini-name {
+    min-width: 0;
+    overflow-wrap: break-word;
   }
 }
 
@@ -1576,3 +1748,100 @@ body {
   gap: 6px;
 }
 
+/* ==========================================================================
+   Multi-page additions: /nodes, /events, /peers page-specific styles.
+   ========================================================================== */
+
+/* Nodes page: wider min-width so cards fill the full viewport */
+.nodes-page-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* view-all-badge — small pill used in section headers */
+.view-all-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Chevron toggle animation on expanded cards */
+.node-action-btn.expanded .chevron-icon {
+  transform: rotate(180deg);
+}
+.chevron-icon {
+  transition: transform 0.2s ease;
+}
+
+/* Events page: full-width timeline panel */
+.events-full-timeline {
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Events page items have more vertical breathing room */
+.events-page-item {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.07);
+}
+.events-page-item:last-child {
+  border-bottom: none;
+}
+
+/* Expanded event body on the events page */
+.event-body-full .re-time {
+  font-size: 12px;
+}
+.event-body-full .re-msg {
+  font-size: 13px;
+  color: var(--text-bright);
+}
+
+/* Node badge shown inline in the event header */
+.event-node-badge {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--muted-dark);
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  padding: 1px 7px;
+}
+
+/* Empty state for events / peers pages */
+.events-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 80px 24px;
+  text-align: center;
+}
+.events-empty-state svg {
+  width: 48px;
+  height: 48px;
+  color: var(--muted-dark);
+}
+.events-empty-state p {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.events-empty-state span {
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 380px;
+  line-height: 1.6;
+}

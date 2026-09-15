@@ -74,7 +74,7 @@ func TestDashboardUIRedesign(t *testing.T) {
 		EventStr: "15:04 healthy → degraded · service clipboard running → stopped",
 	}
 
-	tmpl, err := web.DashboardTemplate()
+	tmpl, err := web.OverviewTemplate()
 	if err != nil {
 		t.Fatalf("DashboardTemplate failed: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestDashboardUIRedesign(t *testing.T) {
 		t.Error("missing Sidebar with subtitle")
 	}
 
-	// 3. Summary counts
+	// 3. Summary counts use span IDs for testability
 	if !strings.Contains(html, `id="online-count">2<`) {
 		t.Errorf("summary online count wrong, html: %s", html)
 	}
@@ -122,13 +122,13 @@ func TestDashboardUIRedesign(t *testing.T) {
 		t.Errorf("expected exactly 1 'this node' badge, got %d", got)
 	}
 
-	// 6 & 7. Services prominently rendered
-	if !strings.Contains(html, "services-card-list") || !strings.Contains(html, "service-item") {
-		t.Error("services not rendered as first-class card list")
+	// 6 & 7. Inline services list rendered on every node card (overview shows mini-list, not full card-list)
+	if !strings.Contains(html, "card-services-inline") || !strings.Contains(html, "service-mini-list") {
+		t.Error("services not rendered as first-class inline list on overview")
 	}
 
 	// 8. Service status states (running, stopped)
-	if !strings.Contains(html, "status-running") || !strings.Contains(html, "status-stopped") {
+	if !strings.Contains(html, "service-mini-item run") || !strings.Contains(html, "service-mini-item stop") {
 		t.Error("missing service status classes")
 	}
 
@@ -137,47 +137,16 @@ func TestDashboardUIRedesign(t *testing.T) {
 		t.Error("missing health badges")
 	}
 
-	// 10 & 11. Discovered peers rendered without capabilities/services/system
-	idxPeers := strings.Index(html, "DISCOVERED PEERS")
-	if idxPeers == -1 {
-		t.Fatal("missing DISCOVERED PEERS section")
-	}
-	peerSec := html[idxPeers:]
-	if !strings.Contains(peerSec, "phone") || !strings.Contains(peerSec, "unverified") {
-		t.Error("peer section missing discovered peer details")
-	}
-	if strings.Contains(peerSec, "<h3>Capabilities</h3>") || strings.Contains(peerSec, "<h3>Services</h3>") || strings.Contains(peerSec, "<h3>System</h3>") {
-		t.Error("discovered peer fabricated capabilities/services/system")
-	}
-
-	// 12. Recent events render newest-first
+	// 10. Recent events render (sidebar panel on overview)
 	idxEvStopped := strings.Index(html, "service.stopped")
 	idxEvOnline := strings.Index(html, "node.online")
 	if idxEvStopped == -1 || idxEvOnline == -1 || !(idxEvStopped < idxEvOnline) {
 		t.Errorf("recent events not rendered newest first: stopped=%d, online=%d", idxEvStopped, idxEvOnline)
 	}
 
-	// 14. System telemetry
-	if !strings.Contains(html, "8 logical") || !strings.Contains(html, "Arch Linux") {
-		t.Error("system telemetry missing")
-	}
-
-	// 15. Storage telemetry
-	if !strings.Contains(html, "40.0 / 100.0 GB") {
-		t.Error("storage telemetry missing")
-	}
-
-	// 16. Network telemetry
-	if !strings.Contains(html, ">eth0<") {
-		t.Error("network telemetry missing")
-	}
-
-	// 17. History renders
-	if got := strings.Count(html, "<h3>History</h3>"); got != 1 {
-		t.Errorf("expected 1 history section, got %d", got)
-	}
-	if !strings.Contains(html, "CPU %") || !strings.Contains(html, "Memory %") {
-		t.Error("history sparklines missing")
+	// 11. Sidebar nav links to all four pages
+	if !strings.Contains(html, `href="/nodes"`) || !strings.Contains(html, `href="/events"`) || !strings.Contains(html, `href="/peers"`) {
+		t.Error("sidebar missing nav links to other pages")
 	}
 
 	_ = fifty
@@ -189,7 +158,7 @@ func TestDashboardEmptyEvents(t *testing.T) {
 		Nodes: []Node{{Identity: "machine:local", Hostname: "archii", Online: true, Registered: true}},
 		Now:   time.Now(),
 	}
-	tmpl, err := web.DashboardTemplate()
+	tmpl, err := web.OverviewTemplate()
 	if err != nil {
 		t.Fatal(err)
 	}

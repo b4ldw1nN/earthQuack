@@ -1,0 +1,48 @@
+{{template "layout" .}}
+
+{{define "title"}}Discovered Peers{{end}}
+
+{{define "content"}}
+<div class="section-header-bar">
+  <div class="section-title-wrap">
+    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+    <div>
+      <h2 class="section">DISCOVERED PEERS</h2>
+      <p class="section-desc">Tailscale network peers — not running earthQuack</p>
+    </div>
+  </div>
+  <span class="view-all-badge">Tailscale Network</span>
+</div>
+
+{{$peers := 0}}
+<div class="peer-grid">
+  {{range .Nodes}}{{if not .Registered}}{{$peers = 1}}
+  <article class="node peer {{if .Online}}online{{else}}offline{{end}}">
+    <div class="node-head">
+      <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+      <span class="hostname">{{.Hostname}}</span>
+      <span class="state {{if .Online}}on{{else}}off{{end}}">
+        {{if .Online}}ONLINE{{else}}OFFLINE{{end}}
+      </span>
+    </div>
+
+    <div class="facts">
+      <div><span class="k">OS</span> {{.OS}}</div>
+      {{with .Network}}
+      <div><span class="k">{{.Transport}}</span>
+        {{if .Addresses}}{{index .Addresses 0}}{{if gt (len .Addresses) 1}} +{{else}}{{end}}{{end}}
+      </div>
+      {{end}}
+      <div class="unverified">{{if .Online}}{{.Network.Transport}} peer · earthQuack not responding{{else}}{{.Network.Transport}} peer · earthQuack unavailable{{end}}</div>
+    </div>
+  </article>
+  {{end}}{{end}}
+</div>
+{{if not $peers}}
+<div class="events-empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+  <p>No unregistered peers discovered.</p>
+  <span>Peers appear here when Tailscale nodes on your network are not running earthQuack.</span>
+</div>
+{{end}}
+{{end}}

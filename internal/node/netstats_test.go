@@ -311,7 +311,7 @@ func TestDiscoveredPeerHasNoNetworkStats(t *testing.T) {
 // --- dashboard ---
 
 func TestDashboardRendersNetworkStats(t *testing.T) {
-	tmpl, err := web.DashboardTemplate()
+	tmpl, err := web.NodesTemplate()
 	if err != nil {
 		t.Fatalf("DashboardTemplate: %v", err)
 	}

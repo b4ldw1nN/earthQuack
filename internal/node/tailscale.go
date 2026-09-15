@@ -79,7 +79,7 @@ func (p *TailscaleProvider) DiscoverPeers() ([]Node, error) {
 			Identity:     Identity("tailscale:" + id),
 			Hostname:     peer.HostName,
 			OS:           peer.OS,
-			Online:       peer.Online,
+			Online:       peer.Online || peer.Active,
 			Capabilities: []string{},
 			Services:     []Service{},
 			Network: NetworkInfo{

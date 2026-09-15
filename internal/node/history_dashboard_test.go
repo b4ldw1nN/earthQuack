@@ -22,13 +22,13 @@ func TestDashboardHistorySection(t *testing.T) {
 	reg.History().AddSample(MetricSample{Time: time.Now(), MemUsed: 8 << 30, MemTotal: 32 << 30, NetRX: 1000, NetTX: 2000, CPUPercent: &fifty})
 	reg.History().AddEvent(HistoryEvent{Time: time.Now(), Kind: "health", From: "healthy", To: "degraded"})
 
-	h, err := NewDashboardHandler(reg)
+	h, err := NewNodesHandler(reg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(h)
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/")
+	resp, err := http.Get(srv.URL + "/nodes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,13 +54,13 @@ func TestDashboardNoHistoryForPeers(t *testing.T) {
 	reg.SetStorageInfoProvider(fakeStorageProvider{})
 	reg.SetNetworkStatsProvider(fakeNetworkStatsProvider{})
 	reg.History().AddSample(MetricSample{Time: time.Now(), MemUsed: 1, MemTotal: 2})
-	h, err := NewDashboardHandler(reg)
+	h, err := NewNodesHandler(reg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(h)
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/")
+	resp, err := http.Get(srv.URL + "/nodes")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestDashboardRecentEventsRendering(t *testing.T) {
 		Message: "node offline",
 	})
 
-	h, err := NewDashboardHandler(reg)
+	h, err := NewOverviewHandler(reg)
 	if err != nil {
 		t.Fatal(err)
 	}

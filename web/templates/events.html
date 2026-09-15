@@ -1,0 +1,43 @@
+{{template "layout" .}}
+
+{{define "title"}}Events{{end}}
+
+{{define "content"}}
+<div class="section-header-bar">
+  <div class="section-title-wrap">
+    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+    <div>
+      <h2 class="section">EVENTS</h2>
+      <p class="section-desc">Full audit stream — node state transitions and service changes</p>
+    </div>
+  </div>
+  <span class="view-all-badge">Live Stream</span>
+</div>
+
+{{if .RecentEvents}}
+<div class="events-full-timeline">
+  {{range .RecentEvents}}
+  <div class="timeline-event-item event-type-{{.Type}} event-state-{{$.EventStateClass .}} events-page-item">
+    <div class="event-indicator">
+      <span class="event-dot"></span>
+      <span class="event-line"></span>
+    </div>
+    <div class="event-body event-body-full">
+      <div class="event-header-line">
+        <span class="re-time">{{.Time.Format "Jan 2 · 15:04:05"}}</span>
+        <span class="re-type">{{.Type}}</span>
+        <span class="event-node-badge">{{.Node}}</span>
+      </div>
+      <p class="re-msg">{{.Message}}</p>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="events-empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+  <p>No events recorded yet.</p>
+  <span>Events appear here when nodes come online, services change state, or health transitions occur.</span>
+</div>
+{{end}}
+{{end}}

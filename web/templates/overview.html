@@ -1,0 +1,211 @@
+{{template "layout" .}}
+
+{{define "title"}}Overview{{end}}
+
+{{define "content"}}
+{{$localID := .Local.Identity}}
+
+<!-- Top Summary Cards (4 Cards Grid) -->
+<section class="summary-section">
+  <div class="summary-cards">
+    <!-- Online Nodes -->
+    <div class="summary-card card-online">
+      <div class="summary-icon-circle icon-online">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </div>
+      <div class="summary-text-block">
+        <span class="summary-number" id="online-count">{{.OnlineNodesCount}}</span>
+        <span class="summary-label">Online Nodes</span>
+        <span class="summary-subtext">of {{.RegisteredNodesCount}} registered</span>
+      </div>
+    </div>
+
+    <!-- Offline Nodes -->
+    <div class="summary-card card-offline">
+      <div class="summary-icon-circle icon-offline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </div>
+      <div class="summary-text-block">
+        <span class="summary-number" id="offline-count">{{.OfflineNodesCount}}</span>
+        <span class="summary-label">Offline Node{{if ne .OfflineNodesCount 1}}s{{end}}</span>
+        <span class="summary-subtext">of {{.RegisteredNodesCount}} registered</span>
+      </div>
+    </div>
+
+    <!-- Running Services -->
+    <div class="summary-card card-services">
+      <div class="summary-icon-circle icon-services">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </div>
+      <div class="summary-text-block">
+        <span class="summary-number" id="running-services">{{.RunningServicesCount}}</span>
+        <span class="summary-label">Running Services</span>
+        <span class="summary-subtext">of {{.TotalServicesCount}} total</span>
+      </div>
+    </div>
+
+    <!-- Degraded Nodes -->
+    <div class="summary-card card-degraded">
+      <div class="summary-icon-circle icon-degraded">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      </div>
+      <div class="summary-text-block">
+        <span class="summary-number" id="degraded-nodes">{{.DegradedNodesCount}}</span>
+        <span class="summary-label">Degraded Node{{if ne .DegradedNodesCount 1}}s{{end}}</span>
+        <span class="summary-subtext">service issue{{if ne .DegradedNodesCount 1}}s{{end}}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Main Dashboard Split Layout: Nodes (65%) + Recent Events (35%) -->
+<div class="overview-split-layout">
+  <!-- Left Column: Nodes Overview -->
+  <div class="overview-left-col">
+    <div class="section-header-bar">
+      <div class="section-title-wrap">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+        <div>
+          <h2 class="section">NODES</h2>
+          <p class="section-desc">Your registered earthQuack nodes</p>
+        </div>
+      </div>
+      <a href="/nodes" class="view-all-link">View all →</a>
+    </div>
+
+    <!-- Compact Nodes Grid -->
+    <div class="compact-node-grid">
+      {{range .Nodes}}{{if .Registered}}
+      <article class="compact-node-card registered-node-card {{if .Online}}online{{else}}offline{{end}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}} degraded{{end}}" id="node-card-{{.Identity}}">
+        <div class="node-card-top">
+          <div class="node-card-title-row">
+            <span class="status-dot dot {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}warn{{else if and .Health (eq (printf "%s" .Health.Status) "unknown")}}warn{{else}}on{{end}}{{else}}off{{end}}"></span>
+            <span class="hostname">{{.Hostname}}</span>
+            {{if eq .Identity $localID}}<span class="badge">this node</span>{{end}}
+            {{if and .Health (eq (printf "%s" .Health.Status) "healthy")}}
+              <span class="health-pill healthy">HEALTHY</span>
+            {{else if and .Health (eq (printf "%s" .Health.Status) "degraded")}}
+              <span class="health-pill degraded">DEGRADED</span>
+            {{else if and .Health (eq (printf "%s" .Health.Status) "unknown")}}
+              <span class="health-pill unknown">UNKNOWN</span>
+            {{else if not .Online}}
+              <span class="health-pill offline">OFFLINE</span>
+            {{end}}
+          </div>
+          <div class="node-state-label">
+            <span class="state {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}warn{{else}}on{{end}}{{else}}off{{end}}">
+              {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}DEGRADED{{else}}ONLINE{{end}}{{else}}OFFLINE{{end}}
+            </span>
+          </div>
+          <span class="identity-subtext">{{.Identity}}</span>
+        </div>
+
+        {{if and .Health .Health.Summary}}
+        <div class="health-summary">{{.Health.Summary}}</div>
+        {{end}}
+
+        <div class="node-card-meta">
+          <div class="meta-row">
+            <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <span>{{.OS}} {{if .System}}{{if .System.Arch}}({{.System.Arch}}){{end}}{{end}}</span>
+          </div>
+          {{with .Network}}
+          {{if .Addresses}}
+          <div class="meta-row node-ips">
+            <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            <span class="node-ip-list">{{range $i, $addr := .Addresses}}{{if $i}}, {{end}}<span class="node-ip">{{$addr}}</span>{{end}}</span>
+          </div>
+          {{end}}
+          {{end}}
+          {{if .System}}{{if .System.UptimeHuman}}
+          <div class="meta-row">
+            <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Uptime {{.System.UptimeHuman}}</span>
+          </div>
+          {{end}}{{end}}
+        </div>
+
+        <!-- Mini Metrics -->
+        <div class="node-card-metrics">
+          <div class="metric-row">
+            <span class="metric-name">Services</span>
+            <span class="metric-val">{{$.NodeRunningServicesCount .}} / {{len .Services}}</span>
+            <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: {{$.NodeServicesPercent .}}"></div></div>
+          </div>
+          <div class="metric-row">
+            <span class="metric-name">Memory</span>
+            <span class="metric-val">{{$.NodeMemoryPercent .}}</span>
+            <div class="metric-bar-bg"><div class="metric-bar-fill mem-fill" style="width: {{$.NodeMemoryPercent .}}"></div></div>
+          </div>
+          <div class="metric-row">
+            <span class="metric-name">Storage</span>
+            <span class="metric-val">{{$.NodeStoragePercent .}}</span>
+            <div class="metric-bar-bg"><div class="metric-bar-fill stor-fill" style="width: {{$.NodeStoragePercent .}}"></div></div>
+          </div>
+        </div>
+
+        <!-- First-Class Services -->
+        <div class="card-services-inline">
+          <div class="card-services-head">
+            <span class="card-services-title">Services</span>
+            <span class="card-services-count">{{$.NodeRunningServicesCount .}} / {{len .Services}}</span>
+          </div>
+          {{if .Services}}
+          <ul class="service-mini-list">
+            {{range .Services}}
+            <li class="service-mini-item {{if eq (printf "%s" .Status) "running"}}run{{else if eq (printf "%s" .Status) "stopped"}}stop{{else}}unk{{end}}">
+              <span class="service-mini-dot dot {{if eq (printf "%s" .Status) "running"}}on{{else if eq (printf "%s" .Status) "stopped"}}off{{else}}warn{{end}}"></span>
+              <span class="service-mini-name">{{.Name}}</span>
+              <span class="service-mini-state">{{.Status}}</span>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}
+          <p class="service-mini-empty empty">No services declared</p>
+          {{end}}
+        </div>
+      </article>
+      {{end}}{{end}}
+    </div>
+  </div>
+
+  <!-- Right Column: Recent Events -->
+  <div class="overview-right-col">
+    <div class="section-header-bar">
+      <div class="section-title-wrap">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        <div>
+          <h3>Recent Events</h3>
+          <p class="section-desc">Audit stream activity</p>
+        </div>
+      </div>
+      <a href="/events" class="view-all-link">View all →</a>
+    </div>
+
+    <div class="events-card-panel">
+      {{if .RecentEvents}}
+      <div class="events-timeline">
+        {{range .RecentEvents}}
+        <div class="timeline-event-item event-type-{{.Type}} event-state-{{$.EventStateClass .}}">
+          <div class="event-indicator">
+            <span class="event-dot"></span>
+            <span class="event-line"></span>
+          </div>
+          <div class="event-body">
+            <div class="event-header-line">
+              <span class="re-time">{{.Time.Format "15:04"}}</span>
+              <span class="re-type">{{.Type}}</span>
+            </div>
+            <p class="re-msg">{{.Message}}</p>
+            <span class="re-node">{{.Node}}</span>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="empty">No recent events recorded.</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

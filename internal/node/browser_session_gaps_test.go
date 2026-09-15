@@ -71,7 +71,7 @@ func TestBrowserExpiredSessionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dash, err := NewDashboardHandler(reg)
+	dash, err := NewOverviewHandler(reg)
 	if err != nil {
 		t.Fatal(err)
 	}

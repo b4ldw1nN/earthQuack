@@ -1,0 +1,246 @@
+{{template "layout" .}}
+
+{{define "title"}}Nodes{{end}}
+
+{{define "content"}}
+{{$localID := .Local.Identity}}
+
+<div class="section-header-bar">
+  <div class="section-title-wrap">
+    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+    <div>
+      <h2 class="section">NODES</h2>
+      <p class="section-desc">All registered earthQuack nodes — click a card to inspect details</p>
+    </div>
+  </div>
+  <span class="view-all-badge">{{.RegisteredNodesCount}} Nodes</span>
+</div>
+
+<!-- Full-width Nodes Grid -->
+<div class="compact-node-grid nodes-page-grid">
+  {{range .Nodes}}{{if .Registered}}
+  <article class="compact-node-card registered-node-card {{if .Online}}online{{else}}offline{{end}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}} degraded{{end}}" id="node-card-{{.Identity}}">
+    <!-- Node Card Header -->
+    <div class="node-card-top" onclick="toggleNodeDetails('details-{{.Identity}}', this.closest('.compact-node-card').querySelector('.node-action-btn'))">
+      <div class="node-card-title-row">
+        <span class="status-dot dot {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}warn{{else if and .Health (eq (printf "%s" .Health.Status) "unknown")}}warn{{else}}on{{end}}{{else}}off{{end}}"></span>
+        <span class="hostname">{{.Hostname}}</span>
+        {{if eq .Identity $localID}}<span class="badge">this node</span>{{end}}
+        {{if and .Health (eq (printf "%s" .Health.Status) "healthy")}}
+          <span class="health-pill healthy">HEALTHY</span>
+        {{else if and .Health (eq (printf "%s" .Health.Status) "degraded")}}
+          <span class="health-pill degraded">DEGRADED</span>
+        {{else if and .Health (eq (printf "%s" .Health.Status) "unknown")}}
+          <span class="health-pill unknown">UNKNOWN</span>
+        {{else if not .Online}}
+          <span class="health-pill offline">OFFLINE</span>
+        {{end}}
+      </div>
+      <div class="node-state-label">
+        <span class="state {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}warn{{else}}on{{end}}{{else}}off{{end}}">
+          {{if .Online}}{{if and .Health (eq (printf "%s" .Health.Status) "degraded")}}DEGRADED{{else}}ONLINE{{end}}{{else}}OFFLINE{{end}}
+        </span>
+      </div>
+      <span class="identity-subtext">{{.Identity}}</span>
+    </div>
+
+    {{if and .Health .Health.Summary}}
+    <div class="health-summary">{{.Health.Summary}}</div>
+    {{end}}
+
+    <div class="node-card-meta">
+      <div class="meta-row">
+        <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        <span>{{.OS}} {{if .System}}{{if .System.Arch}}({{.System.Arch}}){{end}}{{end}}</span>
+      </div>
+      {{with .Network}}
+      {{if .Addresses}}
+      <div class="meta-row node-ips">
+        <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        <span class="node-ip-list">{{range $i, $addr := .Addresses}}{{if $i}}, {{end}}<span class="node-ip">{{$addr}}</span>{{end}}</span>
+      </div>
+      {{end}}
+      {{end}}
+      {{if .System}}{{if .System.UptimeHuman}}
+      <div class="meta-row">
+        <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        <span>Uptime {{.System.UptimeHuman}}</span>
+      </div>
+      {{end}}{{end}}
+    </div>
+
+    <!-- Mini Metrics -->
+    <div class="node-card-metrics">
+      <div class="metric-row">
+        <span class="metric-name">Services</span>
+        <span class="metric-val">{{$.NodeRunningServicesCount .}} / {{len .Services}}</span>
+        <div class="metric-bar-bg"><div class="metric-bar-fill" style="width: {{$.NodeServicesPercent .}}"></div></div>
+      </div>
+      <div class="metric-row">
+        <span class="metric-name">Memory</span>
+        <span class="metric-val">{{$.NodeMemoryPercent .}}</span>
+        <div class="metric-bar-bg"><div class="metric-bar-fill mem-fill" style="width: {{$.NodeMemoryPercent .}}"></div></div>
+      </div>
+      <div class="metric-row">
+        <span class="metric-name">Storage</span>
+        <span class="metric-val">{{$.NodeStoragePercent .}}</span>
+        <div class="metric-bar-bg"><div class="metric-bar-fill stor-fill" style="width: {{$.NodeStoragePercent .}}"></div></div>
+      </div>
+    </div>
+
+    <!-- First-Class Services -->
+    <div class="card-services-inline">
+      <div class="card-services-head">
+        <span class="card-services-title">Services</span>
+        <span class="card-services-count">{{$.NodeRunningServicesCount .}} / {{len .Services}}</span>
+      </div>
+      {{if .Services}}
+      <ul class="service-mini-list">
+        {{range .Services}}
+        <li class="service-mini-item {{if eq (printf "%s" .Status) "running"}}run{{else if eq (printf "%s" .Status) "stopped"}}stop{{else}}unk{{end}}">
+          <span class="service-mini-dot dot {{if eq (printf "%s" .Status) "running"}}on{{else if eq (printf "%s" .Status) "stopped"}}off{{else}}warn{{end}}"></span>
+          <span class="service-mini-name">{{.Name}}</span>
+          <span class="service-mini-state">{{.Status}}</span>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}
+      <p class="service-mini-empty empty">No services declared</p>
+      {{end}}
+    </div>
+
+    <div class="node-card-footer">
+      <button type="button" class="node-action-btn" onclick="toggleNodeDetails('details-{{.Identity}}', this); event.stopPropagation();">
+        <span class="btn-text">Inspect Details</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+    </div>
+
+    <!-- Collapsible Details -->
+    <div class="node-expanded-details hidden" id="details-{{.Identity}}">
+      {{if .Services}}
+      <div class="node-detail-section">
+        <h3>Services</h3>
+        <div class="services-card-list">
+          {{range .Services}}
+          <div class="service-item status-{{.Status}}">
+            <div class="service-main">
+              <span class="service-dot dot {{if eq (printf "%s" .Status) "running"}}on{{else if eq (printf "%s" .Status) "stopped"}}off{{else}}warn{{end}}"></span>
+              <span class="service-name">{{.Name}}</span>
+              {{if .Endpoint}}<span class="service-port">{{.Endpoint}}</span>{{end}}
+              {{if .Version}}<span class="service-ver">v{{.Version}}</span>{{end}}
+            </div>
+            <div class="service-badge-wrap">
+              <span class="svc-status-pill status-{{.Status}}">{{.Status}}</span>
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+
+      {{if .Capabilities}}
+      <div class="node-detail-section">
+        <h3>Capabilities</h3>
+        <div class="chips">
+          {{range .Capabilities}}<span class="chip">{{.}}</span>{{end}}
+        </div>
+      </div>
+      {{end}}
+
+      {{if .System}}{{if .System.HasInfo}}
+      <div class="node-detail-section">
+        <h3>System</h3>
+        <ul class="services">
+          <li><span class="svc-name">CPU</span><span class="svc-status">{{.System.CPUHuman}} logical</span></li>
+          {{if .System.Arch}}<li><span class="svc-name">Architecture</span><span class="svc-status">{{.System.Arch}}</span></li>{{end}}
+          {{if .System.OS}}<li><span class="svc-name">OS</span><span class="svc-status">{{.System.OS}}</span></li>{{end}}
+          {{if .System.MemoryHuman}}<li><span class="svc-name">Memory</span><span class="svc-status">{{.System.MemoryHuman}}</span></li>{{end}}
+          {{if .System.UptimeHuman}}<li><span class="svc-name">Uptime</span><span class="svc-status">{{.System.UptimeHuman}}</span></li>{{end}}
+          {{if .System.LoadString}}<li><span class="svc-name">Load</span><span class="svc-status">{{.System.LoadString}}</span></li>{{end}}
+        </ul>
+      </div>
+      {{end}}{{end}}
+
+      {{if .Storage}}{{if .Storage.HasInfo}}
+      <div class="node-detail-section">
+        <h3>Storage</h3>
+        <ul class="storage">
+          {{range .Storage.Filesystems}}{{if .UsageHuman}}
+          <li>
+            <span class="mnt">{{.Mount}}</span>
+            <span class="bar">{{.UsageBar}}</span>
+            <span class="usage">{{.UsageHuman}} · {{.UsagePercentHuman}}</span>
+          </li>
+          {{end}}{{end}}
+        </ul>
+      </div>
+      {{end}}{{end}}
+
+      {{if .NetworkStats}}{{if .NetworkStats.HasInfo}}
+      <div class="node-detail-section">
+        <h3>Network</h3>
+        <ul class="net">
+          {{range .NetworkStats.Interfaces}}
+          <li>
+            <span class="if">{{.Name}}</span>
+            {{if .AddrHuman}}<span class="if-addrs">{{.AddrHuman}}</span>{{end}}
+            <span class="traffic">rx {{.RXHuman}} · tx {{.TXHuman}}</span>
+            {{if .ErrorsHuman}}<span class="if-err">{{.ErrorsHuman}}</span>{{end}}
+          </li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}{{end}}
+
+      {{if eq .Identity $localID}}
+      <div class="node-detail-section">
+        <h3>History</h3>
+        {{if $.HistRows}}
+        <table class="history">
+          <tbody>
+            {{range $.HistRows}}
+            <tr>
+              <td class="h-label">{{.Label}}</td>
+              <td class="h-bars"><span class="h-spark">{{.Bars}}</span></td>
+              <td class="h-val">{{.Value}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <p class="empty">Insufficient historical samples.</p>
+        {{end}}
+        {{if $.EventStr}}
+        <div class="h-events">{{$.EventStr}}</div>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+  </article>
+  {{end}}{{end}}
+</div>
+
+<script>
+  function toggleNodeDetails(detailsId, btn) {
+    var el = document.getElementById(detailsId);
+    if (!el) return;
+    var isHidden = el.classList.contains('hidden');
+    if (isHidden) {
+      el.classList.remove('hidden');
+      if (btn) {
+        var span = btn.querySelector('.btn-text');
+        if (span) span.textContent = 'Hide Details';
+        btn.classList.add('expanded');
+      }
+    } else {
+      el.classList.add('hidden');
+      if (btn) {
+        var span = btn.querySelector('.btn-text');
+        if (span) span.textContent = 'Inspect Details';
+        btn.classList.remove('expanded');
+      }
+    }
+  }
+</script>
+{{end}}
