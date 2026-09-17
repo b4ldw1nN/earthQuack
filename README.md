@@ -42,6 +42,7 @@ joins with **zero source changes**: build the binary, add a config file, run it.
 | Component | Location | What it does |
 |---|---|---|
 | **Go node** | `cmd/earthquack-node`, `internal/node` | Node API, dashboard, auth, identity, peer discovery/probing, telemetry (system, storage, network), daemon supervision. Stdlib only, Go ≥ 1.24, no external dependencies. |
+| **Wallpaper module** | `internal/wallpaper` | First capability module: provider-independent scan/sync/status/retry for wallpapers, archival state, retry/backoff, and a minimal CLI. The Telegram provider streams `sendDocument` uploads and owns forum topic state. Stdlib only. |
 | **Python daemon** | `daemon/` | The sync services themselves: clipboard broker + SSE, file staging/transfer, desktop clipboard bridge, send-folder watcher, AES-256-GCM crypto, Tailscale discovery, hotkeys. Python 3 stdlib only. |
 | **Android app** | `app/` | Foreground sync service, clipboard IME, file transfer/share, quick-settings tile, server config UI. Kotlin, minSdk 26 (Android 8+), target/compile SDK 34. |
 | **Shell helpers** | repo root | `clip-send`, `clip-open`, `clip-shot` — send files, open URLs on the phone, screenshot-to-phone from the desktop. |
@@ -81,18 +82,35 @@ curl -H "Authorization: Bearer $EARTHQUACK_AUTH_TOKEN" http://127.0.0.1:8890/api
 
 ## Configuration
 
+### Clipboard key in the node config
+
+The top-level `clipboard_aes_key` string in the node JSON config accepts the
+same Base64-encoded 32-byte key as `CLIPBOARD_AES_KEY`. Fill in the key matching
+the Android app, then restart the node to apply changes. A non-empty config key
+takes precedence over the environment. Leaving both empty disables clipboard encryption.
+From the project folder, run `./earthquack-node`: it loads `config.json` by default
+(unless `EARTHQUACK_NODE_CONFIG` or `--config` selects another file), without needing
+an `env -u CLIPBOARD_AES_KEY` prefix.
+Keep real keys private: do not commit a populated config, and restrict file access
+(e.g. mode `600`). The node passes the resolved key to its managed Python daemon;
+it does not change an independently managed clipboard service.
+
 ### Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `EARTHQUACK_AUTH_TOKEN` | *(none)* | Shared bearer token. **Required** — without it the node fails closed (see Auth). Wins over `auth.token` in the config file. |
-| `CLIPBOARD_AES_KEY` | *(none)* | Base64 32-byte AES-256-GCM key for clipboard payloads. Must match the Android app. Unset ⇒ clipboard travels unencrypted. |
+| `CLIPBOARD_AES_KEY` | *(none)* | Base64 32-byte AES-256-GCM key for clipboard payloads. Must match the Android app. Used only when `clipboard_aes_key` in the node config is empty. If both are empty, clipboard travels unencrypted. |
 | `EARTHQUACK_HOST` | `127.0.0.1` | Bind host for the Python sync services. |
 | `EARTHQUACK_PORT` / `EARTHQUACK_FILE_PORT` | `8875` / `8876` | Ports for clipboard / file transfer. |
 | `EARTHQUACK_NODE_HOST` / `EARTHQUACK_NODE_PORT` | `0.0.0.0` / `8890` | Defaults for the node's `--host` / `--port` flags. |
 | `EARTHQUACK_NODE_CONFIG` | *(none)* | Default `--config` path. |
 | `EARTHQUACK_REPO` | `.` | Repo root, so the node can find `daemon/app.py`. |
 | `EARTHQUACK_SECURE_COOKIE` | *(off)* | `1` adds the `Secure` flag to session cookies (enable once the dashboard is behind TLS). |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | *(none)* | Wallpaper→Telegram credentials. **Never commit or log.** They register the `wallpaper` capability/service automatically when present. |
+| `EARTHQUACK_WALLPAPER_SOURCE` | `~/Pictures/Wallpapers` | Wallpaper source directory override. |
+| `EARTHQUACK_WALLPAPER_STATE` | `~/.local/share/earthquack/wallpaper` | Wallpaper state directory (`uploads.json`, `topics.json`, `failed.json`, `files.json`, `sync.json`). Point it at an existing archive to adopt it. |
+| `EARTHQUACK_WALLPAPER_PROVIDER` | `telegram` | Archive provider selector (only `telegram` is implemented). |
 
 ### Node declaration file (optional)
 
@@ -112,7 +130,25 @@ declarations file (`--config`, see `examples/`):
 A node with **no config file is valid**: it falls back to the built-in
 declarations (clipboard + file-transfer on 8875/8876). `examples/arch.json`
 matches those defaults; `examples/homeserver.json` and `examples/vps.json`
-illustrate other declaration sets (storage, docker, reverse-proxy).
+illustrate other declaration sets (storage, docker, reverse-proxy);
+`examples/arch-wallpaper.json` additionally declares the `wallpaper`
+module as an enabled node capability:
+
+```json
+{
+  "wallpaper": {
+    "enabled": true,
+    "source": "~/Pictures/Wallpapers",
+    "provider": "telegram"
+  }
+}
+```
+
+Credentials (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) **never belong in the
+file** — they come from the environment. A node with the module declared
+reports capability `wallpaper` and a `running` in-process service of the
+same name in `/api/node`; having zero pending wallpapers never marks the
+node unhealthy.
 
 **The config boundary is strict** — configuration is *declarations only*:
 
@@ -157,7 +193,8 @@ The token is never logged, never returned by any endpoint, and never placed in U
 
 ## Node API
 
-All endpoints are read-only.
+The `/api/*` endpoints are read-only. The browser dashboard also provides
+session-authenticated, CSRF-protected local service controls on the Nodes page.
 
 | Endpoint | Auth | Returns |
 |---|---|---|
@@ -165,6 +202,7 @@ All endpoints are read-only.
 | `GET /api/node` | Bearer | This node: identity, hostname, OS, capabilities, services (+status), network, `system`, `storage`, `network_stats` |
 | `GET /api/nodes` | Bearer | Local node + all discovered peers |
 | `GET /` | session or Bearer | Human dashboard |
+| `POST /services/control` | — | Local managed-service Start/Stop (browser session + CSRF) |
 | `GET /login`, `POST /login`, `POST /logout` | — | Browser session management |
 
 ### Telemetry
@@ -240,6 +278,153 @@ and `win-shot.py` is the screenshot path behind the hotkey manager.
 legacy systemd glue from before the Go node became the entry point — kept
 for reference, not part of the current flow.
 
+## The wallpaper module
+
+The repository's first capability module lives in `internal/wallpaper` —
+an archive layer over the existing wallpaper collection. It scans a
+source directory, discovers supported images, resolves each file's
+SHA-256 digest (from its local digest cache when unchanged, from an
+existing archive record when the path and size already match, and only
+otherwise by reading the file), skips anything already archived, groups
+files by folder (loose root files → `Unsorted`), and archives the rest
+via a provider interface.
+
+```sh
+earthquack-node wallpaper status                                   # source/provider/counts/topics/cache/last-sync
+earthquack-node wallpaper scan                                     # list discovered files + categories
+earthquack-node wallpaper sync                                     # archive new/changed wallpapers
+earthquack-node wallpaper sync --dry-run                           # preview; never uploads, topics, or state
+earthquack-node wallpaper retry-failed                             # re-archive only files in failed.json
+```
+
+Useful overrides: `-source`, `-state`, `-provider` (or
+`$EARTHQUACK_WALLPAPER_SOURCE`, `$EARTHQUACK_WALLPAPER_STATE`,
+`$EARTHQUACK_WALLPAPER_PROVIDER`).
+
+### Provider abstraction
+
+Only one interface exists — the one this feature needs:
+
+```go
+type ArchiveProvider interface {
+    Name() string
+    Upload(ctx context.Context, file ArchiveFile) error
+}
+```
+
+`ArchiveFile` carries provider-agnostic terms: source path, filename,
+category, digest, size. Telegram-specific concepts such as
+`message_thread_id` live inside the Telegram provider only
+(`internal/wallpaper`), which owns `topics.json` and all forum-topic
+creation/reuse. The wallpaper module never touches them.
+
+Images upload via Telegram `sendDocument` as the original bytes —
+streamed in bounded chunks, never resized, recompressed, converted, or
+fully loaded into memory. Files larger than the 50 MB Bot API limit fail
+validation without an upload attempt.
+
+### Retry/backoff
+
+Transient failures (network/TLS resets, HTTP 408/429, Telegram 5xx) retry
+with exponential backoff (`Base 2s × Factor 2`, up to 5 retries) and
+**honour Telegram's `Retry-After`**. Permanent failures (other HTTP 4xx)
+fail fast. The policies are pure functions (`Backoff.Delay`, retry
+classifiers), so tests cover them without sleeping.
+
+If Telegram reports that a cached forum topic no longer exists
+(`message thread not found` / `thread not found` / `topic not found`),
+the provider drops the stale mapping, recreates the topic, and re-sends
+the file once — the same recovery the Python script performs. If recovery
+is impossible the original upload error is what surfaces (and therefore
+what `failed.json` records).
+
+### Failed state
+
+A failed upload is recorded in `failed.json` (path → category, thread id,
+digest, size, error, time) and **never** added to `uploads.json`.
+
+`wallpaper retry-failed` re-verifies each entry before retrying, exactly
+like the Python script: the file must still exist, be a regular image
+file, and be within the provider's size limit; its content is re-hashed;
+and an entry whose digest is already archived is cleared as resolved
+(counted as `Skipped`) instead of being re-uploaded. A successful retry
+updates `uploads.json` and removes the failed entry. Entries that cannot
+be resolved are preserved and counted as still failing, so state is never
+silently lost and the command's exit code reflects outstanding work. All
+JSON state writes are atomic (temp + fsync + rename).
+
+### Existing archives
+
+The module reads the existing `uploads.json` verbatim and models **both**
+record shapes the Python script has produced:
+
+```json
+{"file": "...", "filename": "...", "topic": "Unsorted", "thread_id": 8, "size": 321177}
+{"path": "...", "filename": "...", "topic": "Wallhaven", "size": 690476,
+ "mtime_ns": 1789552342111352324, "message_id": 538, "uploaded_at": 1789553881}
+```
+
+Keys are SHA-256 digests, so de-duplication is always content-addressed.
+Records written by the module use the current `path`-based shape; legacy
+records are written back with every field they carried, so neither tool
+loses data written by the other. Point `state_dir`/env at an existing
+directory to adopt it: the first sync recognises all archived files and
+uploads nothing.
+
+Deliberate differences from the Python script:
+
+- New records carry `path`, `filename`, `topic`, `size`, `mtime_ns` and
+  `uploaded_at`. `thread_id` is not written per file (the provider keeps
+  category → thread-id in `topics.json`) and `message_id` is not produced
+  at all — neither is ever used for de-duplication, and existing values
+  are preserved.
+- `sync --dry-run` writes nothing, including `files.json` (the Python
+  script refreshes its index even on a dry run).
+- `retry-failed` counts unresolvable entries (deleted file, unsupported
+  type, over the size limit) as still failing, matching the Python
+  script's non-zero exit; their `failed.json` entries are preserved.
+
+### Digest cache (`files.json`)
+
+The updated Python script keeps a local file index in `files.json`
+(`resolved path → {size, mtime_ns, sha256}`) so unchanged files are never
+re-read. The module reads and writes that same file, and each scan
+resolves digests in order of increasing cost:
+
+1. the local index (path + size + mtime match) — no read at all;
+2. an existing archive record for the same path and size — no read
+   (this is what lets an adopted archive avoid re-hashing itself);
+3. otherwise SHA-256 the file once, streaming.
+
+Consequences worth knowing:
+
+- `status` and `sync --dry-run` **only read** the index; they never write
+  it. `sync` refreshes it after scanning, and `retry-failed` refreshes the
+  entries it resolves.
+- Pruning is scoped to the scanned source root, so a shared state
+  directory (this archive caches two source trees) never loses the other
+  tree's cached digests.
+- The index is advisory: deleting it costs CPU, never correctness —
+  archived/pending decisions always come from `uploads.json`.
+- `status` reports `Digest cache hits` / `Files hashed` so the cost of a
+  run is visible. On this archive (438 files) a status run is fully
+  cache-served: 438 hits, 0 files hashed.
+
+### State locations (defaults shown)
+
+```text
+~/Pictures/Wallpapers                            source (config: source)
+~/.local/share/earthquack/wallpaper              state  (config: state_dir)
+  uploads.json                                   already archived, keyed by SHA-256
+  failed.json                                    files to retry, keyed by source path
+  topics.json                                    provider state: category → thread id
+  files.json                                     local digest cache (shared with the Python script)
+  sync.json                                      last sync timestamp
+```
+
+`sync.json` is this module's own additive file; the Python script ignores
+it. The other four are shared with `wallpaper-backup.py`.
+
 ## The Android app
 
 Kotlin, `app/` (package `com.example.earthquack`, Gradle project
@@ -295,11 +480,26 @@ python3 daemon/test_hotkey_manager.py
 
 ## Security notes
 
+* **Token hygiene for wallpaper → Telegram:** the bot token lives only in
+  `TELEGRAM_BOT_TOKEN` (or config-free environments), and `chat_id` in
+  `TELEGRAM_CHAT_ID`. Neither may ever appear in source code, tests,
+  `config.json`, README, logs, dashboard HTML, or repo history. Capitals:
+  never print the bot token. `TelegramError` builds transport and
+  Telegram errors that describe the failure without embedding the token.
+  Logs and CLI output describe outcomes (`✓`, `✗ FAILED`, counts) — not
+  secrets.
 * Fail-closed auth everywhere: no token ⇒ 503s, no login page, no dashboard.
 * Constant-time token comparison; tokens never logged, echoed, or put in URLs.
 * Sessions are in-memory, 12 h; the cookie carries no secret (`SameSite=Strict`).
 * Config files cannot fabricate identity, network state, or runtime status.
-* The dashboard is read-only; there are no state-changing endpoints.
+* **Nodes → Managed services** provides Start/Stop for the local shared
+  clipboard/file-transfer daemon and Start sync/Stop for configured wallpaper
+  jobs. The dashboard stays online. Remote and monitor-only services remain
+  read-only; changes are runtime-only. Wallpaper Stop cancels only its dashboard
+  job, not an external CLI run. Do not run both against the same archive state.
+* `POST /services/control` requires a browser session and session-bound CSRF
+  token; bearer-only clients cannot mutate service state. See
+  [managed-service behavior](docs/NODE.md#managed-services-in-the-frontend).
 * Clipboard payloads are AES-256-GCM encrypted end-to-end when a key is set.
 * Bind the node to the tailnet IP (`--host "$(tailscale ip -4)"`) so nothing
   is exposed on your LAN — binding is transport hygiene, the token is the gate.

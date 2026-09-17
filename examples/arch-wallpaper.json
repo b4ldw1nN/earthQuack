@@ -1,7 +1,6 @@
 {
-  "auth": {
-    "token": "thisisworking"
-  },
+  "auth": {"token": ""},
+  "clipboard_aes_key": "",
   "capabilities": [
     "clipboard",
     "file-transfer"
@@ -19,5 +18,10 @@
       "port": 8876,
       "version": "0.1.0"
     }
-  ]
+  ],
+  "wallpaper": {
+    "enabled": true,
+    "source": "~/Pictures/Wallpapers",
+    "provider": "telegram"
+  }
 }

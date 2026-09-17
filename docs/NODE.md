@@ -42,6 +42,39 @@ Nothing is fabricated at runtime: a service is only reported `running`
 if its port is actually reachable, and capabilities exist only because
 they are explicitly declared.
 
+The arch-with-wallpaper example declares the wallpaper module enabled
+(see `examples/arch-wallpaper.json`):
+
+```json
+{
+  "wallpaper": {
+    "enabled": true,
+    "source": "~/Pictures/Wallpapers",
+    "provider": "telegram"
+  }
+}
+```
+
+Credentials (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) come from the
+environment — never from the config file.
+
+The module's state directory is shared with the standalone
+`wallpaper-backup.py` script, so an existing archive can be adopted
+without re-uploading anything:
+
+```text
+state dir (uploads.json, failed.json, topics.json, files.json, sync.json)
+  uploads.json   content ledger, keyed by SHA-256 (both record shapes the
+                 Python script has written are supported verbatim)
+  failed.json    retry ledger, keyed by source path
+  topics.json    Telegram provider state: category → forum thread id
+  files.json     local digest cache (shared with the Python script)
+  sync.json      last sync timestamp (additive; the Python script ignores it)
+```
+
+`status`, `sync --dry-run` and `retry-failed` on an empty retry set are
+read-only: they never create or rewrite state files.
+
 The config boundary is strict:
 
 ```text
@@ -98,10 +131,30 @@ secret):
   directly to read the dashboard without a session.
 * Wrong/missing login tokens render the same generic "Invalid token"
   message; tokens are never echoed, logged, or put in URLs.
-* CSRF posture: `SameSite=Strict` + POST-only login/logout, and the
-  dashboard is read-only with no state-changing endpoints. Management
-  endpoints, when they ever exist, will need a real CSRF/auth design
-  first.
+* CSRF posture: `SameSite=Strict` cookies and POST-only mutations.
+  `POST /services/control` additionally requires a valid browser session
+  and a session-bound CSRF token. Bearer-only clients cannot control services.
+
+### Managed services in the frontend
+
+Open **Nodes → Managed services — this node** after logging in.
+
+* **Clipboard + file transfer:** Start/Stop controls their shared Python
+  daemon together. Stop interrupts active transfers and pauses automatic
+  restart; Start resumes supervision. Port health updates on the usual
+  refresh interval (up to 30 seconds).
+* **Wallpaper sync:** visible when wallpaper is configured. Start sync runs
+  one archive job; Stop requests cancellation without shutting down the
+  dashboard. Refresh to see completion, failure counts or cancellation.
+  Cancellation waits for an ongoing directory scan/file hash to finish.
+  The service list reports module availability separately from job activity.
+* Remote and probe-only services are read-only; open the owning node's
+  dashboard to control its managed services. No arbitrary commands, PIDs,
+  or systemd units can be submitted through the frontend.
+* Controls are runtime-only, not persisted configuration. Restarting the
+  node restores startup behavior. Wallpaper does not auto-sync on startup.
+  Do not run a CLI sync concurrently against the dashboard job's state
+  directory; Stop cannot cancel an independently launched CLI process.
 
 ## 4. Bind address
 

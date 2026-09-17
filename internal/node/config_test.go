@@ -82,6 +82,31 @@ func TestConfigCannotFabricateRuntimeFields(t *testing.T) {
 	}
 }
 
+// TestLoadConfigClipboardAESKey pins the clipboard_aes_key contract: the
+// field parses, and an empty value is valid (AES disabled).
+func TestLoadConfigClipboardAESKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "node.json")
+	if err := os.WriteFile(path, []byte(`{"clipboard_aes_key":"AAAA"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil || cfg.ClipboardAESKey != "AAAA" {
+		t.Fatalf("clipboard_aes_key not parsed: %+v", cfg)
+	}
+	if err := os.WriteFile(path, []byte(`{"clipboard_aes_key":""}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = LoadConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil || cfg.ClipboardAESKey != "" {
+		t.Fatalf("empty key must parse: %+v", cfg)
+	}
+}
+
 func TestConfiguredServiceRetainedWhenProbeFails(t *testing.T) {
 	reg, err := NewRegistry("machine:test", nil, nil, nil)
 	if err != nil {

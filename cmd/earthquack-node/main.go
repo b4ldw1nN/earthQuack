@@ -20,14 +20,25 @@ import (
 	"time"
 
 	"github.com/b4ldw1nN/earthquack/internal/node"
+	"github.com/b4ldw1nN/earthquack/internal/wallpaper"
 )
 
 const version = "0.1.0"
 
+// wallpaperVersion mirrors the module's declared service version in the
+// node registry.
+const wallpaperVersion = "0.1.0"
+
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintln(flag.CommandLine.Output(), "Usage: earthquack-node [node flags] [wallpaper <command> [flags]]\n\nWithout a subcommand, starts the node and dashboard.\nNode flags:")
+		flag.PrintDefaults()
+		fmt.Fprintln(flag.CommandLine.Output(), "\nWallpaper commands: status, scan, sync, retry-failed, help\n  wallpaper status             Show local archive status (no uploads)\n  wallpaper sync --dry-run     Preview without changing state\n  wallpaper sync               Archive pending files\n  wallpaper retry-failed       Retry failed uploads\n  wallpaper help               Show wallpaper flags\n\nBoth node and CLI load ./config.json by default (or EARTHQUACK_NODE_CONFIG).\nUse --config /absolute/node.json before wallpaper to override.\nWallpaper flags: --source <directory or colon-separated roots>, --state <directory>, --provider telegram.\nEnable wallpaper in config to show its frontend controls; no sync is needed.")
+	}
+
 	host := flag.String("host", envOr("EARTHQUACK_NODE_HOST", "0.0.0.0"), "bind host")
 	port := flag.Int("port", envIntOr("EARTHQUACK_NODE_PORT", 8890), "bind port")
-	configPath := flag.String("config", envOr("EARTHQUACK_NODE_CONFIG", ""),
+	configPath := flag.String("config", envOr("EARTHQUACK_NODE_CONFIG", "config.json"),
 		"optional JSON file declaring this node's capabilities/services")
 	flag.Parse()
 
@@ -53,6 +64,22 @@ func main() {
 		}
 	}
 
+	var wallpaperConfig *node.WallpaperConfig
+	if cfg != nil {
+		wallpaperConfig = cfg.Wallpaper
+	}
+	wallpaperEnv, err := node.WallpaperEnvironment(wallpaperConfig, os.Getenv)
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	if args := flag.Args(); len(args) > 0 {
+		if args[0] != "wallpaper" {
+			fmt.Fprintln(os.Stderr, "unknown command:", args[0])
+			os.Exit(2)
+		}
+		os.Exit(wallpaper.RunCLIWithIO(args[1:], os.Stdin, os.Stdout, os.Stderr, wallpaperEnv))
+	}
+
 	// Token precedence: EARTHQUACK_AUTH_TOKEN env var wins over the
 	// config file, so the secret never has to be stored in the repo.
 	// An empty token fails closed: protected endpoints return 503
@@ -67,6 +94,19 @@ func main() {
 			cfg != nil && cfg.Auth.Token != "")
 	} else {
 		log.Printf("auth: NO token configured - protected endpoints will fail closed (503)")
+	}
+
+	// An explicit config key wins over a stale shell environment key.
+	// Environment-only deployments remain supported as a fallback.
+	aesKey := resolveAESKey(cfg)
+	if aesKey != "" {
+		source := "environment"
+		if cfg != nil && cfg.ClipboardAESKey != "" {
+			source = "config"
+		}
+		log.Printf("clipboard: AES key configured (source=%s)", source)
+	} else {
+		log.Printf("clipboard: NO AES key configured - clipboard travels unencrypted")
 	}
 
 	identity, err := node.ResolveLocalIdentity()
@@ -86,7 +126,7 @@ func main() {
 		Host:          envOr("EARTHQUACK_HOST", "0.0.0.0"),
 		ClipboardPort: fmt.Sprintf("%d", envIntOr("EARTHQUACK_PORT", 8875)),
 		FilePort:      fmt.Sprintf("%d", envIntOr("EARTHQUACK_FILE_PORT", 8876)),
-		AESKey:        os.Getenv("CLIPBOARD_AES_KEY"),
+		AESKey:        aesKey,
 	})
 	if err := daemonMgr.Start(); err != nil {
 		log.Printf("earthquack: failed to start python daemon: %v (continuing)", err)
@@ -130,6 +170,22 @@ func main() {
 			reg.RegisterCapability(capName)
 		}
 	}
+
+	// Register the wallpaper module with the node's service/capability
+	// system when it is configured (declared enabled, or a source/state
+	// override or provider credential is present in the environment).
+	// Wallpaper is an in-process module, so once declared it is a
+	// "running" service: it does not depend on any TCP port and, by
+	// design, having zero pending wallpapers never degrades node health.
+	// Individual archive failures are recorded in failed state and
+	// surfaced via events/status, not through global node health.
+	wallpaperDeclared := cfg != nil && cfg.Wallpaper != nil && cfg.Wallpaper.Enabled
+	if wallpaperDeclared || wallpaper.IsConfigured(wallpaperEnv) {
+		reg.RegisterCapability("wallpaper")
+		reg.RegisterService(node.Service{Name: "wallpaper", Status: node.ServiceRunning, Version: wallpaperVersion})
+		log.Printf("wallpaper: registered as a node service (config enabled=%v)", wallpaperDeclared)
+	}
+
 	probeHost := "127.0.0.1"
 	if local := reg.Local(); len(local.Network.Addresses) > 0 {
 		probeHost = local.Network.Addresses[0]
@@ -154,8 +210,33 @@ func main() {
 	telemetry := node.NewTelemetrySampler(reg, 0)
 	go telemetry.Run(ctx)
 
-	// Supervise the python daemon for its whole lifetime.
-	go daemonMgr.BeginRestartLoop(ctx)
+	// Supervise the Python daemon; browser Stop pauses this supervisor.
+	daemonMgr.BeginRestartLoop(ctx)
+	defer daemonMgr.Shutdown()
+	managed := []node.ManagedService{{
+		ID: "python-daemon", Name: "Clipboard + file transfer",
+		Description: "Both services share one Python daemon and start/stop together. Stopping interrupts active transfers; the dashboard stays online.",
+		Start:       daemonMgr.Start, Stop: daemonMgr.Stop, Snapshot: daemonMgr.Snapshot,
+	}}
+	if wallpaperDeclared || wallpaper.IsConfigured(wallpaperEnv) {
+		job := node.NewManagedJob(ctx, func(jobCtx context.Context) (string, error) {
+			module, err := wallpaper.NewConfiguredModule("", "", "", wallpaperEnv)
+			if err != nil {
+				return "", err
+			}
+			report, err := module.Sync(jobCtx, false)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Uploaded: %d; failed: %d; skipped: %d.", report.Uploaded, report.Failed, report.Skipped), nil
+		})
+		defer func() { job.Stop(); job.Wait() }()
+		managed = append(managed, node.ManagedService{
+			ID: "wallpaper", Name: "Wallpaper sync",
+			Description: "Start runs one archive sync using this node's configured source, state and provider. Stop cancels only the dashboard job, not standalone CLI jobs. Do not run both against the same state directory.",
+			Start:       job.Start, Stop: job.Stop, Snapshot: job.Snapshot,
+		})
+	}
 
 	addr := net.JoinHostPort(*host, fmt.Sprint(*port))
 
@@ -166,7 +247,7 @@ func main() {
 	handler, err := node.NewServer(reg, version, node.ServerAuthConfig{
 		Token:        authToken,
 		SecureCookie: secureCookie,
-	})
+	}, managed...)
 	if err != nil {
 		log.Fatalf("api: %v", err)
 	}
@@ -180,15 +261,22 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
-		daemonMgr.Stop()
+		daemonMgr.Shutdown()
 	}()
 	log.Printf("earthQuack node %s listening on http://%s", version, addr)
 	log.Printf("identity: %s", identity)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server: %v", err)
 	}
-	daemonMgr.Stop()
+	daemonMgr.Shutdown()
 	log.Printf("earthQuack node stopped cleanly")
+}
+
+func resolveAESKey(cfg *node.Config) string {
+	if cfg != nil && cfg.ClipboardAESKey != "" {
+		return cfg.ClipboardAESKey
+	}
+	return os.Getenv("CLIPBOARD_AES_KEY")
 }
 
 func envOr(key, def string) string {

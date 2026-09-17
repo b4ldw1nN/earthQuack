@@ -89,7 +89,7 @@ func NewAPI(reg *Registry, version string) (http.Handler, error) {
 // Future API endpoints added under /api/ inherit Bearer auth; future
 // browser pages added under / inherit session auth. API clients and
 // remote nodes keep using Bearer and never need a browser session.
-func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handler, error) {
+func NewServer(reg *Registry, version string, auth ServerAuthConfig, services ...ManagedService) (http.Handler, error) {
 	overview, err := NewOverviewHandler(reg)
 	if err != nil {
 		return nil, err
@@ -110,6 +110,11 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handl
 		auth.SessionTTL = DefaultSessionTTL
 	}
 	sessions := NewSessionStore(auth.SessionTTL, nil, auth.Token != "")
+	controls, err := newServiceControls(services, sessions)
+	if err != nil {
+		return nil, err
+	}
+	nodesH = controls.page(nodesH)
 	api := &API{registry: reg, version: version}
 
 	// API subtree: Bearer-token authenticated, /api/health still public.
@@ -135,6 +140,7 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig) (http.Handl
 	browserMux.HandleFunc("GET /login", loginGetHandler(sessions))
 	browserMux.HandleFunc("POST /login", loginPostHandler(sessions, auth.Token, auth.SecureCookie, auth.SessionTTL))
 	browserMux.HandleFunc("POST /logout", logoutHandler(sessions))
+	browserMux.HandleFunc("POST /services/control", controls.action)
 	browserHandler := BrowserSessionMiddleware(browserMux, sessions, bearerOK)
 
 	root := http.NewServeMux()

@@ -7,6 +7,8 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 
 # Local config
+/config.json
+/earthquack-node
 local.properties
 *.keystore
 *.jks

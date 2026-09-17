@@ -60,9 +60,10 @@ func TestExampleNodeConfigs(t *testing.T) {
 		names map[string]bool
 	}
 	cases := map[string]want{
-		"arch.json":       {2, 2, map[string]bool{"clipboard": true, "file-transfer": true}},
-		"homeserver.json": {2, 2, map[string]bool{"storage": true, "docker": true}},
-		"vps.json":        {2, 2, map[string]bool{"reverse-proxy": true, "docker": true}},
+		"arch.json":           {2, 2, map[string]bool{"clipboard": true, "file-transfer": true}},
+		"arch-wallpaper.json": {2, 2, map[string]bool{"clipboard": true, "file-transfer": true}},
+		"homeserver.json":     {2, 2, map[string]bool{"storage": true, "docker": true}},
+		"vps.json":            {2, 2, map[string]bool{"reverse-proxy": true, "docker": true}},
 	}
 	for file, w := range cases {
 		t.Run(file, func(t *testing.T) {
@@ -72,6 +73,16 @@ func TestExampleNodeConfigs(t *testing.T) {
 			}
 			if len(cfg.Capabilities) != w.caps || len(cfg.Services) != w.svcs {
 				t.Fatalf("shape: caps=%d svcs=%d", len(cfg.Capabilities), len(cfg.Services))
+			}
+			if file == "arch-wallpaper.json" {
+				// The wallpaper module declaration must be explicit and
+				// carry no credentials.
+				if cfg.Wallpaper == nil || !cfg.Wallpaper.Enabled {
+					t.Fatal("arch-wallpaper.json must declare wallpaper.enabled")
+				}
+				if cfg.Wallpaper.Provider != "telegram" || cfg.Wallpaper.Source == "" {
+					t.Fatalf("wallpaper declaration incomplete: %+v", cfg.Wallpaper)
+				}
 			}
 			for _, s := range cfg.Services {
 				if !w.names[s.Name] {

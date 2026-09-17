@@ -22,6 +22,7 @@ type dashboardView struct {
 	RecentEvents []Event
 	HistRows     []historyRow
 	EventStr     string
+	Controls     controlsView
 }
 
 func (v dashboardView) OnlineNodesCount() int {
@@ -190,9 +191,11 @@ func buildView(reg *Registry, page string) dashboardView {
 // errors surface as 500s; the write is buffered so headers aren't
 // sent until the template succeeds.
 func pageHandler(tmpl *template.Template, reg *Registry, page string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, buildView(reg, page)); err != nil {
+		view := buildView(reg, page)
+		view.Controls, _ = r.Context().Value(controlsKey{}).(controlsView)
+		if err := tmpl.Execute(&buf, view); err != nil {
 			http.Error(w, "template error", http.StatusInternalServerError)
 			return
 		}

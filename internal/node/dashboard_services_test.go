@@ -135,7 +135,7 @@ func TestServicesRunningRatioBar(t *testing.T) {
 func TestHealthUnknownStateRenders(t *testing.T) {
 	n := Node{
 		Identity: "machine:u", Hostname: "bare", Online: true, Registered: true,
-		Health:   &HealthInfo{Status: HealthUnknown, Summary: "insufficient information"},
+		Health: &HealthInfo{Status: HealthUnknown, Summary: "insufficient information"},
 	}
 	view := dashboardView{Local: n, Nodes: []Node{n}, Now: time.Now()}
 	html := renderView(t, view)
@@ -143,6 +143,7 @@ func TestHealthUnknownStateRenders(t *testing.T) {
 		t.Error("unknown health state not rendered")
 	}
 }
+
 // TestLocalNodeDetailPanel asserts the local node's expandable detail section
 // on the /nodes page renders the full telemetry: services, system, storage,
 // network, and history sub-sections.
@@ -230,7 +231,7 @@ func TestDashboardTokenNeverLeaks(t *testing.T) {
 	if cookie == nil {
 		t.Fatal("no session cookie issued")
 	}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL + "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
 	req.AddCookie(cookie)
 	resp, err := c.Do(req)
 	if err != nil {

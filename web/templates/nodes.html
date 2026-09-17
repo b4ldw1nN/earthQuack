@@ -16,6 +16,29 @@
   <span class="view-all-badge">{{.RegisteredNodesCount}} Nodes</span>
 </div>
 
+{{if .Controls.Services}}
+<section class="managed-services" id="managed-services" aria-labelledby="managed-heading">
+  <h2 id="managed-heading">Managed services — this node</h2>
+  <p>Start and stop the services owned by this earthQuack process. Remote and monitor-only services remain read-only. Changes last until node restart.</p>
+  {{if .Controls.Notice}}<p role="status">{{.Controls.Notice}}</p>{{end}}
+  {{range .Controls.Services}}
+  <div class="managed-service">
+    <div>
+      <h3>{{.Name}}</h3>
+      <p>{{.Description}}</p>
+      <p role="status"><strong>{{if .Running}}Running{{else}}Not running{{end}}</strong> — {{.Message}}</p>
+    </div>
+    <form method="post" action="/services/control" class="service-controls">
+      <input type="hidden" name="csrf" value="{{$.Controls.CSRF}}">
+      <input type="hidden" name="service" value="{{.ID}}">
+      <button type="submit" name="action" value="start" {{if .Running}}disabled{{end}}>{{if eq .ID "wallpaper"}}Start sync{{else}}Start{{end}}</button>
+      <button type="submit" name="action" value="stop" class="service-stop" onclick="return confirm('Stop this managed service? Any services listed in its description are affected.');">Stop</button>
+    </form>
+  </div>
+  {{end}}
+</section>
+{{end}}
+
 <!-- Full-width Nodes Grid -->
 <div class="compact-node-grid nodes-page-grid">
   {{range .Nodes}}{{if .Registered}}

@@ -1845,3 +1845,40 @@ body::before {
   max-width: 380px;
   line-height: 1.6;
 }
+
+/* Local managed-service controls; no frontend build dependencies. */
+.managed-services {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #0f172a;
+}
+.managed-services h2, .managed-services h3 { margin: 0 0 8px; }
+.managed-services p { margin: 6px 0; color: #cbd5e1; }
+.managed-service {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid #334155;
+}
+.service-controls { display: flex; gap: 8px; flex-shrink: 0; }
+.service-controls button {
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  padding: 8px 14px;
+  color: #e0f2fe;
+  background: #164e63;
+  cursor: pointer;
+  font: inherit;
+}
+.service-controls button.service-stop { border-color: #fb7185; background: #881337; color: #fff1f2; }
+.service-controls button:disabled { opacity: .45; cursor: not-allowed; }
+.service-controls button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+@media (max-width: 640px) {
+  .managed-service { flex-direction: column; align-items: stretch; }
+  .service-controls button { flex: 1; }
+}

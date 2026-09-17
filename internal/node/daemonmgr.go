@@ -9,10 +9,12 @@ package node
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 // PythonDaemonConfig carries everything needed to start the Python
@@ -28,25 +30,30 @@ type PythonDaemonConfig struct {
 
 // DaemonManager owns and supervises the earthQuack Python daemon
 // subprocess. It is safe for concurrent use.
+// Stop pauses supervision; Start resumes it. Shutdown is terminal.
+// Exactly one goroutine calls Wait for each child.
 type DaemonManager struct {
-	cfg      PythonDaemonConfig
-	cmd      *exec.Cmd
-	mu       sync.Mutex
-	wg       sync.WaitGroup
-	stop     chan struct{}
-	stopOnce sync.Once
-	started  bool
+	cfg            PythonDaemonConfig
+	opMu           sync.Mutex
+	mu             sync.Mutex
+	cmd            *exec.Cmd
+	done           chan struct{}
+	enabled        bool
+	closed         bool
+	started        bool
+	commandFactory func() *exec.Cmd // test seam, never supplied by HTTP clients
 }
 
-// NewDaemonManager prepares a manager for the given config. Call Start
-// to launch the child and BeginRestartLoop to supervise it.
 func NewDaemonManager(cfg PythonDaemonConfig) *DaemonManager {
-	return &DaemonManager{cfg: cfg, stop: make(chan struct{})}
+	return &DaemonManager{cfg: cfg}
 }
 
 // command builds the exec.Cmd that runs the Python daemon with the
 // environment the daemon expects.
 func (m *DaemonManager) command() *exec.Cmd {
+	if m.commandFactory != nil {
+		return m.commandFactory()
+	}
 	cmd := exec.Command("python3", "app.py")
 	cmd.Dir = m.cfg.RepoDir
 	cmd.Stdout = os.Stdout
@@ -65,83 +72,103 @@ func (m *DaemonManager) command() *exec.Cmd {
 	return cmd
 }
 
-// Start launches the Python daemon. If it is already running it is a
-// no-op. Errors return a non-nil error.
-func (m *DaemonManager) Start() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cmd != nil && m.cmd.Process != nil {
-		return nil // already running
+func (m *DaemonManager) startLocked() error {
+	if m.cmd != nil {
+		return nil
 	}
-	m.cmd = m.command()
-	if err := m.cmd.Start(); err != nil {
+	cmd := m.command()
+	if err := cmd.Start(); err != nil {
 		return err
 	}
-	log.Printf("earthquack: started python daemon (pid %d)", m.cmd.Process.Pid)
+	done := make(chan struct{})
+	m.cmd, m.done = cmd, done
+	log.Printf("earthquack: started python daemon (pid %d)", cmd.Process.Pid)
+	go func() {
+		err := cmd.Wait()
+		m.mu.Lock()
+		m.cmd = nil
+		close(done)
+		m.mu.Unlock()
+		log.Printf("earthquack: python daemon exited (%v)", err)
+	}()
 	return nil
 }
 
-// BeginRestartLoop supervises the child until ctx is done or Stop is
-// called: if the daemon exits, it is restarted. Runs in its own
-// goroutine; safe to call once.
+func (m *DaemonManager) Start() error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return fmt.Errorf("daemon manager is shut down")
+	}
+	m.enabled = true
+	return m.startLocked()
+}
+
+// BeginRestartLoop retries crashes/start failures at a bounded rate.
 func (m *DaemonManager) BeginRestartLoop(ctx context.Context) {
 	m.mu.Lock()
-	if m.started {
+	if m.started || m.closed {
 		m.mu.Unlock()
 		return
 	}
 	m.started = true
 	m.mu.Unlock()
-
-	m.wg.Add(1)
 	go func() {
-		defer m.wg.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		for {
-			m.mu.Lock()
-			cmd := m.cmd
-			m.mu.Unlock()
-			if cmd == nil || cmd.Process == nil {
-				if err := m.Start(); err != nil {
-					log.Printf("earthquack: daemon start failed: %v", err)
-				}
-				cmd = m.cmd
-			}
-			err := cmd.Wait()
 			select {
 			case <-ctx.Done():
-				log.Printf("earthquack: context done — not restarting daemon")
+				m.Shutdown()
 				return
-			case <-m.stop:
-				log.Printf("earthquack: stop requested — not restarting daemon")
-				return
-			default:
+			case <-ticker.C:
+				m.opMu.Lock()
+				m.mu.Lock()
+				if m.closed {
+					m.mu.Unlock()
+					m.opMu.Unlock()
+					return
+				}
+				if m.enabled {
+					if err := m.startLocked(); err != nil {
+						log.Printf("earthquack: daemon start failed: %v", err)
+					}
+				}
+				m.mu.Unlock()
+				m.opMu.Unlock()
 			}
-			log.Printf("earthquack: python daemon exited (%v) — restarting", err)
-			m.mu.Lock()
-			m.cmd = nil
-			m.mu.Unlock()
 		}
 	}()
 }
 
-// Stop gracefully terminates the child daemon and waits for the
-// supervision loop to finish. It is safe to call multiple times.
-func (m *DaemonManager) Stop() {
+func (m *DaemonManager) stop(final bool) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
-	if !m.started {
-		m.mu.Unlock()
-		return
-	}
-	// Use a one-shot sync.Once so close(m.stop) runs at most once.
-	m.stopOnce.Do(func() {
-		close(m.stop)
-	})
-	cmd := m.cmd
+	m.enabled = false
+	m.closed = m.closed || final
+	cmd, done := m.cmd, m.done
 	m.mu.Unlock()
-
-	if cmd != nil && cmd.Process != nil {
+	if cmd != nil {
+		// Terminate only our own child, never an externally supplied PID.
 		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		<-done
 	}
-	m.wg.Wait()
+}
+
+func (m *DaemonManager) Stop()     { m.stop(false) }
+func (m *DaemonManager) Shutdown() { m.stop(true) }
+
+func (m *DaemonManager) Snapshot() ManagedState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cmd != nil {
+		return ManagedState{Running: true, Message: "Daemon running; port health is shown in the service list."}
+	}
+	if m.enabled && !m.closed {
+		return ManagedState{Message: "Not running; automatic restart pending."}
+	}
+	return ManagedState{Message: "Stopped; automatic restart paused."}
 }

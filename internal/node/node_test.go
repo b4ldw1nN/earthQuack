@@ -394,7 +394,6 @@ func TestDashboardRendersNodeCategories(t *testing.T) {
 	}
 }
 
-
 func findNode(nodes []Node, id Identity) Node {
 	for _, n := range nodes {
 		if n.Identity == id {

@@ -27,6 +27,29 @@ type Config struct {
 	Auth         AuthConfig         `json:"auth,omitempty"`
 	Capabilities []string           `json:"capabilities"`
 	Services     []LocalServiceSpec `json:"services"`
+	// ClipboardAESKey is the optional Base64 32-byte AES-256-GCM key for
+	// clipboard payloads. It must match the key configured in the Android
+	// app. A non-empty config value takes precedence over CLIPBOARD_AES_KEY.
+	// The environment is used only when this field is empty. If both are
+	// empty, clipboard travels unencrypted. Never logged or served by the API.
+	ClipboardAESKey string `json:"clipboard_aes_key,omitempty"`
+	// Wallpaper optionally enables the wallpaper module for this node
+	// and declares where it reads from. Like all config it is
+	// declarations only; archive/upload state remains runtime state.
+	Wallpaper *WallpaperConfig `json:"wallpaper,omitempty"`
+}
+
+// WallpaperConfig is the optional node declaration that enables the
+// built-in wallpaper module. Provider credentials are never stored
+// here — they come from the environment (TELEGRAM_BOT_TOKEN,
+// TELEGRAM_CHAT_ID).
+type WallpaperConfig struct {
+	Sources  []string `json:"sources,omitempty"`  // optional multiple roots; overrides source
+	EnvFile  string   `json:"env_file,omitempty"` // explicit credential file, never serialized in API
+	Enabled  bool     `json:"enabled,omitempty"`
+	Source   string   `json:"source,omitempty"`   // default ~/Pictures/Wallpapers
+	Provider string   `json:"provider,omitempty"` // default telegram
+	StateDir string   `json:"state_dir,omitempty"`
 }
 
 // AuthConfig is the application-authentication declaration for this

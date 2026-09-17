@@ -15,6 +15,13 @@ const (
 	EvHealthRecovered  EventType = "health.recovered"
 	EvNodeOffline      EventType = "node.offline"
 	EvNodeOnline       EventType = "node.online"
+
+	// Wallpaper module lifecycle events. Emitted by the wallpaper
+	// module through its event sink when an integration bridges them
+	// into the node history ring.
+	EvWallpaperSyncStarted   EventType = "wallpaper.sync.started"
+	EvWallpaperSyncCompleted EventType = "wallpaper.sync.completed"
+	EvWallpaperSyncFailed    EventType = "wallpaper.sync.failed"
 )
 
 // Event is the public, typed representation of a state transition.
@@ -45,7 +52,9 @@ func eventTypeName(kind, from, to string) EventType {
 	switch kind {
 	case string(EvServiceStopped), string(EvServiceRecovered),
 		string(EvHealthDegraded), string(EvHealthRecovered),
-		string(EvNodeOffline), string(EvNodeOnline):
+		string(EvNodeOffline), string(EvNodeOnline),
+		string(EvWallpaperSyncStarted), string(EvWallpaperSyncCompleted),
+		string(EvWallpaperSyncFailed):
 		return EventType(kind)
 	case "service":
 		if from == "running" && to == "stopped" {
