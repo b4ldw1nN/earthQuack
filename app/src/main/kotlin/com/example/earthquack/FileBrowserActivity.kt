@@ -351,13 +351,14 @@ class FileBrowserActivity : AppCompatActivity() {
     /**
      * Android shared storage as an on-the-fly local remote.
      *
-     * `Environment.getExternalStorageDirectory()` rather than a literal path,
-     * which is not guaranteed to be the same on every device.
+     * `Environment.getExternalStorageDirectory()` is the real shared root
+     * (`/storage/emulated/0`). An earlier version used
+     * `getExternalFilesDir(null)?.parentFile`, which is
+     * `/storage/emulated/0/Android/data/<pkg>` -- one level too deep and inside
+     * the app's own sandbox, so tapping "Shared Storage" opened a directory
+     * containing exactly one entry.
      */
-    private fun sharedRoot(): String =
-        ":local:" + (getExternalFilesDir(null)?.parentFile?.absolutePath
-            ?: android.os.Environment.getExternalStorageDirectory()?.absolutePath
-            ?: filesDir.absolutePath)
+    private fun sharedRoot(): String = sharedStorageFs(this)
 
     /** The current location as rclone would address it, e.g. `name:/a/b`. */
     private fun fullPath(): String =
@@ -456,9 +457,18 @@ class FileBrowserActivity : AppCompatActivity() {
         setOnClickListener { showLocationMenu(this) }
     }
 
-    private fun rootLabel(): String {
-        val named = fs.substringBefore(':')
-        return named.ifEmpty { getString(R.string.storage_internal) }
+    /**
+     * Label for the root chip.
+     *
+     * A named remote shows its own name. An on-the-fly local remote has no
+     * name -- `substringBefore(':')` returns empty -- so it is distinguished by
+     * which directory it points at. Calling every on-the-fly path "Internal
+     * Storage" was actively wrong when the path was shared storage.
+     */
+    private fun rootLabel(): String = when {
+        fs == sharedRoot() -> getString(R.string.storage_shared)
+        fs == localRoot() -> getString(R.string.storage_internal)
+        else -> fs.substringBefore(':').ifEmpty { getString(R.string.files_title) }
     }
 
     private fun crumb(label: String, depth: Int): TextView {
@@ -687,6 +697,20 @@ class FileBrowserActivity : AppCompatActivity() {
         private const val MENU_REMOTE_BASE = 100
 
         const val EXTRA_FS = "fs"
+
+        /**
+         * The shared-storage root as an rclone on-the-fly remote spec.
+         *
+         * Public and static because two screens need it, and they previously
+         * each derived it independently -- and one of them used
+         * `getExternalFilesDir(null)?.parentFile`, which is
+         * `/storage/emulated/0/Android/data/<pkg>` rather than the shared root.
+         * A single definition removes the chance of that drifting again.
+         */
+        fun sharedStorageFs(context: Context): String =
+            ":local:" + (android.os.Environment.getExternalStorageDirectory()?.absolutePath
+                ?: context.getExternalFilesDir(null)?.absolutePath
+                ?: context.filesDir.absolutePath)
 
         /** Opens the browser at the app's own directory. */
         fun intent(context: Context): Intent =

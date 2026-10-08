@@ -82,9 +82,6 @@ class StorageFragment : Fragment() {
         // only a missing link.
         binding.rowInternal.setOnClickListener { openLocal(requireContext().filesDir.absolutePath) }
         binding.rowShared.setOnClickListener { openSharedStorage() }
-        binding.btnBrowse.setOnClickListener {
-            startActivity(com.example.earthquack.FileBrowserActivity.intent(requireContext()))
-        }
         binding.btnImportRemote.setOnClickListener {
             // Some file providers do not report a MIME type for a plain INI
             // file, so */* is accepted and the importer validates the content.
@@ -266,13 +263,14 @@ class StorageFragment : Fragment() {
             openAllFilesAccessSettings()
             return
         }
-        val shared = requireContext().getExternalFilesDir(null)?.parentFile
-            ?: android.os.Environment.getExternalStorageDirectory()
-        if (shared == null) {
-            Toast.makeText(requireContext(), R.string.storage_shared_unavailable, Toast.LENGTH_SHORT).show()
-            return
-        }
-        openLocal(shared.absolutePath)
+        // Delegates to the browser's own definition so the two cannot disagree
+        // about what "shared storage" means.
+        startActivity(
+            com.example.earthquack.FileBrowserActivity.intent(
+                requireContext(),
+                com.example.earthquack.FileBrowserActivity.sharedStorageFs(requireContext())
+            )
+        )
     }
 
     /** Opens the browser at [remote]. */

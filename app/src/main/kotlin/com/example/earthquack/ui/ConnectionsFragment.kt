@@ -55,6 +55,21 @@ class ConnectionsFragment : Fragment() {
 
     /** Addresses found by the last scan, and the one currently highlighted. */
     private var discovered: List<String> = emptyList()
+
+    /**
+     * The address the app will use.
+     *
+     * Seeded from the configured host rather than left null. It was previously
+     * null until a scan returned something, so "Use selected" sat disabled with
+     * no explanation -- and in the common case (desktop not running) a scan
+     * returns nothing, so it was *always* disabled. The configured host is
+     * already the target; there is no reason to require a positive
+     * confirmation to use it.
+     *
+     * Seeded in [onViewCreated], not at construction: a Fragment is instantiated
+     * before it is attached to a context, so calling requireContext() in a
+     * property initialiser throws "not attached to a context".
+     */
     private var selected: String? = null
     private var scanning = false
 
@@ -71,6 +86,12 @@ class ConnectionsFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         statusProvider = SystemStatusProvider(requireContext())
         tailnet = TailnetStatus(requireContext())
+
+        selected = if (ServerConfig.isConfigured(requireContext())) {
+            ServerConfig.getHost(requireContext())
+        } else {
+            null
+        }
 
         binding.btnScan.setOnClickListener { scan() }
         binding.btnUse.setOnClickListener { applySelection() }
@@ -188,9 +209,9 @@ class ConnectionsFragment : Fragment() {
                 it.btnScan.setText(R.string.connections_scan)
             }
             discovered = found
-            // Preselect the current host if the scan found it, so "Use selected"
-            // is meaningful on a single-result scan.
-            selected = found.firstOrNull()
+            // Prefer the current host if the scan confirmed it; otherwise keep
+            // the existing selection rather than resetting to the first result.
+            selected = found.firstOrNull { it == selected } ?: selected ?: found.firstOrNull()
             render()
 
             _binding?.let { b ->
@@ -244,7 +265,12 @@ class ConnectionsFragment : Fragment() {
                 // Name the likely cause rather than repeating "tap scan again".
                 binding.textPeerMessage.text = emptyPeersMessage()
             }
-            binding.btnUse.isEnabled = false
+            // Enabled whenever there is a target, NOT only when a scan returned
+            // something. Forcing this off here is what left the button dead in
+            // the common case: the desktop is not running, so the scan finds
+            // nothing, so the one control that could (re)apply the address was
+            // the one control that got disabled.
+            binding.btnUse.isEnabled = selected != null
             return
         }
 

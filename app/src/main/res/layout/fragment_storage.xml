@@ -60,19 +60,7 @@
                 tools:text="42.6 GB used / 128 GB" />
         </LinearLayout>
 
-        <!-- Direct entry to the browser. Previously the only route was Home ->
-             Storage tab -> tap the "Storage" tile -> overflow -> Browse, which
-             is four taps to open a file listing. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBrowse"
-            style="@style/Widget.Eq.Button.Outlined"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/eq_gap_sm"
-            android:text="@string/home_browse_files"
-            app:icon="@drawable/ic_eq_folder" />
-
-        <!-- ── Local storage ─────────────────────────────────────────────── -->
+<!-- ── Local storage ─────────────────────────────────────────────── -->
         <LinearLayout style="@style/Widget.Eq.SectionHeader">
             <TextView
                 android:layout_width="0dp"
