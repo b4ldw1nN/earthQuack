@@ -331,10 +331,20 @@ class FileBrowserActivity : AppCompatActivity() {
 
     private fun openFolder(entry: FileEntry) {
         if (!entry.isDir) return
-        // `Path` is relative to fs and is rclone's own escaping, so it is used
-        // verbatim. Breadcrumb labels come from the same segments, which is why
-        // a chip can show a separator-looking character only if a name has one.
-        path.add(entry.path)
+        // rclone's `operations/list` returns each entry's `Path` **relative to
+        // `fs`** -- already the full path inside the remote, not one segment.
+        // So descending REPLACES the path rather than appending to it.
+        //
+        // `path.add(entry.path)` joined the two and produced paths like
+        // `Android/Android/obj`: the breadcrumb looked right while every listing
+        // was of a directory that did not exist. That is what made Android/data
+        // look locked -- it was a 404 from our own bug, not a permission
+        // failure.
+        //
+        // `entry.path` is rclone's own escaping, so it is split only to rebuild
+        // the breadcrumb segments, never re-assembled into a request.
+        path.clear()
+        path.addAll(entry.path.split('/').filter { it.isNotEmpty() })
         load()
     }
 
@@ -377,20 +387,55 @@ class FileBrowserActivity : AppCompatActivity() {
         adapter.submitList(visible)
 
         if (visible.isEmpty()) {
-            showEmpty(
-                if (needle.isEmpty()) {
-                    getString(R.string.files_empty)
-                } else {
-                    String.format(Locale.getDefault(), NO_MATCH, needle)
-                }
-            )
+            // An empty result is not always an empty folder: Android hides the
+            // Android/data and Android/obb subtrees from every app, so they list
+            // as empty despite having contents. Saying "This folder is empty"
+            // there is a false statement the user would act on.
+            when {
+                !needle.isEmpty() ->
+                    showEmpty(String.format(Locale.getDefault(), NO_MATCH, needle))
+                isAndroidPrivateSubtree() -> showBlocked()
+                else -> showEmpty(getString(R.string.files_empty))
+            }
         } else {
             binding.stateGroup.isVisible = false
         }
     }
 
+    /**
+     * True when the current path is inside Android's app-private subtrees.
+     *
+     * Matched on the path relative to `fs`, so it holds for a remote rooted
+     * anywhere rather than only for shared storage.
+     */
+    private fun isAndroidPrivateSubtree(): Boolean {
+        val relative = path.joinToString("/")
+        return relative == "Android/data" || relative.startsWith("Android/data/") ||
+            relative == "Android/obb" || relative.startsWith("Android/obb/")
+    }
+
+    /**
+     * States the OS restriction instead of claiming the folder is empty.
+     *
+     * The icon changes too: a folder glyph beside "not accessible to apps"
+     * reads as "nothing here yet", which is the opposite of the truth.
+     */
+    private fun showBlocked() {
+        binding.stateGroup.isVisible = true
+        binding.stateTitle.isVisible = true
+        binding.stateTitle.setText(R.string.files_blocked_title)
+        binding.stateText.setText(R.string.files_blocked_body)
+        binding.stateIcon.setImageResource(R.drawable.ic_eq_shield)
+        binding.stateIcon.imageTintList =
+            ContextCompat.getColorStateList(this, R.color.eq_warning)
+        binding.btnRetry.isVisible = false
+    }
+
     private fun showEmpty(message: String) {
         binding.stateGroup.isVisible = true
+        // Hide the heading: showBlocked() sets it, and leaving it visible would
+        // label the next genuinely-empty folder "Not accessible to apps".
+        binding.stateTitle.isVisible = false
         binding.stateIcon.setImageResource(R.drawable.ic_eq_folder)
         binding.stateIcon.imageTintList =
             ContextCompat.getColorStateList(this, R.color.eq_text_muted)
@@ -426,7 +471,11 @@ class FileBrowserActivity : AppCompatActivity() {
         // breadcrumb's first chip being "where am I, go elsewhere" is the
         // obvious affordance, and it matches the reference design's
         // "Google Drive > Documents" row.
-        host.addView(locationCrumb())
+        // A plain root chip again. It briefly opened the location menu, which put
+        // a second, differently-coloured control in the breadcrumb strip for a
+        // second route to the same place; the app-bar overflow is the one place
+        // locations are chosen.
+        host.addView(crumb(rootLabel(), 0))
         path.forEachIndexed { index, segment ->
             host.addView(separator())
             host.addView(crumb(segment, index + 1))
@@ -443,27 +492,12 @@ class FileBrowserActivity : AppCompatActivity() {
      * "name" is an empty string between two colons.
      */
     /**
-     * The root chip, which opens the location menu rather than navigating.
-     *
-     * Distinguishing it visually from a path chip matters: a user tapping a
-     * breadcrumb expects to go up, and this one opens a picker instead. It is
-     * tinted with the primary colour to say so.
-     */
-    private fun locationCrumb(): TextView = crumb(rootLabel(), 0).apply {
-        setTextColor(getColor(R.color.eq_primary))
-        // Anchored to this chip, not to the app-bar overflow: a popup that opens
-        // at the top of the screen when the finger was in the breadcrumb strip
-        // reads as an unrelated action.
-        setOnClickListener { showLocationMenu(this) }
-    }
-
-    /**
      * Label for the root chip.
      *
-     * A named remote shows its own name. An on-the-fly local remote has no
-     * name -- `substringBefore(':')` returns empty -- so it is distinguished by
-     * which directory it points at. Calling every on-the-fly path "Internal
-     * Storage" was actively wrong when the path was shared storage.
+     * A named remote shows its own name. An on-the-fly local remote has no name
+     * -- `substringBefore(':')` is empty for `:local:` -- so it is distinguished
+     * by which directory it points at. Calling every on-the-fly path "Internal
+     * Storage" was wrong when the path was shared storage.
      */
     private fun rootLabel(): String = when {
         fs == sharedRoot() -> getString(R.string.storage_shared)

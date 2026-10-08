@@ -119,6 +119,18 @@
     <string name="files_title">Files</string>
     <string name="files_search">Search</string>
     <string name="files_empty">This folder is empty</string>
+    <!--
+        Android 11+ excludes the Android/data and Android/obb subtrees from
+        MANAGE_EXTERNAL_STORAGE, and the system file picker refuses to offer
+        them as well. Verified on Android 15: the app holds the permission
+        (appops MANAGE_EXTERNAL_STORAGE: allow), rclone lists nothing, the picker
+        shows only media/obj/obb next to them, and the privileged system file
+        manager does list all 96 package directories. So these really do have
+        contents and are genuinely hidden from this app — which is what these
+        strings say, instead of the false "This folder is empty".
+    -->
+    <string name="files_blocked_title">Not accessible to apps</string>
+    <string name="files_blocked_body">Android hides other apps\u2019 private storage under Android/data and Android/obb, even with \u201cAll files access\u201d. This folder has contents, but EarthQuack is not allowed to read them.</string>
 
     <!-- Shared -->
     <string name="action_back">Back</string>
