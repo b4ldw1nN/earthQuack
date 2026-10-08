@@ -1,18 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    EarthQuack dark palette.
+
+    Dark is the only theme: the app is a background infrastructure tool, it is
+    almost always showing next to a terminal, and a light theme was never more
+    than an inherited default. Defining these centrally rather than per-layout
+    is the point — the previous UI had lavender/blue card colours that were
+    scattered through one 743-line layout.
+
+    Roles, not raw hues. Layouts reference these names so a palette change is
+    one edit here and never a find-and-replace across XML.
+-->
 <resources>
-    <color name="primary">#1565C0</color>
-    <color name="primary_variant">#0D47A1</color>
-    <color name="primary_container">#D3E4FD</color>
-    <color name="on_primary">#FFFFFF</color>
-    <color name="secondary">#0288D1</color>
-    <color name="surface">#FCFCFF</color>
-    <color name="surface_variant">#E1E2EC</color>
-    <color name="background">#F8F9FF</color>
-    <color name="outline">#74777F</color>
-    <color name="success">#2E7D32</color>
-    <color name="success_container">#A5D6A7</color>
-    <color name="warning">#E65100</color>
-    <color name="error">#BA1A1A</color>
-    <color name="on_surface">#1A1C1E</color>
-    <color name="on_surface_variant">#44474E</color>
+
+    <!-- ── Surfaces ──────────────────────────────────────────────────────────
+         Five steps of elevation. Skipping a step reads as a mistake, so the
+         names say which one is next rather than "surface2"/"surface3". -->
+    <color name="eq_background">#090B0F</color>
+    <color name="eq_surface">#11151B</color>
+    <color name="eq_surface_raised">#171C23</color>
+    <color name="eq_surface_high">#1E242D</color>
+    <!-- Hairline separators and card outlines. Deliberately low contrast:
+         structure without drawing attention. -->
+    <color name="eq_border">#252C35</color>
+    <color name="eq_border_strong">#333C48</color>
+
+    <!-- ── Accents ───────────────────────────────────────────────────────────
+         Blue is the single interactive accent: selection, primary action,
+         active tab. Nothing else competes for it. -->
+    <color name="eq_primary">#2F8CFF</color>
+    <color name="eq_primary_pressed">#176FD1</color>
+    <color name="eq_primary_dim">#1B3B63</color>
+    <!-- Background for a selected row; blue text on this, not on surface. -->
+    <color name="eq_primary_subtle">#16243A</color>
+
+    <!-- ── Status ───────────────────────────────────────────────────────────
+         Every status colour is paired with a text label in the UI. Colour
+         alone is never the only signal, because ~8% of men cannot reliably
+         distinguish the green/red pair and these are the app's key states. -->
+    <color name="eq_success">#35D07F</color>
+    <color name="eq_success_dim">#12301F</color>
+    <color name="eq_warning">#FFB454</color>
+    <color name="eq_warning_dim">#33260F</color>
+    <color name="eq_error">#FF5C6C</color>
+    <color name="eq_error_dim">#3A1519</color>
+    <!-- "Connecting": amber reads as in-progress without implying failure. -->
+    <color name="eq_connecting">#E8B339</color>
+
+    <!-- ── Text ─────────────────────────────────────────────────────────────
+         Four levels. Text goes no lower than muted — anything dimmer fails
+         contrast against eq_background at small sizes. -->
+    <color name="eq_text_primary">#F2F4F7</color>
+    <color name="eq_text_secondary">#9AA4B2</color>
+    <color name="eq_text_muted">#687282</color>
+    <!-- For values the user must be able to read precisely, e.g. an IP. -->
+    <color name="eq_text_value">#C9D2DE</color>
+
+    <!-- ── System bars ──────────────────────────────────────────────────────
+         Matched to the background so the app reads edge-to-edge rather than
+         sitting inside a differently-coloured system chrome. -->
+    <color name="eq_status_bar">#090B0F</color>
+    <color name="eq_nav_bar">#0C0F14</color>
+    <color name="eq_ripple">#22FFFFFF</color>
+    <color name="eq_scrim">#B3000000</color>
+
+    <!-- Per-provider icon tints for the rclone remote list. These are
+         decorative only: the remote's name and status are always shown as
+         text, so the colour is never the sole carrier of meaning. -->
+    <color name="eq_provider_drive">#35D07F</color>
+    <color name="eq_provider_mega">#FF5C6C</color>
+    <color name="eq_provider_onedrive">#2F8CFF</color>
+    <color name="eq_provider_dropbox">#2F8CFF</color>
+    <color name="eq_provider_sftp">#5AC8FA</color>
+    <color name="eq_provider_local">#FFB454</color>
+
 </resources>

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Connections / Tailscale.
+
+    Deliberately shows fewer fields than the mockup. TailscaleDiscovery probes a
+    configured list of candidate addresses over HTTP; it does not query the
+    `tailscale status` JSON. So there is no device name, no tailnet name, no
+    IPv6 and no latency to show, and those rows are absent rather than filled
+    with plausible values.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <include android:id="@+id/statusConnection" layout="@layout/partial_status_row" />
+
+        <!-- Detail rows. Only the ones that can be populated are inflated; see
+             ConnectionsFragment, which hides the rest when unconfigured. -->
+        <LinearLayout
+            android:id="@+id/cardDetails"
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="vertical">
+
+            <!-- The phone's own tailnet address. Real, and the first thing to
+                 check when sync will not connect: no address means the VPN is
+                 not up, which is a different problem from the desktop being
+                 offline. -->
+            <include android:id="@+id/rowThisDevice" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowIp" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowPeers" layout="@layout/partial_detail_row" />
+        </LinearLayout>
+
+        <!--
+            Manual entry. Discovery probes a fixed candidate list, so it can only
+            ever find an address that is already known and already running. That
+            makes it useless for the case you most want it for: pointing the app
+            at a desktop before it is switched on. This is the escape hatch.
+        -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnManualAddress"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/connections_enter_address"
+            app:icon="@drawable/ic_eq_add"
+            app:iconSize="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnScan"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:text="@string/connections_scan"
+                app:icon="@drawable/ic_eq_sync" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUse"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="@string/connections_use_selected"
+                android:enabled="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/headerPeers"
+            style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/connections_discovered"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <TextView
+                android:id="@+id/textPeerCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.Meta"
+                tools:text="3" />
+        </LinearLayout>
+
+        <!-- Peer rows are inflated at runtime from actual scan results. -->
+        <LinearLayout
+            android:id="@+id/listPeers"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:id="@+id/peerMessage"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/textPeerMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="No devices found. Tap Scan for Devices to probe your tailnet." />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

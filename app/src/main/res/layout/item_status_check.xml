@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One Security Status line. Green check plus text — the check is decorative
+     reinforcement, the text carries the actual claim. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowStatic"
+    android:minHeight="34dp">
+
+    <ImageView
+        android:id="@+id/checkIcon"
+        android:layout_width="@dimen/eq_icon_sm"
+        android:layout_height="@dimen/eq_icon_sm"
+        android:src="@drawable/ic_eq_check"
+        app:tint="@color/eq_success"
+        android:contentDescription="@null" />
+
+    <TextView
+        android:id="@+id/checkText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+        tools:text="Encryption enabled" />
+
+</LinearLayout>

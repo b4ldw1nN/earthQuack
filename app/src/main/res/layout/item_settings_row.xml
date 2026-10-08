@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Settings row: tinted icon, title, subtitle, chevron. Used by the Settings
+    hub, Permissions and Battery screens.
+
+    The icon tint is set at runtime from a per-row colour, which is what gives
+    the Settings screen its coloured icons without needing one drawable per row.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowIcon"
+    android:id="@+id/settingsRow">
+
+    <ImageView
+        android:id="@+id/rowIcon"
+        android:layout_width="@dimen/eq_icon"
+        android:layout_height="@dimen/eq_icon"
+        android:src="@drawable/ic_eq_settings"
+        app:tint="@color/eq_primary"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/rowTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+            tools:text="Security" />
+
+        <TextView
+            android:id="@+id/rowSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+            tools:text="Encryption, authentication, keys" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/rowChevron"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_marginStart="@dimen/eq_gap_sm"
+        android:src="@drawable/ic_eq_chevron"
+        app:tint="@color/eq_text_muted"
+        android:contentDescription="@null" />
+
+</LinearLayout>

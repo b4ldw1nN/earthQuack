@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Four destinations, matching the mockup. Deliberately not one per feature:
+    Storage owns rclone and transfers, Services owns Tailscale/SFTP/Clipboard.
+    A bottom bar with eight items would not fit on a small screen and would
+    need labels anyway.
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/nav_home"     android:icon="@drawable/ic_eq_home"     android:title="@string/nav_home"/>
+    <item android:id="@+id/nav_storage"  android:icon="@drawable/ic_eq_storage"  android:title="@string/nav_storage"/>
+    <item android:id="@+id/nav_services" android:icon="@drawable/ic_eq_services" android:title="@string/nav_services"/>
+    <item android:id="@+id/nav_settings" android:icon="@drawable/ic_eq_settings" android:title="@string/nav_settings"/>
+</menu>

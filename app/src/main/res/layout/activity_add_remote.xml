@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Step 1 of adding a remote: pick a backend.
+
+    The list comes from rclone's own config/providers, so it is exactly the set
+    of backends linked into this binary. Hard-coding provider names here would
+    drift from the build and would offer backends that cannot actually be
+    configured.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/eq_background">
+
+    <include android:id="@+id/appbar" layout="@layout/partial_topbar" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/listProviders"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_sm"
+            android:paddingBottom="@dimen/eq_gap_xl"
+            android:scrollbars="none" />
+
+        <LinearLayout
+            android:id="@+id/providerMessage"
+            style="@style/Widget.Eq.Card"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="@dimen/eq_gap_xl"
+            android:layout_marginStart="@dimen/eq_gutter"
+            android:layout_marginEnd="@dimen/eq_gutter"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/textProviderMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnProviderRetry"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:text="@string/action_retry"
+                android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

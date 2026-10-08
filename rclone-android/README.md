@@ -125,6 +125,49 @@ install, while `:local:/tmp` works immediately. The `local` backend has no
 configurable root, so a named `local:` remote resolves against the process
 working directory — which on Android is `/`.
 
+## Linked backends and what they cost
+
+`rclone.go` blank-imports the backends. There is no runtime plugin mechanism on
+Android, so that import list **is** the set of providers the app can configure.
+The Kotlin layer never hard-codes a provider name: the Add-remote picker renders
+whatever `config/providers` reports, so widening the list is the only change
+needed to make a backend appear in the app.
+
+Currently linked: `local`, `sftp`, `drive`, `mega`, `onedrive`, `dropbox`,
+`box`, `pcloud`, `webdav`, `ftp`, `s3`, plus the bridging and local-transform
+backends `combine`, `crypt`, `chunker`, `alias`, `archive`, `compress`,
+`union`.
+
+### Measured size cost
+
+Each row is a real `gomobile bind` of that exact backend set, measured the same
+way, so the numbers are comparable:
+
+| Backend set | `libgojni.so` |
+|---|---|
+| `local` only | 35.7 MB |
+| + bridging (`alias`, `combine`, `crypt`, `chunker`) | 35.7 MB |
+| + `compress`, `archive`, `union` | 39.5 MB |
+| + `sftp`, `ftp`, `webdav` | 41.3 MB |
+| + `drive`, `mega`, `onedrive`, `dropbox`, `box`, `pcloud` | 42.2 MB |
+| + `s3` (**the full set**) | **55.3 MB** |
+
+**`s3` alone costs 13 MB** — more than every other backend combined — because it
+pulls in the whole `aws-sdk-go-v2`. The bridging backends are free. Drop `s3`
+from the import list if 13 MB is not worth it.
+
+### Stripping
+
+`scripts/build-rclone-aar.sh` passes `-ldflags="-w -s"`. This is not cosmetic:
+it removes the Go DWARF debug info and symbol table, taking `libgojni.so` from
+**55.3 MB to 39.2 MB** and the APK from 79.2 MB to 63.1 MB.
+
+It also fixes a packaging warning. AGP logs `Unable to strip
+.../libgojni.so` during packaging; that was the external `strip` failing on Go
+symbols that `-w -s` removes before it ever gets a chance.
+
+Rebuild without the flag only when debugging a native crash on device.
+
 ## Adding ABIs
 
 The default `gomobile bind -target=android` builds all four supported

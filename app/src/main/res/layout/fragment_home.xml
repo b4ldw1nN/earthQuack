@@ -1,0 +1,412 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Home.
+
+    Structure follows the mockup: connectivity card, 2x2 service tiles, quick
+    actions. Every value is bound at runtime from real state — see
+    HomeFragment for what each one resolves to when the data is absent.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- ── Connectivity ───────────────────────────────────────────────
+             The single most important card: it answers "is my desktop
+             reachable" without the user having to read anything else. -->
+        <LinearLayout
+            android:id="@+id/cardConnection"
+            style="@style/Widget.Eq.CardClickable"
+            android:layout_marginTop="@dimen/eq_gap_sm">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:id="@+id/dotConnection"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
+                    android:background="@drawable/eq_dot_hollow_muted" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="@dimen/eq_gap_md"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/textConnectionState"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.Status"
+                        tools:text="Connected" />
+
+                    <TextView
+                        android:id="@+id/textConnectionSub"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                        tools:text="Tailscale" />
+                </LinearLayout>
+
+                <ImageView
+                    android:layout_width="@dimen/eq_icon"
+                    android:layout_height="@dimen/eq_icon"
+                    android:src="@drawable/ic_eq_tailnet"
+                    android:contentDescription="@null"
+                    android:layout_marginStart="@dimen/eq_gap_sm" />
+            </LinearLayout>
+
+            <!-- Hidden together with the rows below when unconfigured;
+                 otherwise the card keeps an orphaned divider and a band of
+                 empty padding under it. -->
+            <View
+                android:id="@+id/dividerConnection"
+                style="@style/Widget.Eq.Divider.Inset"
+                android:layout_marginTop="@dimen/eq_gap_md" />
+
+            <!-- Endpoint rows. Hidden entirely when unconfigured: an empty row
+                 labelled "Device" is worse than no row. -->
+            <LinearLayout
+                android:id="@+id/rowsConnection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="@dimen/eq_gap_xs">
+
+                <include
+                    android:id="@+id/rowHost"
+                    layout="@layout/partial_detail_row" />
+
+                <include
+                    android:id="@+id/rowPort"
+                    layout="@layout/partial_detail_row" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ── Services ─────────────────────────────────────────────────── -->
+        <LinearLayout
+            style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/home_services_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_eq_chevron"
+                app:tint="@color/eq_text_muted"
+                android:contentDescription="@null" />
+        </LinearLayout>
+
+        <!-- 2x2 tiles. Flat rows rather than nested cards: nesting a card in a
+             card is what made the previous dashboard read as stacked blocks. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:id="@+id/tileClipboard"
+                style="@style/Widget.Eq.Tile"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:id="@+id/iconClipboard"
+                        android:layout_width="@dimen/eq_icon_sm"
+                        android:layout_height="@dimen/eq_icon_sm"
+                        android:src="@drawable/ic_eq_clipboard"
+                        app:tint="@color/eq_text_secondary"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/eq_gap_sm"
+                        android:text="@string/home_clipboard"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/textClipboardState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="Running" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tileSftp"
+                style="@style/Widget.Eq.Tile"
+                android:layout_width="0dp"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:id="@+id/iconSftp"
+                        android:layout_width="@dimen/eq_icon_sm"
+                        android:layout_height="@dimen/eq_icon_sm"
+                        android:src="@drawable/ic_eq_transfer"
+                        app:tint="@color/eq_text_secondary"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/eq_gap_sm"
+                        android:text="@string/home_sftp"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/textSftpState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="Stopped" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:id="@+id/tileStorage"
+                style="@style/Widget.Eq.Tile"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="@dimen/eq_icon_sm"
+                        android:layout_height="@dimen/eq_icon_sm"
+                        android:src="@drawable/ic_eq_storage"
+                        app:tint="@color/eq_text_secondary"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/eq_gap_sm"
+                        android:text="@string/home_storage_tile"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/textStorageState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="3 remotes" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tileTransfers"
+                style="@style/Widget.Eq.Tile"
+                android:layout_width="0dp"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageView
+                        android:layout_width="@dimen/eq_icon_sm"
+                        android:layout_height="@dimen/eq_icon_sm"
+                        android:src="@drawable/ic_eq_sync"
+                        app:tint="@color/eq_text_secondary"
+                        android:contentDescription="@null" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/eq_gap_sm"
+                        android:text="@string/home_transfers"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/textTransfersState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="0 active" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ── Quick actions ───────────────────────────────────────────────
+             Start/stop for the clipboard service is the single most frequent
+             action in the app, so it is a full-width row with real state
+             rather than a tile. -->
+        <LinearLayout
+            style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/home_quick_actions"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnToggleSync"
+            style="@style/Widget.Eq.CardClickable"
+            android:layout_marginTop="@dimen/eq_gap_sm">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:id="@+id/iconToggleSync"
+                    android:layout_width="@dimen/eq_icon_sm"
+                    android:layout_height="@dimen/eq_icon_sm"
+                    android:src="@drawable/ic_eq_play"
+                    app:tint="@color/eq_primary"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/textToggleSync"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="@dimen/eq_gap_md"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                    tools:text="Start sync" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBrowseFiles"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/home_browse_files_short"
+                app:icon="@drawable/ic_eq_folder"
+                app:iconPadding="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSendClipboard"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/home_send_clipboard_short"
+                app:icon="@drawable/ic_eq_send"
+                app:iconPadding="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartSftp"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="@string/home_start_sftp_short"
+                app:icon="@drawable/ic_eq_play"
+                app:iconPadding="4dp" />
+        </LinearLayout>
+
+        <!-- Last-synced preview. Only present when a sync has actually
+             happened; see HomeFragment. -->
+        <LinearLayout
+            android:id="@+id/cardLastSync"
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/clipboard_last_sync"
+                android:textAppearance="@style/TextAppearance.Eq.Overline" />
+
+            <TextView
+                android:id="@+id/textLastSync"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                android:maxLines="3"
+                android:ellipsize="end"
+                tools:text="Sent to Desktop: https://github.com/…" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,4 +1,129 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">earthQuack</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_storage">Storage</string>
+    <string name="nav_services">Services</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home -->
+    <string name="home_tagline">Phone ↔ Desktop Infrastructure</string>
+    <string name="home_services_header">Services</string>
+    <string name="home_quick_actions">Quick Actions</string>
+    <string name="home_clipboard">Clipboard</string>
+    <string name="home_sftp">SFTP Server</string>
+    <string name="home_storage_tile">Storage</string>
+    <string name="home_transfers">Transfers</string>
+    <string name="home_browse_files">Browse Files</string>
+    <string name="home_send_clipboard">Send Clipboard</string>
+    <string name="home_start_sftp">Start SFTP</string>
+    <!-- Short forms for the three-up quick-action row. At ~105dp per button
+         an 18dp icon leaves too little room for the long labels, which wrapped
+         mid-word. The full labels are still used as content descriptions. -->
+    <string name="home_browse_files_short">Files</string>
+    <string name="home_send_clipboard_short">Clipboard</string>
+    <string name="home_start_sftp_short">SFTP</string>
+
+    <!-- States. Every one of these is a real, reachable condition. -->
+    <string name="state_not_configured">Not configured</string>
+    <string name="state_no_remotes">No remotes</string>
+    <string name="state_no_active_transfers">No active transfers</string>
+    <string name="state_unavailable">Unavailable</string>
+    <string name="state_unknown">Unknown</string>
+
+    <!-- Storage -->
+    <string name="storage_subtitle">Local &amp; Cloud</string>
+    <string name="storage_total">Total Storage</string>
+    <string name="storage_local_header">Local Storage</string>
+    <string name="storage_internal">Internal Storage</string>
+    <string name="storage_shared">Shared Storage</string>
+    <string name="storage_remotes_header">rclone Remotes</string>
+    <string name="storage_remotes_subtitle">Configured via rclone</string>
+    <string name="storage_add_remote">Add</string>
+    <string name="storage_transfers_header">Transfers</string>
+    <string name="storage_manage_remotes">Manage remotes</string>
+
+    <!-- Services -->
+    <string name="services_subtitle">Tailscale, SFTP, Clipboard</string>
+    <string name="services_tailscale">Tailscale</string>
+    <string name="services_tailscale_sub">Connectivity to your desktop</string>
+    <string name="services_sftp">SFTP Server</string>
+    <string name="services_sftp_sub">Access your phone over Tailscale</string>
+    <string name="services_clipboard">Clipboard</string>
+    <string name="services_clipboard_sub">Sync text between devices</string>
+    <string name="services_history">History</string>
+
+    <!-- Connections -->
+    <string name="connections_title">Connections</string>
+    <string name="connections_subtitle">Tailscale</string>
+    <string name="connections_device_name">Device name</string>
+    <string name="connections_ipv4">IP (v4)</string>
+    <string name="connections_peers">Peers</string>
+    <string name="connections_scan">Scan for Devices</string>
+    <string name="connections_discovered">Discovered Devices</string>
+
+    <!-- SFTP -->
+    <string name="sftp_title">SFTP Server</string>
+    <string name="sftp_subtitle">Access your phone over Tailscale</string>
+    <string name="sftp_endpoint">Endpoint</string>
+    <string name="sftp_username">Username</string>
+    <string name="sftp_root">Root directory</string>
+    <string name="sftp_clients">Connected clients</string>
+    <string name="sftp_auth_header">Authentication</string>
+    <string name="sftp_password_auth">Password authentication</string>
+    <string name="sftp_pubkey_auth">Public key authentication</string>
+    <string name="sftp_advanced">Advanced</string>
+    <string name="sftp_port">Port</string>
+    <string name="sftp_host_key">Host key</string>
+    <string name="sftp_start">Start</string>
+    <string name="sftp_stop">Stop</string>
+
+    <!-- Clipboard -->
+    <string name="clipboard_title">Clipboard</string>
+    <string name="clipboard_subtitle">Sync text between devices</string>
+    <string name="clipboard_last_sync">Last synchronized</string>
+    <string name="clipboard_current">Current item</string>
+    <string name="clipboard_send">Send to Desktop</string>
+    <string name="clipboard_receive">Receive from Desktop</string>
+    <string name="clipboard_clear">Clear</string>
+
+    <!-- Settings -->
+    <string name="settings_security">Security</string>
+    <string name="settings_security_sub">Encryption, authentication, keys</string>
+    <string name="settings_battery">Battery &amp; Background</string>
+    <string name="settings_battery_sub">Keep services running</string>
+    <string name="settings_permissions">Permissions</string>
+    <string name="settings_permissions_sub">Required for background sync</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_sub">Theme, dark mode</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_sub">Version, open source, credits</string>
+
+    <!-- Security -->
+    <string name="security_title">Security</string>
+    <string name="security_subtitle">Encryption &amp; Authentication</string>
+    <string name="security_encryption">Encryption</string>
+    <string name="security_encryption_sub">AES-256 end-to-end encryption</string>
+    <string name="security_auth_header">Authentication</string>
+    <string name="security_token">Bearer token</string>
+    <string name="security_token_sub">Optional. Sent as an Authorization header to your desktop.</string>
+    <string name="security_key">Encryption key</string>
+    <string name="security_key_sub">Must match CLIPBOARD_AES_KEY on your desktop.</string>
+    <string name="security_generate">Generate New Key</string>
+    <string name="security_copy_key">Copy Key</string>
+    <string name="security_status_header">Security Status</string>
+
+    <!-- Files -->
+    <string name="files_title">Files</string>
+    <string name="files_search">Search</string>
+    <string name="files_empty">This folder is empty</string>
+
+    <!-- Shared -->
+    <string name="action_back">Back</string>
+    <string name="action_more">More options</string>
+    <string name="action_show">Show</string>
+    <string name="action_hide">Hide</string>
+    <string name="action_copy">Copy</string>
 </resources>

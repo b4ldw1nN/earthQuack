@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Settings hub.
+
+    The old settings screen put encryption keys, bearer tokens, battery toggles
+    and permission buttons all on one scrolling surface. That is what made it
+    read as an options dump. Each of those now has its own screen, reached from
+    a five-row list.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <include android:id="@+id/rowSecurity" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowBattery" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowPermissions" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowAppearance" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowAbout" layout="@layout/item_settings_row" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Spacing and sizing scale.
+
+    The previous UI was criticised for excessive vertical padding, so the whole
+    scale is deliberately tight. The numbers are multiples of 4dp because that
+    is what renders cleanly at the densities this app targets, and a 3dp or 5dp
+    step is almost always a one-off that later drifts.
+
+    Named by role, not by size, so "the gap under a section header" is a single
+    concept rather than a number each layout guesses at.
+-->
+<resources>
+
+    <!-- Horizontal page gutter. Every screen uses this so content lines up
+         across the bottom navigation and back-arrow screens. -->
+    <dimen name="eq_gutter">16dp</dimen>
+
+    <!-- Row rhythm. eq_row_v is the primary "compact list row" height and is
+         what makes the UI dense; eq_row_v_large is for rows with two lines. -->
+    <dimen name="eq_row_v">48dp</dimen>
+    <dimen name="eq_row_v_large">60dp</dimen>
+    <dimen name="eq_row_h">16dp</dimen>
+
+    <!-- Vertical gaps. eq_gap_md sits between a section header and its first
+         row; eq_gap_lg between cards; eq_gap_sm inside a card. -->
+    <dimen name="eq_gap_xs">2dp</dimen>
+    <dimen name="eq_gap_sm">6dp</dimen>
+    <dimen name="eq_gap_md">10dp</dimen>
+    <dimen name="eq_gap_lg">16dp</dimen>
+    <dimen name="eq_gap_xl">24dp</dimen>
+
+    <!-- Card shape. Corner radius is consistent everywhere; a card with a
+         different radius reads as a different kind of thing. -->
+    <dimen name="eq_radius">14dp</dimen>
+    <dimen name="eq_radius_sm">10dp</dimen>
+    <dimen name="eq_radius_pill">100dp</dimen>
+
+    <!-- Card interior padding. Asymmetric on purpose: labels sit high, so the
+         top inset can be smaller than the bottom. -->
+    <dimen name="eq_card_pad">14dp</dimen>
+    <dimen name="eq_card_pad_lg">16dp</dimen>
+
+    <!-- Hairline. A real 1dp, not a fraction: fractions render as 0dp on some
+         densities and the separator silently disappears. -->
+    <dimen name="eq_divider">1dp</dimen>
+
+    <!-- Top bar. Compact by design — the mockup's app bar is ~56dp, not the
+         64dp+ of a stock Material toolbar. -->
+    <dimen name="eq_topbar_h">56dp</dimen>
+    <dimen name="eq_nav_h">58dp</dimen>
+
+    <!-- Icons. Two sizes only, so icon weight stays consistent across the
+         app rather than drifting per screen. -->
+    <dimen name="eq_icon">22dp</dimen>
+    <dimen name="eq_icon_lg">26dp</dimen>
+    <dimen name="eq_icon_sm">18dp</dimen>
+    <dimen name="eq_icon_tile">40dp</dimen>
+
+    <!-- Status dot. Fixed rather than wrap_content so the label baseline never
+         shifts when the text changes length between states. -->
+    <dimen name="eq_dot">8dp</dimen>
+
+    <dimen name="eq_touch_min">48dp</dimen>
+    <dimen name="eq_fab">56dp</dimen>
+
+</resources>

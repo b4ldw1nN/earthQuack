@@ -72,6 +72,46 @@
             The activity is transparent (Theme.Translucent.NoTitleBar) and finishes
             immediately after starting FileTransferService.
         -->
+        <!--
+            Sub-screens of Settings. Separate activities rather than fragments
+            in MainActivity because they are pushed detail screens: they get a
+            back arrow and deliberately no bottom navigation, so a tab bar would
+            imply they are peers of the four tabs.
+        -->
+        <!--
+            Adding an rclone remote, in two steps: pick a backend from
+            config/providers, then fill in the form rclone declares for it.
+            Separate activities because this is a pushed flow with its own back
+            stack, not a tab.
+        -->
+        <activity
+            android:name=".ui.AddRemoteActivity"
+            android:exported="false"
+            android:label="@string/add_remote_title" />
+        <activity
+            android:name=".ui.RemoteFormActivity"
+            android:exported="false"
+            android:label="@string/add_remote_title" />
+
+        <activity
+            android:name=".ui.sub.SecurityActivity"
+            android:exported="false"
+            android:label="@string/security_title" />
+        <activity
+            android:name=".ui.sub.BatteryActivity"
+            android:exported="false"
+            android:label="@string/settings_battery" />
+        <activity
+            android:name=".ui.sub.PermissionsActivity"
+            android:exported="false"
+            android:label="@string/settings_permissions" />
+
+        <!--
+            Handle the intent filter below.
+
+            Android 12+ requires android:exported on every component with an
+            intent-filter; this one is explicit rather than inherited.
+        -->
         <activity
             android:name=".FileShareActivity"
             android:exported="true"
@@ -90,6 +130,17 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <!--
+            The Files screen. Its own activity rather than a tab, because it
+            has a back arrow and no bottom bar in the mockup. Backed by the
+            embedded rclone (operations/list) rather than by java.io.File, so
+            it can browse a configured remote as well as internal storage.
+        -->
+        <activity
+            android:name=".FileBrowserActivity"
+            android:exported="false"
+            android:label="@string/files_title" />
 
         <service
             android:name=".EarthQuackService"

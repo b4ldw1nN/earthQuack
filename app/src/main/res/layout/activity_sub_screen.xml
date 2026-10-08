@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shell for Security / Battery / Permissions.
+
+    These are sub-screens of Settings, so per the mockup they get a back arrow
+    and NO bottom navigation: a tab bar here would imply they are peers of the
+    four tabs, which they are not.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/eq_background">
+
+    <include android:id="@+id/appbar" layout="@layout/partial_topbar" />
+
+    <FrameLayout
+        android:id="@+id/body"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

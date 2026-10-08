@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One row in the file list: type-tinted icon, name, metadata line, overflow.
+
+    Height is wrap_content with a minimum rather than a fixed value. The
+    metadata line is a second line of text and at a large font scale it wraps,
+    and clipping it would hide the only size/date information on the row.
+
+    The icon tint is the only per-type signal and is never load bearing on its
+    own: the name is always shown, and the metadata line carries the size.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowIcon">
+
+    <ImageView
+        android:id="@+id/icon"
+        android:layout_width="@dimen/eq_icon_lg"
+        android:layout_height="@dimen/eq_icon_lg"
+        android:src="@drawable/ic_eq_doc"
+        app:tint="@color/eq_text_secondary"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+            android:maxLines="2"
+            android:ellipsize="middle"
+            tools:text="Report.pdf" />
+
+        <TextView
+            android:id="@+id/meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_xs"
+            android:textAppearance="@style/TextAppearance.Eq.Meta"
+            android:maxLines="2"
+            android:ellipsize="end"
+            tools:text="1.2 MB · 2024-10-01" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/btnOverflow"
+        android:layout_width="@dimen/eq_touch_min"
+        android:layout_height="@dimen/eq_touch_min"
+        android:layout_marginStart="@dimen/eq_gap_sm"
+        android:padding="@dimen/eq_gap_md"
+        android:src="@drawable/ic_eq_more_vert"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        app:tint="@color/eq_text_muted"
+        android:focusable="false"
+        android:contentDescription="@string/action_more" />
+
+</LinearLayout>

@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Reusable component styles.
+
+    The point of this file is that a layout should describe *structure* and
+    nothing else. If a card in Home and a card in Storage are both written out
+    by hand they will drift, and "make the corners match" becomes a
+    find-and-replace. Instead they both say style="@style/Widget.Eq.Card".
+
+    Every TextView also carries an explicit TextAppearance.Eq.* from type.xml.
+    An unstyled TextView inherits Material's defaults, which are 16sp — larger
+    than anything in this app — and that was a real cause of the old layout
+    feeling oversized.
+-->
+<resources>
+
+    <!-- ══ Base ══════════════════════════════════════════════════════════════
+         Android resolves a style's parent from its own name when `parent` is
+         omitted: Widget.Eq.Card implicitly extends Widget.Eq. That is a
+         deliberate, useful mechanism here, but it requires the base to exist or
+         every child fails to resolve.
+
+         It is also the right place for the few attributes that genuinely apply
+         to every widget in the app, so they are stated once. -->
+    <style name="Widget.Eq" parent="">
+        <item name="android:textColor">@color/eq_text_primary</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- ══ Cards ════════════════════════════════════════════════════════════
+         Each concrete style states its own layout dimensions.
+
+         Deliberately NOT inherited from Widget.Eq: a partial set (height but
+         not width) makes views inflate only if they happen to omit both tags,
+         and then fails at runtime with "You must supply a layout_width
+         attribute" rather than at build time. Stating both here means a view
+         carrying a card style is always valid, and a tag attribute can still
+         override either. -->
+
+    <style name="Widget.Eq.Card">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/bg_eq_card</item>
+        <item name="android:padding">@dimen/eq_card_pad</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <!-- A card that navigates somewhere. Foreground ripple, so the ripple is
+         clipped to the rounded card instead of spilling into a square. -->
+    <style name="Widget.Eq.CardClickable">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/bg_eq_card_clickable</item>
+        <item name="android:padding">@dimen/eq_card_pad</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- The 2x2 service tiles on Home. Intentionally a flat row rather than a
+         card: nesting a card inside a card is what made the old dashboard
+         read as a stack of lavender blocks. -->
+    <style name="Widget.Eq.Tile">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/bg_eq_card</item>
+        <item name="android:padding">@dimen/eq_card_pad</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">64dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- ══ Rows ═════════════════════════════════════════════════════════════ -->
+
+    <!-- Label left, value right. The workhorse for connection details and
+         settings summaries. -->
+    <style name="Widget.Eq.Row">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">@dimen/eq_row_v</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">@dimen/eq_card_pad</item>
+        <item name="android:paddingEnd">@dimen/eq_card_pad</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
+
+    <!-- Row with no tap target — for static detail rows inside a card. -->
+    <style name="Widget.Eq.RowStatic">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">36dp</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+
+    <!-- Icon + two lines of text + optional trailing chevron. Used for
+         settings, remotes, and devices. -->
+    <style name="Widget.Eq.RowIcon">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">@dimen/eq_row_v_large</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">@dimen/eq_card_pad</item>
+        <item name="android:paddingEnd">@dimen/eq_card_pad</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
+
+    <!-- ══ Section headers ══════════════════════════════════════════════════ -->
+
+    <style name="Widget.Eq.SectionHeader">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingTop">@dimen/eq_gap_lg</item>
+        <item name="android:paddingBottom">@dimen/eq_gap_sm</item>
+        <item name="android:textAppearance">@style/TextAppearance.Eq.SectionHeader</item>
+    </style>
+
+    <!-- ══ Buttons ══════════════════════════════════════════════════════════ -->
+
+    <!-- Filled blue. Exactly one per screen region: if two compete, neither
+         reads as the primary action. -->
+    <style name="Widget.Eq.Button" parent="Widget.Material3.Button">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">@style/TextAppearance.Eq.Button</item>
+        <item name="android:textColor">#FFFFFFFF</item>
+        <item name="backgroundTint">@color/eq_primary</item>
+        <item name="cornerRadius">@dimen/eq_radius_sm</item>
+        <item name="android:minHeight">@dimen/eq_touch_min</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="iconTint">#FFFFFFFF</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+    </style>
+
+    <style name="Widget.Eq.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">@style/TextAppearance.Eq.Button</item>
+        <item name="android:textColor">@color/eq_text_primary</item>
+        <item name="iconTint">@color/eq_text_secondary</item>
+        <item name="strokeColor">@color/eq_border_strong</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cornerRadius">@dimen/eq_radius_sm</item>
+        <item name="android:minHeight">@dimen/eq_touch_min</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+    </style>
+
+    <style name="Widget.Eq.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">@style/TextAppearance.Eq.Button</item>
+        <item name="android:textColor">@color/eq_primary</item>
+        <item name="iconTint">@color/eq_primary</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">6dp</item>
+    </style>
+
+    <!-- ══ Switches ═════════════════════════════════════════════════════════ -->
+
+    <!-- Material's default switch track is tall and pale; at this density it
+         dominated the row. Thinner track, smaller thumb, palette colours.
+
+         Only thumbTint and trackTint are set. trackDecorationTint and
+         trackOutlineColor were tried and removed: they are not attributes in the
+         Material version this project resolves against, and naming a missing
+         attribute fails the resource link rather than being ignored. -->
+    <style name="Widget.Eq.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:paddingStart">@dimen/eq_gap_sm</item>
+        <item name="android:paddingEnd">0dp</item>
+        <item name="thumbTint">@color/eq_switch_thumb</item>
+        <item name="trackTint">@color/eq_switch_track</item>
+    </style>
+
+    <!-- ══ Structure ════════════════════════════════════════════════════════ -->
+
+    <style name="Widget.Eq.Divider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/eq_divider</item>
+        <item name="android:background">@color/eq_border</item>
+    </style>
+
+    <!-- A divider inset to the text column, so it aligns with the labels it
+         separates rather than running edge to edge. -->
+    <style name="Widget.Eq.Divider.Inset">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/eq_divider</item>
+        <item name="android:background">@color/eq_border</item>
+        <item name="android:layout_marginStart">@dimen/eq_card_pad</item>
+        <item name="android:layout_marginEnd">@dimen/eq_card_pad</item>
+    </style>
+
+    <style name="Widget.Eq.Screen">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@color/eq_background</item>
+    </style>
+
+    <!-- ══ Bottom navigation ════════════════════════════════════════════════ -->
+
+    <!-- Material's active indicator is a pill that sits behind the ICON only,
+         while the label below it is part of the same selected item. The result
+         read as a floating lozenge with text dangling underneath it, which is
+         what this style removes.
+
+         Selection is carried by the tint instead: eq_primary for the checked
+         icon and label, eq_text_muted for the rest. That is a large contrast
+         jump and matches the reference design, which has no indicator.
+
+         Note Material 1.14 has no itemActiveIndicatorEnabled attribute, so the
+         indicator has to be neutralised through its style. Zero size plus a
+         transparent colour collapses it without affecting layout. -->
+    <style name="Widget.Eq.NavIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@android:color/transparent</item>
+        <item name="android:width">0dp</item>
+        <item name="android:height">0dp</item>
+    </style>
+
+    <!-- ══ Status pill ══════════════════════════════════════════════════════ -->
+    <!-- Colour AND text, never colour alone: the green/amber/red set is
+         indistinguishable for a meaningful minority of users. -->
+
+    <style name="Widget.Eq.Pill">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:background">@drawable/bg_eq_pill</item>
+        <item name="android:paddingStart">@dimen/eq_gap_md</item>
+        <item name="android:paddingEnd">@dimen/eq_gap_md</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingBottom">5dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.Eq.Meta</item>
+    </style>
+
+</resources>

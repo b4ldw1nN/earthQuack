@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Files: an rclone-backed browser.
+
+    The app bar is the shared partial_topbar, which offers one trailing action
+    slot; this screen needs two (magnifier and overflow). So the partial is
+    included at weight 1 inside a row and the two buttons sit after it, which
+    keeps the back arrow, the 56dp height and the title styling from the shared
+    partial instead of reimplementing an app bar here.
+
+    Below the bar: a search field (hidden until tapped), a breadcrumb strip, a
+    determinate-looking progress line, and one scrolling list. The two other
+    states a directory listing can honestly be in, "nothing here" and "that
+    failed", share one centred state block so there is only ever one message on
+    screen.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background">
+
+    <LinearLayout
+        style="@style/Widget.Eq.Screen">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/eq_background">
+
+            <!-- layout_width/height are repeated on the include deliberately:
+                 both must be present for the override to be honoured. -->
+            <include
+                android:id="@+id/appbar"
+                layout="@layout/partial_topbar"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/eq_topbar_h"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btnSearch"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="@dimen/eq_gap_xs"
+                android:padding="9dp"
+                android:src="@drawable/ic_eq_search"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="@color/eq_text_secondary"
+                android:contentDescription="@string/files_search" />
+
+            <ImageButton
+                android:id="@+id/btnOverflow"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:padding="9dp"
+                android:src="@drawable/ic_eq_more_vert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="@color/eq_text_secondary"
+                android:contentDescription="@string/action_more" />
+        </LinearLayout>
+
+        <View style="@style/Widget.Eq.Divider" />
+
+        <!-- Search. Filters the directory already listed rather than issuing a
+             new query, so it stays instant and can never claim a match the
+             backend has not returned. -->
+        <LinearLayout
+            android:id="@+id/searchRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_md"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <EditText
+                android:id="@+id/searchField"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/eq_touch_min"
+                android:paddingStart="@dimen/eq_gap_md"
+                android:paddingEnd="@dimen/eq_gap_md"
+                android:background="@drawable/bg_eq_field"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                android:textColor="@color/eq_text_primary"
+                android:hint="@string/files_search"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:maxLines="1"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <!-- Breadcrumbs. Horizontally scrollable because a deep path is longer
+             than the screen; the chip container is filled from code. -->
+        <HorizontalScrollView
+            android:id="@+id/crumbScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_md"
+            android:paddingBottom="@dimen/eq_gap_xs">
+
+            <LinearLayout
+                android:id="@+id/crumbs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/progress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:visibility="gone"
+            app:trackThickness="@dimen/eq_divider"
+            app:trackColor="@color/eq_border"
+            app:indicatorColor="@color/eq_primary"
+            tools:visibility="visible" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingBottom="@dimen/eq_gutter">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="@dimen/eq_fab"
+                android:scrollbars="none"
+                tools:listitem="@layout/item_file_entry" />
+
+            <LinearLayout
+                android:id="@+id/stateGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="@dimen/eq_gutter"
+                android:paddingEnd="@dimen/eq_gutter"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ImageView
+                    android:id="@+id/stateIcon"
+                    android:layout_width="@dimen/eq_icon_lg"
+                    android:layout_height="@dimen/eq_icon_lg"
+                    android:src="@drawable/ic_eq_folder"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/stateText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/eq_gap_md"
+                    android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="@string/files_empty" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRetry"
+                    style="@style/Widget.Eq.Button.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/eq_gap_md"
+                    android:text="@string/action_retry"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!--
+        Re-lists the current directory. Not an "add file" affordance: this
+        screen has no write path, and a FAB that looked like it created
+        something would be a lie. Literal description because strings.xml is
+        owned by another change and is off limits here.
+    -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab"
+        android:layout_width="@dimen/eq_fab"
+        android:layout_height="@dimen/eq_fab"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="@dimen/eq_gutter"
+        android:src="@drawable/ic_eq_refresh"
+        app:backgroundTint="@color/eq_primary"
+        app:tint="#FFFFFFFF"
+        app:elevation="0dp"
+        android:contentDescription="Refresh" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

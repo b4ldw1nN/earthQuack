@@ -37,6 +37,26 @@ object ServerConfig {
         prefs(context).edit().putString(KEY_HOST, host.trim()).apply()
     }
 
+    /**
+     * Whether [host] is the shipped placeholder rather than a real address.
+     *
+     * The UI must not print `YOUR_TAILSCALE_IP:8875` as though it were an
+     * endpoint -- it reads as a configured server that happens to have a
+     * strange hostname, and the user would go looking for the problem in the
+     * wrong place. Anything matching the placeholder pattern counts, so
+     * changing [DEFAULT_HOST] later cannot leave a stale sentinel behind.
+     */
+    fun isPlaceholderHost(host: String?): Boolean {
+        val trimmed = host?.trim().orEmpty()
+        return trimmed.isEmpty() ||
+            trimmed.equals(DEFAULT_HOST, ignoreCase = true) ||
+            trimmed.startsWith("YOUR_", ignoreCase = true) ||
+            trimmed.startsWith("<", ignoreCase = true)
+    }
+
+    /** True when a real host has been chosen. */
+    fun isConfigured(context: Context): Boolean = !isPlaceholderHost(getHost(context))
+
     fun getBaseUrl(context: Context): String = "http://${getHost(context)}:$SERVER_PORT"
     fun getFileBaseUrl(context: Context): String = "http://${getHost(context)}:$FILE_SERVER_PORT"
 

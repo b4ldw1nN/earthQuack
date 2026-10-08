@@ -169,7 +169,10 @@ class RcloneRemoteManager(private val engine: RcloneEngine) {
                         // rclone calls it "Sensitive"; "Obscure" was my guess
                         // before reading fs.ConfigProvider.
                         obscure = so.optBoolean("Sensitive", so.optBoolean("obscure")),
-                        help = firstString(so, "Help", "help")
+                        help = firstString(so, "Help", "help"),
+                        // Lets the generated form hide the dozen rarely-needed
+                        // keys an SFTP or Drive remote exposes.
+                        isAdvanced = so.optBoolean("Advanced", so.optBoolean("advanced"))
                     )
                 }
             )

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Permissions.
+
+    Only the two permissions EarthQuack genuinely uses are listed. Both are
+    runtime-grantable, and both have a real consequence if denied, so each says
+    what breaks rather than just "Denied".
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <LinearLayout
+            android:id="@+id/cardPermissions"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/textAllGranted"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/permissions_all_granted"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+</ScrollView>

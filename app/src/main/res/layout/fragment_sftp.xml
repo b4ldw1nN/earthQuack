@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SFTP Server.
+
+    Complete and wired. The server itself is not implemented yet, so the status
+    card says so and the Start control is disabled with a visible reason —
+    rather than showing "Stopped" and a Start button that cannot work.
+
+    Everything in "Connection Details" and "Advanced" is real and persists, so
+    when the backend lands it reads exactly these values.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- ── Status ────────────────────────────────────────────────────── -->
+        <include android:id="@+id/statusServer" layout="@layout/partial_status_row" />
+
+        <!-- Why the control is unavailable. Always visible while the server is
+             unimplemented, because a disabled button with no explanation reads
+             as a bug. -->
+        <TextView
+            android:id="@+id/textUnavailable"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:text="@string/sftp_not_implemented_body"
+            android:textAppearance="@style/TextAppearance.Eq.Hint" />
+
+        <!-- ── Connection details ──────────────────────────────────────────
+             Endpoint is derived from the real configured host; it reads
+             "Not configured" rather than a placeholder when there is none. -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sftp_details_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+            <include android:id="@+id/rowEndpoint" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowUsername" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowRoot" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowClients" layout="@layout/partial_detail_row" />
+        </LinearLayout>
+
+        <!-- ── Authentication ────────────────────────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sftp_auth_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <LinearLayout style="@style/Widget.Eq.Row">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_password_auth"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchPasswordAuth"
+                    style="@style/Widget.Eq.Switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <LinearLayout style="@style/Widget.Eq.Row">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/sftp_pubkey_auth"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/sftp_pubkey_auth_sub"
+                        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+                </LinearLayout>
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchPubkeyAuth"
+                    style="@style/Widget.Eq.Switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ── Advanced ──────────────────────────────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sftp_advanced"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <!-- Editable via a dialog rather than an inline field: these are
+                 rarely changed, and an inline text field in a dense list makes
+                 the row taller than everything around it. -->
+            <LinearLayout
+                android:id="@+id/rowPortEdit"
+                style="@style/Widget.Eq.Row">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_port"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:id="@+id/textPort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Eq.RowValue"
+                    tools:text="8022" />
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="@dimen/eq_gap_sm"
+                    android:src="@drawable/ic_eq_chevron"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@null" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <LinearLayout
+                android:id="@+id/rowRootEdit"
+                style="@style/Widget.Eq.Row">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_root"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:id="@+id/textRoot"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:maxLines="1"
+                    android:ellipsize="start"
+                    android:textAppearance="@style/TextAppearance.Eq.RowValue"
+                    tools:text="/storage/emulated/0" />
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="@dimen/eq_gap_sm"
+                    android:src="@drawable/ic_eq_chevron"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@null" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <!-- Host key is generated by the server on first start, so it has no
+                 value until then. Stated rather than left blank. -->
+            <LinearLayout style="@style/Widget.Eq.RowStatic"
+                android:minHeight="@dimen/eq_row_v">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_host_key"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:id="@+id/textHostKey"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sftp_host_key_none"
+                    android:textAppearance="@style/TextAppearance.Eq.Meta" />
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

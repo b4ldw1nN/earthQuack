@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Type scale.
+
+    The complaint about the old UI was that everything was large. This is
+    therefore a *small* scale on purpose: 22sp is the biggest text in the app,
+    which is only the screen title.
+
+    Sizes are fixed in sp so they respect the user's font-scale setting. Line
+    multipliers are slightly tight (1.25-1.35) because a two-line row at 1.6
+    line height is what made the old layout scroll unnecessarily.
+
+    Every TextView in the app should carry one of these. A raw textSize in a
+    layout is a defect: it cannot be adjusted centrally and it is how the
+    previous UI ended up with five different title sizes.
+-->
+<resources>
+
+    <!-- Screen title: "earthQuack", "Storage", "Security". One per screen. -->
+    <style name="TextAppearance.Eq.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textColor">@color/eq_text_primary</item>
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- Subtitle under a screen title: "Local &amp; Cloud (rclone)". Muted and
+         quiet — it qualifies the title, it does not compete with it. -->
+    <style name="TextAppearance.Eq.Subtitle" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/eq_text_muted</item>
+    </style>
+
+    <!-- Section header: "Services", "Discovered Devices", "Authentication".
+         Muted and small, which is what stops a section from competing with the
+         content beneath it. -->
+    <style name="TextAppearance.Eq.SectionHeader" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/eq_text_secondary</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- Row title: a remote's name, a device's name, a settings label. -->
+    <style name="TextAppearance.Eq.RowTitle" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/eq_text_primary</item>
+    </style>
+
+    <!-- Row subtitle: "78.3 GB free", "AES-256 end-to-end encryption". -->
+    <style name="TextAppearance.Eq.RowSubtitle" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:textColor">@color/eq_text_muted</item>
+        <item name="android:lineSpacingMultiplier">1.15</item>
+    </style>
+
+    <!-- Value on the right of a detail row: an IP, a port, a count. Slightly
+         brighter than text_secondary because these are the values a user is
+         actually reading off the screen. -->
+    <style name="TextAppearance.Eq.RowValue" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:textColor">@color/eq_text_value</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <!-- Row label on the left of a detail row. Muted so the value dominates. -->
+    <style name="TextAppearance.Eq.RowLabel" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:textColor">@color/eq_text_secondary</item>
+    </style>
+
+    <!-- Status text that always accompanies a status dot. Medium weight so it
+         reads at a glance without the dot having to carry the meaning. -->
+    <style name="TextAppearance.Eq.Status" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/eq_text_primary</item>
+    </style>
+
+    <!-- Small all-caps label above a value, e.g. "LATENCY". -->
+    <style name="TextAppearance.Eq.Overline" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">10.5sp</item>
+        <item name="android:textColor">@color/eq_text_muted</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Metadata line: "12 items · 2024-10-01", "87 characters · Just now". -->
+    <style name="TextAppearance.Eq.Meta" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/eq_text_muted</item>
+    </style>
+
+    <!-- Button label. -->
+    <style name="TextAppearance.Eq.Button" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- Content description / hint text. Never used for information the user
+         needs to see — this is for genuinely secondary explanation. -->
+    <style name="TextAppearance.Eq.Hint" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/eq_text_muted</item>
+        <item name="android:lineSpacingMultiplier">1.3</item>
+    </style>
+
+</resources>

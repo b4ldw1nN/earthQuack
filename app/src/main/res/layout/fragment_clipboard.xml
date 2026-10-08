@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Clipboard.
+
+    "Current item" and "History" both come from ClipboardHistoryStore, which is
+    written by EarthQuackService at the two points a value actually changes
+    hands. An empty History section means nothing has synced yet, which is shown
+    as an explicit empty state rather than as mock data.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <include android:id="@+id/statusClipboard" layout="@layout/partial_status_row" />
+
+        <LinearLayout
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/clipboard_last_sync"
+                android:textAppearance="@style/TextAppearance.Eq.RowLabel" />
+
+            <TextView
+                android:id="@+id/textLastSync"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.RowValue"
+                tools:text="15:17:42" />
+        </LinearLayout>
+
+        <!-- ── Current item ─────────────────────────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/clipboard_current"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <!--
+            Shown when history contains ciphertext but the app has encryption
+            off. This is a real, diagnosed configuration mismatch: the desktop
+            daemon has AES enabled, so it sends AES:... and the app displays it
+            verbatim because it holds no key. Saying so beats showing the user a
+            wall of base64 and leaving them to guess.
+        -->
+        <LinearLayout
+            android:id="@+id/cardDecryptWarning"
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ImageView
+                android:layout_width="@dimen/eq_icon"
+                android:layout_height="@dimen/eq_icon"
+                android:src="@drawable/ic_eq_warning"
+                app:tint="@color/eq_warning"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/eq_gap_md"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/clipboard_encrypted_title"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/clipboard_encrypted_body"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnFixEncryption"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/clipboard_encrypted_action" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardCurrent"
+            style="@style/Widget.Eq.Card"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ImageView
+                android:layout_width="@dimen/eq_icon"
+                android:layout_height="@dimen/eq_icon"
+                android:src="@drawable/ic_eq_doc"
+                app:tint="@color/eq_text_muted"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/eq_gap_md"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/textCurrentValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                    android:maxLines="2"
+                    android:ellipsize="middle"
+                    tools:text="https://github.com/…" />
+
+                <TextView
+                    android:id="@+id/textCurrentMeta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Eq.Meta"
+                    tools:text="87 characters · Just now" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btnCopyCurrent"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="10dp"
+                android:src="@drawable/ic_eq_copy"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="@color/eq_text_secondary"
+                android:contentDescription="@string/action_copy" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textCurrentEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/clipboard_never_synced"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSend"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:text="@string/clipboard_send"
+                app:icon="@drawable/ic_eq_send" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReceive"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="@string/clipboard_receive"
+                app:icon="@drawable/ic_eq_download" />
+        </LinearLayout>
+
+        <!-- ── History ──────────────────────────────────────────────────── -->
+        <LinearLayout
+            android:id="@+id/headerHistory"
+            style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/services_history"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClear"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="@string/clipboard_clear"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/listHistory"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:id="@+id/historyEmpty"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/clipboard_no_history"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

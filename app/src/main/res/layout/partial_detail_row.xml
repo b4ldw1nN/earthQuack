@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Label left, value right. Included several times per screen, so the label
+    and value must be settable from the parent via the include's id
+    (rowHost.label / rowHost.value).
+
+    The value is monospaced because these carry things like IP addresses and
+    ports, where digit alignment genuinely helps the eye scan a column.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowStatic"
+    android:minHeight="34dp">
+
+    <TextView
+        android:id="@+id/label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textAppearance="@style/TextAppearance.Eq.RowLabel"
+        tools:text="IP (v4)" />
+
+    <TextView
+        android:id="@+id/value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:gravity="end"
+        android:textAppearance="@style/TextAppearance.Eq.RowValue"
+        tools:text="100.92.160.31" />
+
+</LinearLayout>

@@ -1,12 +1,86 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.EarthQuack" parent="Theme.Material3.Light.NoActionBar">
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorPrimaryVariant">@color/primary_variant</item>
-        <item name="colorOnPrimary">@color/on_primary</item>
-        <item name="colorSecondary">@color/secondary</item>
-        <item name="android:statusBarColor">@color/primary</item>
-        <item name="android:navigationBarColor">@color/surface</item>
+<!--
+    The one theme. Dark is not a variant here — it is the app.
+
+    Rationale: EarthQuack is a background infrastructure tool. It is nearly
+    always on screen next to a terminal or SSH session, and the previous
+    Material3.Light default produced the lavender/blue cards that made the app
+    look like a consumer sync tool rather than a tool.
+
+    Colours are referenced from colors.xml by role. Nothing here hard-codes a
+    hex value, so a palette change is a single-file edit.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.EarthQuack" parent="Theme.Material3.Dark.NoActionBar">
+
+        <!-- Primary: the single interactive accent. -->
+        <item name="colorPrimary">@color/eq_primary</item>
+        <item name="colorOnPrimary">#FFFFFFFF</item>
+        <item name="colorPrimaryContainer">@color/eq_primary_subtle</item>
+        <item name="colorOnPrimaryContainer">@color/eq_primary</item>
+
+        <!-- Secondary is deliberately the same blue rather than a second hue.
+             Material reserves it for "selected but not primary" and giving it
+             its own colour is what produced the old two-tone card look. -->
+        <item name="colorSecondary">@color/eq_primary</item>
+        <item name="colorOnSecondary">#FFFFFFFF</item>
+
+        <!-- Status colours, so anything still using Material's defaults
+             (ripples, text field cursors, switches) lands in the palette
+             rather than Material's purple/green. -->
+        <item name="colorTertiary">@color/eq_success</item>
+        <item name="colorError">@color/eq_error</item>
+        <item name="colorOnError">#FFFFFFFF</item>
+        <item name="colorErrorContainer">@color/eq_error_dim</item>
+        <item name="colorOnErrorContainer">@color/eq_error</item>
+
+        <!-- Surfaces. Material's default elevation overlays are transparent
+             scrims, which on a near-black background just muddy the colour;
+             eq_surface_high does the same job predictably. -->
+        <item name="android:colorBackground">@color/eq_background</item>
+        <item name="colorOnBackground">@color/eq_text_primary</item>
+        <item name="colorSurface">@color/eq_surface</item>
+        <item name="colorOnSurface">@color/eq_text_primary</item>
+        <item name="colorSurfaceVariant">@color/eq_surface_raised</item>
+        <item name="colorOnSurfaceVariant">@color/eq_text_secondary</item>
+        <item name="colorSurfaceContainer">@color/eq_surface_raised</item>
+        <item name="colorSurfaceContainerHigh">@color/eq_surface_high</item>
+        <item name="colorSurfaceContainerHighest">@color/eq_surface_high</item>
+        <item name="colorOutline">@color/eq_border_strong</item>
+        <item name="colorOutlineVariant">@color/eq_border</item>
+
+        <!-- System bars match the background so the app reads edge to edge
+             instead of sitting inside brighter chrome. -->
+        <item name="android:statusBarColor">@color/eq_status_bar</item>
+        <item name="android:navigationBarColor">@color/eq_nav_bar</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+
+        <!-- Disable the Material drop shadows. On #090B0F they are invisible
+             but still cost a hardware layer, and the card border is what
+             actually communicates elevation here. -->
+        <item name="elevationOverlayEnabled">false</item>
+
+        <item name="android:windowBackground">@color/eq_background</item>
+        <item name="android:navigationBarDividerColor" tools:targetApi="28">@color/eq_border</item>
+
+        <!-- Typography defaults. Individual screens should still reference an
+             explicit TextAppearance.Eq.* — this stops an unstyled TextView
+             from defaulting to 16sp black-on-white. -->
+        <item name="android:textColorPrimary">@color/eq_text_primary</item>
+        <item name="android:textColorSecondary">@color/eq_text_secondary</item>
+        <item name="android:textColorHint">@color/eq_text_muted</item>
+
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Eq.Dialog</item>
     </style>
+
+    <!-- Dialogs: same surfaces as the rest of the app. The Material default is
+         noticeably lighter, which read as a different application. -->
+    <style name="ThemeOverlay.Eq.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/eq_surface_raised</item>
+        <item name="colorOnSurface">@color/eq_text_primary</item>
+        <item name="android:colorBackground">@color/eq_surface_raised</item>
+    </style>
+
 </resources>

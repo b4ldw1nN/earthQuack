@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thumb is opaque white-on-blue when checked, and a flat light grey when not.
+     The unchecked thumb is deliberately NOT the track colour: on a dark track
+     a matching thumb disappears, and "off" has to stay legible. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="#FFFFFFFF" android:state_checked="true"/>
+    <item android:color="@color/eq_text_muted"/>
+</selector>

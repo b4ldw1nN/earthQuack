@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="services_tailscale_connected">Connected to your desktop</string>
+
+    <string name="connections_use_selected">Use selected</string>
+    <string name="connections_scanning_generic">Scanning…</string>
+    <string name="connections_peer_found">EarthQuack service reachable</string>
+    <string name="connections_peer_current">Current target</string>
+    <string name="connections_using">Now syncing with %1$s</string>
+    <string name="connections_none_found">No EarthQuack service answered on any candidate address.</string>
+    <string name="connections_none_found_hint">This phone is on the tailnet (%1$s), so the desktop is likely not running. Start the node on your desktop, then scan again.</string>
+    <string name="connections_not_on_tailnet">This phone has no tailnet address, so Tailscale is not connected. Connect Tailscale on the phone, then scan.</string>
+    <string name="connections_this_device">This device</string>
+    <string name="connections_enter_address">Enter address manually</string>
+    <string name="connections_manual_title">Desktop address</string>
+    <string name="connections_manual_hint">Tailscale IP, e.g. 100.92.160.31</string>
+    <string name="connections_manual_invalid">Enter a valid IPv4 or IPv6 address.</string>
+    <string name="connections_manual_saved">Now syncing with %1$s</string>
+    <string name="connections_scanning">Scanning %1$d candidate addresses…</string>
+    <string name="connections_not_configured">No Tailscale address configured. Scan for Devices to find your desktop.</string>
+
+    <string name="settings_appearance_note">Dark mode is the only theme in this build. EarthQuack is a background tool that usually sits next to a terminal, so it is dark by design rather than by preference.</string>
+
+    <string name="about_version_format">Version %1$s</string>
+    <string name="about_license">Licence: %1$s</string>
+    <string name="about_rclone">Includes %1$s for storage backends.</string>
+    <string name="about_licenses">View licence</string>
+</resources>

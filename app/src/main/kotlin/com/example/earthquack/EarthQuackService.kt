@@ -26,6 +26,8 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
+import com.example.earthquack.state.ClipboardEntry
+import com.example.earthquack.state.ClipboardHistoryStore
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -66,6 +68,15 @@ class EarthQuackService : LifecycleService() {
     private lateinit var powerManager: PowerManager
     private lateinit var api: ClipboardApi
     private lateinit var syncState: SyncState
+
+    /**
+     * Clipboard sync history, written at the points a value actually changes
+     * hands. See [ClipboardHistoryStore] for why this lives in the service
+     * rather than in a UI listener.
+     */
+    private val clipboardHistory: ClipboardHistoryStore by lazy {
+        ClipboardHistoryStore(applicationContext)
+    }
     // Short-lived wakelock only held briefly during clipboard POST — no permanent hold
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -376,6 +387,10 @@ class EarthQuackService : LifecycleService() {
                 clipboardManager.setPrimaryClip(clip)
             }
             broadcastStatus(SyncStatus.RUNNING, "← $text")
+            // Recorded here, at the point the value genuinely arrives, rather
+            // than by a UI listener: a listener only sees syncs that happen
+            // while a screen is open, so history would be silently incomplete.
+            clipboardHistory.record(text, ClipboardEntry.Direction.RECEIVED)
             Log.i(TAG, "Applied remote clipboard v$version: '${text.take(60)}'")
         } catch (e: Exception) {
             Log.e(TAG, "SSE parse error: ${e.message}")
@@ -549,6 +564,9 @@ class EarthQuackService : LifecycleService() {
             val version = api.postClipboard(toSend)
             if (version >= 0) {
                 broadcastStatus(SyncStatus.RUNNING, "→ $text")
+                // Only on success: recording an item the desktop never accepted
+                // would put a row in history that did not actually transfer.
+                clipboardHistory.record(text, ClipboardEntry.Direction.SENT)
                 Log.i(TAG, "POST ok, version=$version")
             } else {
                 // Release the claim so the next poll retries this text.

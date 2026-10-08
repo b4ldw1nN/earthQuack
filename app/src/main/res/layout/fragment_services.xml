@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Services hub.
+
+    A list, not a set of tiles. Three services with three different states
+    compress into rows far better than tiles, and rows leave room for the state
+    subtitle that makes each one legible without opening it.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <include android:id="@+id/rowTailscale" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowSftp" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowClipboard" layout="@layout/item_settings_row" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

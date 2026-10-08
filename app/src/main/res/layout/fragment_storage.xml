@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Storage.
+
+    Three sections in order of how often they are needed: how much room the
+    phone has, what is configured in rclone, and whether anything is moving.
+
+    The meter reflects StatFs on the app's files directory. When the platform
+    will not report a total, the meter hides itself rather than drawing an
+    empty or full bar — see StorageFragment.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- ── Total storage ───────────────────────────────────────────────
+             Real figures from StatFs. The whole card is hidden when the
+             figures are unknown, because a bar with no number under it is a
+             decorative element masquerading as data. -->
+        <LinearLayout
+            android:id="@+id/cardUsage"
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_sm">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/storage_total"
+                android:textAppearance="@style/TextAppearance.Eq.Overline" />
+
+            <ProgressBar
+                android:id="@+id/usageBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:max="1000"
+                android:progressDrawable="@drawable/eq_storage_meter"
+                android:contentDescription="@string/storage_total" />
+
+            <TextView
+                android:id="@+id/textUsage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:textAppearance="@style/TextAppearance.Eq.Meta"
+                tools:text="42.6 GB used / 128 GB" />
+        </LinearLayout>
+
+        <!-- Direct entry to the browser. Previously the only route was Home ->
+             Storage tab -> tap the "Storage" tile -> overflow -> Browse, which
+             is four taps to open a file listing. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBrowse"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/home_browse_files"
+            app:icon="@drawable/ic_eq_folder" />
+
+        <!-- ── Local storage ─────────────────────────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/storage_local_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/rowInternal"
+                style="@style/Widget.Eq.Row"
+                android:background="@drawable/bg_eq_row_clickable">
+
+                <ImageView
+                    android:layout_width="@dimen/eq_icon"
+                    android:layout_height="@dimen/eq_icon"
+                    android:src="@drawable/ic_eq_storage"
+                    app:tint="@color/eq_text_secondary"
+                    android:contentDescription="@null" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="@dimen/eq_gap_md"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/storage_internal"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                    <TextView
+                        android:id="@+id/textInternalFree"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                        tools:text="78.3 GB free" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:layout_marginBottom="@dimen/eq_gap_sm" />
+
+            <LinearLayout
+                android:id="@+id/rowShared"
+                style="@style/Widget.Eq.Row"
+                android:background="@drawable/bg_eq_row_clickable">
+
+                <ImageView
+                    android:layout_width="@dimen/eq_icon"
+                    android:layout_height="@dimen/eq_icon"
+                    android:src="@drawable/ic_eq_folder"
+                    app:tint="@color/eq_text_secondary"
+                    android:contentDescription="@null" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="@dimen/eq_gap_md"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/storage_shared"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                    <TextView
+                        android:id="@+id/textSharedState"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                        tools:text="Android shared storage" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGrantStorage"
+                    style="@style/Widget.Eq.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:visibility="gone"
+                    android:text="@string/action_grant" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ── rclone remotes ────────────────────────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/storage_remotes_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <!-- Import sits next to Add because they are the two ways a remote
+                 gets here: build one from scratch, or bring an existing config
+                 across from a desktop. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnImportRemote"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:text="@string/storage_import_remote"
+                app:icon="@drawable/ic_eq_open_new"
+                app:iconSize="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAddRemote"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="@string/storage_add_remote"
+                app:icon="@drawable/ic_eq_add"
+                app:iconSize="16dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardRemotes"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <!-- Shown while loading, on error, and when empty. One container so the
+             three cases cannot overlap and contradict each other. -->
+        <LinearLayout
+            android:id="@+id/remotesMessage"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/textRemotesMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="No remotes configured" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRemotesRetry"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:visibility="gone"
+                android:text="@string/action_retry" />
+        </LinearLayout>
+
+        <!-- ── Transfers ───────────────────────────────────────────────────
+             The app has no transfer registry, so this reports the only thing
+             that is actually knowable and says so plainly. A "Completed: 12 ·
+             Failed: 0" line with invented counts would be actively harmful:
+             it looks like a record of work that never happened. -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/storage_transfers_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/state_no_active_transfers"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:text="@string/storage_transfers_untracked"
+                android:textAppearance="@style/TextAppearance.Eq.Meta" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

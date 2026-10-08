@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sub-screen strings: Security, Battery, Permissions, SFTP, Clipboard.
+     Kept apart from the hub strings so it is clear these describe focused
+     screens rather than list entries. -->
+<resources>
+
+    <!-- Security -->
+    <string name="security_token_hint">Not set</string>
+    <string name="security_key_hint">Not set</string>
+    <!-- Full phrases, not "Encryption yes". The old %1$s substitution produced
+         "Encryption no", which reads like a truncated sentence. -->
+    <string name="security_enc_enabled">Encryption enabled</string>
+    <string name="security_enc_disabled">Encryption disabled</string>
+    <string name="security_key_valid">Valid key (32 bytes)</string>
+    <string name="security_key_missing">No valid key set</string>
+    <string name="security_key_generated">New key generated. Set the same value as CLIPBOARD_AES_KEY on your desktop.</string>
+    <string name="security_key_copied">Key copied to clipboard</string>
+    <string name="security_key_invalid">Invalid key — must be 44 characters of Base64 (32 bytes)</string>
+    <string name="security_no_key">No key to copy</string>
+    <string name="security_storage_warning">This build stores the key and token in plain-text SharedPreferences. They are app-private but not encrypted at rest.</string>
+    <string name="security_yes">yes</string>
+    <string name="security_no">no</string>
+    <string name="security_ready">Ready for secure sync</string>
+    <string name="security_not_ready">Not ready — encryption is off or the key is invalid</string>
+
+    <!-- Battery -->
+    <string name="battery_keep_running">Battery saver</string>
+    <string name="battery_keep_running_sub">Throttle clipboard polling while the screen is off</string>
+    <string name="battery_pause_screen_off">Pause when screen is off</string>
+    <string name="battery_pause_screen_off_sub">Disconnect entirely. Saves more power, but you can miss syncs.</string>
+    <string name="battery_optimisation_header">Android battery optimisation</string>
+    <string name="battery_optimised_yes">Exempt — the service can run in the background</string>
+    <string name="battery_optimised_no">Not exempt — Android may stop the sync service</string>
+    <string name="battery_configure">Configure</string>
+
+    <!-- Permissions -->
+    <string name="permissions_granted">Granted</string>
+    <string name="permissions_not_granted">Not granted</string>
+    <string name="permissions_grant">Grant</string>
+    <string name="permissions_all_granted">All permissions granted. Nothing to do.</string>
+
+    <!-- SFTP -->
+    <string name="sftp_not_implemented_title">SFTP server not implemented yet</string>
+    <string name="sftp_not_implemented_sub">No SSH server in this build yet</string>
+    <string name="sftp_stopped_sub">Stopped — not listening</string>
+    <string name="sftp_running_sub">Listening on port %1$d</string>
+    <string name="sftp_details_header">Connection Details</string>
+    <string name="sftp_pubkey_auth_sub">Stored public keys. Nothing sensitive is kept on the phone.</string>
+    <string name="sftp_settings_invalid">Those settings cannot be used — check the port and root directory.</string>
+    <string name="sftp_start_failed">Could not start the SFTP server</string>
+    <string name="sftp_not_implemented_body">The screen is complete and your settings below are saved, but no SFTP server is running: there is no SSH server in this build yet. The settings will be used as-is when it lands — nothing here needs re-entering.</string>
+    <string name="state_no_clients">No clients</string>
+    <string name="sftp_port_invalid">Port must be between 1 and 65535</string>
+    <string name="sftp_root_invalid">Root directory cannot be empty</string>
+    <string name="sftp_host_key_none">Generated when the server first starts</string>
+    <string name="sftp_settings_saved">Settings saved</string>
+
+    <!-- Clipboard -->
+    <string name="clipboard_never_synced">Nothing synced yet</string>
+    <string name="clipboard_no_history">No clipboard history yet. Entries appear here when text actually syncs.</string>
+    <string name="clipboard_chars">%1$d characters</string>
+    <string name="clipboard_copied">Copied to clipboard</string>
+    <string name="clipboard_connected_to">Connected to %1$s</string>
+    <string name="clipboard_sync_running">Sync is running — clipboard changes transfer automatically</string>
+    <string name="clipboard_encrypted_title">Clipboard is encrypted</string>
+    <string name="clipboard_encrypted_body">Your desktop is sending AES-encrypted text but encryption is off here, so values arrive unreadable. Turn it on and enter the same key you set on the desktop.</string>
+    <string name="clipboard_encrypted_action">Open Security</string>
+    <string name="clipboard_clear_confirm">This removes all stored clipboard history from the device. It cannot be undone.</string>
+    <string name="clipboard_history_cleared">Clipboard history cleared</string>
+
+</resources>

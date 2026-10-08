@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Counts that genuinely vary. Plurals rather than a hand-rolled
+     "%d remotes", because English needs the singular form and a hardcoded
+     count string is the usual way that gets missed. -->
+<resources>
+    <plurals name="remote_count">
+        <item quantity="one">%d remote</item>
+        <item quantity="other">%d remotes</item>
+    </plurals>
+
+    <plurals name="peer_count">
+        <item quantity="one">%d peer</item>
+        <item quantity="other">%d peers</item>
+    </plurals>
+
+    <plurals name="item_count">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+</resources>

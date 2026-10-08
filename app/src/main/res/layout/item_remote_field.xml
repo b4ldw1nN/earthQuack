@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One generated form field.
+
+    Rendered from rclone's declared setting metadata, so the same layout serves a
+    String, a Password, a Token, a Bool and an Int.
+
+    secret handling: rclone marks a setting Sensitive when config/dump should
+    mask it. Those fields are masked here too, and their values are never echoed
+    into a hint, a log, or a content description.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/eq_gap_sm"
+    android:paddingBottom="@dimen/eq_gap_sm">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/fieldLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.Eq.RowLabel"
+            tools:text="host" />
+
+        <TextView
+            android:id="@+id/fieldBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/remote_field_required"
+            android:textAppearance="@style/TextAppearance.Eq.Meta"
+            android:textColor="@color/eq_warning"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/fieldInputWrap"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_xs">
+
+        <EditText
+            android:id="@+id/fieldInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_eq_field"
+            android:padding="@dimen/eq_gap_md"
+            android:textColor="@color/eq_text_primary"
+            android:textColorHint="@color/eq_text_muted"
+            android:textSize="15sp"
+            android:importantForAutofill="no"
+            android:maxLines="1"
+            tools:text="example.com" />
+
+        <ImageButton
+            android:id="@+id/fieldReveal"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="end|center_vertical"
+            android:padding="12dp"
+            android:src="@drawable/ic_eq_eye"
+            android:background="@android:color/transparent"
+            app:tint="@color/eq_text_muted"
+            android:contentDescription="@string/action_show"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/fieldHelp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textAppearance="@style/TextAppearance.Eq.Meta"
+        android:visibility="gone"
+        tools:visibility="visible"
+        tools:text="Hostname of the remote server" />
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/fieldSwitch"
+        style="@style/Widget.Eq.Switch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_xs"
+        android:visibility="gone" />
+
+</LinearLayout>

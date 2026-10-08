@@ -82,9 +82,37 @@ import (
 	// link time; there is no runtime plugin mechanism on Android, so the set of
 	// supported providers is a build-time decision made here and nowhere else.
 	//
-	// The PoC imports only `local` so the AAR stays small enough to iterate on.
-	// See README.md for how to widen this without touching the Kotlin layer.
-	_ "github.com/rclone/rclone/backend/local"
+	// This list is the single source of truth for what the app can configure.
+	// The Kotlin layer never hard-codes a provider name — it renders whatever
+	// config/providers reports — so widening this list is all that is needed to
+	// make a backend appear in the app's Add-remote picker.
+	//
+	// Cost matters here: every backend adds code and its dependencies to
+	// libgojni.so, which ships inside the APK. The set below was chosen for
+	// breadth on the services EarthQuack is actually a client for, while keeping
+	// out the backends that pull large SDKs for little benefit. README.md
+	// records the measured sizes so the next change is informed rather than
+	// guessed.
+	_ "github.com/rclone/rclone/backend/box"
+	_ "github.com/rclone/rclone/backend/chunker" // fixed-size chunks
+	_ "github.com/rclone/rclone/backend/combine" // multi-remote: a/, b:, crypt a:
+	_ "github.com/rclone/rclone/backend/crypt"   // encrypts another remote
+	_ "github.com/rclone/rclone/backend/drive"   // Google Drive
+	_ "github.com/rclone/rclone/backend/dropbox"
+	_ "github.com/rclone/rclone/backend/ftp"
+	_ "github.com/rclone/rclone/backend/local" // phone-local filesystem
+	_ "github.com/rclone/rclone/backend/mega"  // MEGA
+	_ "github.com/rclone/rclone/backend/onedrive"
+	_ "github.com/rclone/rclone/backend/pcloud"
+	_ "github.com/rclone/rclone/backend/s3"     // AWS and S3-compatible
+	_ "github.com/rclone/rclone/backend/sftp"   // any SSH server, incl. a desktop
+	_ "github.com/rclone/rclone/backend/webdav" // Nextcloud, ownCloud, many NASes
+	// Bridging/local-transformation backends: cheap, no network, and they are
+	// what make a local remote genuinely useful (a/, alias, compress).
+	_ "github.com/rclone/rclone/backend/alias"
+	_ "github.com/rclone/rclone/backend/archive"
+	_ "github.com/rclone/rclone/backend/compress"
+	_ "github.com/rclone/rclone/backend/union"
 )
 
 // RcloneResult is the reply to a single RPC call.

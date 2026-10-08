@@ -1,39 +1,71 @@
 package com.example.earthquack
 
-import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.databinding.ActivityMainBinding
-import kotlinx.coroutines.*
+import com.example.earthquack.state.SyncStateLabel
+import com.example.earthquack.state.SystemStatusProvider
+import com.example.earthquack.ui.ClipboardFragment
+import com.example.earthquack.ui.ConnectionsFragment
+import com.example.earthquack.ui.HomeFragment
+import com.example.earthquack.ui.ServicesFragment
+import com.example.earthquack.ui.SettingsFragment
+import com.example.earthquack.ui.SftpFragment
+import com.example.earthquack.ui.StorageFragment
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
+/**
+ * Single-Activity host for the four tabs and the Services sub-screens.
+ *
+ * ## Why manual fragment transactions
+ *
+ * The project has no navigation library, and the redesign is not a good reason
+ * to add one: the graph is four tabs plus three pushed sub-screens, which
+ * `FragmentManager` handles directly. Avoiding a new dependency also keeps the
+ * offline Gradle build working, and keeps the change to architecture minimal --
+ * the brief was explicitly to keep XML/ViewBinding and not introduce libraries
+ * for their own sake.
+ *
+ * Tabs are added once and then shown/hidden, rather than replaced, so each tab
+ * keeps its scroll position and its loaded state when the user comes back.
+ *
+ * ## Status broadcast
+ *
+ * The service reports state via [ACTION_STATUS_UPDATE]. It is received here and
+ * republished as [statusFlow] so any screen can observe it without each one
+ * registering its own receiver. That matters because the old design had the
+ * status logic living in the Activity, which forced it to be duplicated
+ * anywhere else it was needed.
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var currentStatus = SyncStatus.STOPPED
-    private var serviceRunning = false
+    private lateinit var statusProvider: SystemStatusProvider
 
-    private val notifPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ -> doStartService() }
+    private val _syncState = MutableStateFlow(SyncStateLabel.UNKNOWN)
+
+    /** Latest state broadcast by the service. Starts [SyncStateLabel.UNKNOWN]. */
+    val syncState: StateFlow<SyncStateLabel> = _syncState.asStateFlow()
+
+    /** Tabs that have been created, so they are not recreated on every switch. */
+    private val tabFragments = mutableMapOf<Int, Fragment>()
+
+    private var currentTabId: Int = R.id.nav_home
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ACTION_STATUS_UPDATE) return
-            val statusName = intent.getStringExtra(EXTRA_STATUS) ?: return
-            val lastSync   = intent.getStringExtra(EXTRA_LAST_SYNC)
-            val status = SyncStatus.entries.firstOrNull { it.name == statusName } ?: return
-            updateUi(status, lastSync)
+            val name = intent.getStringExtra(EXTRA_STATUS) ?: return
+            _syncState.value = SyncStateLabel.fromName(name)
         }
     }
 
@@ -42,106 +74,52 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Server Discovery
-        binding.textServer.text = "${ServerConfig.getHost(this)}:$SERVER_PORT"
-        binding.btnRediscover.setOnClickListener { triggerTailscaleScan() }
+        statusProvider = SystemStatusProvider(this)
 
-        // Battery saver switches
-        binding.cbBatterySaver.isChecked = ServerConfig.isBatterySaverEnabled(this)
-        binding.cbPauseOnScreenOff.isChecked = ServerConfig.isPauseOnScreenOff(this)
-        binding.cbPauseOnScreenOff.isEnabled = binding.cbBatterySaver.isChecked
-
-        binding.cbBatterySaver.setOnCheckedChangeListener { _, checked ->
-            ServerConfig.setBatterySaverEnabled(this, checked)
-            binding.cbPauseOnScreenOff.isEnabled = checked
-            Toast.makeText(this, if (checked) "Battery saver ON" else "Battery saver OFF", Toast.LENGTH_SHORT).show()
-        }
-        binding.cbPauseOnScreenOff.setOnCheckedChangeListener { _, checked ->
-            ServerConfig.setPauseOnScreenOff(this, checked)
-        }
-
-        // Security — AES
-        binding.cbAesEnabled.isChecked = ServerConfig.isAesEnabled(this)
-        binding.editAesKey.setText(ServerConfig.getAesKey(this))
-        binding.tilAesKey.isEnabled = binding.cbAesEnabled.isChecked
-        binding.editAesKey.isEnabled = binding.cbAesEnabled.isChecked
-        binding.btnGenKey.isEnabled = binding.cbAesEnabled.isChecked
-        binding.btnCopyKey.isEnabled = binding.cbAesEnabled.isChecked
-
-        binding.cbAesEnabled.setOnCheckedChangeListener { _, checked ->
-            if (checked && !ServerConfig.hasValidAesKey(this) && binding.editAesKey.text.isNullOrBlank()) {
-                val k = CryptoUtil.generateKeyBase64()
-                binding.editAesKey.setText(k)
-                ServerConfig.setAesKey(this, k)
-                Toast.makeText(this, "AES key generated — set same key on Desktop!", Toast.LENGTH_LONG).show()
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            // Only switch tabs when nothing is pushed on top. Otherwise tapping
+            // a tab while inside Connections should return to that tab, not
+            // silently discard the pushed screen.
+            if (supportFragmentManager.backStackEntryCount > 0) {
+                supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+                binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                binding.appbar.btnBack.setOnClickListener(null)
             }
-            ServerConfig.setAesEnabled(this, checked)
-            binding.tilAesKey.isEnabled = checked
-            binding.editAesKey.isEnabled = checked
-            binding.btnGenKey.isEnabled = checked
-            binding.btnCopyKey.isEnabled = checked
-            if (checked && !CryptoUtil.isValidKeyBase64(binding.editAesKey.text.toString())) {
-                binding.tilAesKey.error = "Invalid key — 32 bytes Base64 (44 chars)"
-            } else {
-                binding.tilAesKey.error = null
-            }
-        }
-        binding.editAesKey.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                val k = binding.editAesKey.text.toString().trim()
-                if (k.isNotEmpty() && !CryptoUtil.isValidKeyBase64(k)) {
-                    binding.tilAesKey.error = "Invalid — must be 44-char Base64 (32 bytes)"
-                } else {
-                    binding.tilAesKey.error = null
-                    ServerConfig.setAesKey(this, k)
-                    if (k.isNotBlank()) Toast.makeText(this, "AES key saved — set CLIPBOARD_AES_KEY on Desktop!", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        binding.btnGenKey.setOnClickListener {
-            val k = CryptoUtil.generateKeyBase64()
-            binding.editAesKey.setText(k)
-            ServerConfig.setAesKey(this, k)
-            ServerConfig.setAesEnabled(this, true)
-            binding.cbAesEnabled.isChecked = true
-            Toast.makeText(this, "New AES key — copy to Desktop env!", Toast.LENGTH_LONG).show()
-        }
-        binding.btnCopyKey.setOnClickListener {
-            val k = binding.editAesKey.text.toString().trim()
-            if (k.isBlank()) {
-                Toast.makeText(this, "No key to copy", Toast.LENGTH_SHORT).show()
-            } else {
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("AES Key", k))
-                Toast.makeText(this, "AES key copied", Toast.LENGTH_SHORT).show()
-            }
+            showTab(item.itemId)
+            true
         }
 
-        // Security — bearer auth token (EARTHQUACK_AUTH_TOKEN, optional).
-        // Sent as "Authorization: Bearer <token>" on clipboard + file calls.
-        // The current Python daemon ignores it; it is required once the daemon
-        // is migrated to Go and enforces the shared token.
-        binding.editAuthToken.setText(ServerConfig.getAuthToken(this))
-        binding.editAuthToken.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                ServerConfig.setAuthToken(this, binding.editAuthToken.text.toString())
-            }
-        }
+        // Re-selecting the current tab should not rebuild it; the old code
+        // restarted the top-level screen on every tap.
+        binding.bottomNav.setOnItemReselectedListener { /* no-op */ }
 
-        binding.btnToggle.setOnClickListener {
-            if (serviceRunning) stopSync() else startSync()
+        if (savedInstanceState == null) {
+            showTab(R.id.nav_home)
+        } else {
+            currentTabId = savedInstanceState.getInt(KEY_CURRENT_TAB, R.id.nav_home)
+            // Fragments are restored by the system; rebuild only the lookup map.
+            // findFragment returns null for a tab that was never created, so
+            // those ids are simply absent and get lazily created on first use.
+            listOf(R.id.nav_home, R.id.nav_storage, R.id.nav_services, R.id.nav_settings)
+                .forEach { id -> findFragment(id)?.let { tabFragments[id] = it } }
+            binding.bottomNav.selectedItemId = currentTabId
         }
-        binding.btnPauseResume.setOnClickListener {
-            if (currentStatus == SyncStatus.PAUSED) resumeSync() else pauseSync()
-        }
-        binding.btnOverlayPermission.setOnClickListener {
-            openOverlayPermissionSettings()
-        }
-        binding.btnImeSettings.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        }
-        refreshOverlayButton()
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_CURRENT_TAB, currentTabId)
+    }
+
+    /**
+     * Looks up an existing tab fragment by its tag.
+     *
+     * Tab fragments are added directly to this activity's FragmentManager with
+     * a stable tag, so a tag lookup is exact. The id-based lookup is deprecated
+     * and ambiguous once two fragments share a container.
+     */
+    private fun findFragment(id: Int): Fragment? =
+        supportFragmentManager.findFragmentByTag(tagFor(id))
 
     override fun onResume() {
         super.onResume()
@@ -152,213 +130,147 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(statusReceiver, filter)
         }
-        refreshOverlayButton()
-        binding.textServer.text = "${ServerConfig.getHost(this)}:$SERVER_PORT"
-        checkServiceRunningState()
-    }
-
-    @Suppress("DEPRECATION")
-    private fun checkServiceRunningState() {
-        val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val isRunning = am.getRunningServices(Int.MAX_VALUE).any {
-            it.service.className == EarthQuackService::class.java.name
-        }
-        if (isRunning) {
-            startService(Intent(this, EarthQuackService::class.java).apply { action = "QUERY_STATUS" })
-            if (currentStatus == SyncStatus.STOPPED) {
-                updateUi(SyncStatus.RUNNING)
-            }
-        } else {
-            updateUi(SyncStatus.STOPPED)
-        }
     }
 
     override fun onPause() {
         super.onPause()
-        try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
+        runCatching { unregisterReceiver(statusReceiver) }
     }
 
-    private fun canDrawOverlays() = Settings.canDrawOverlays(this)
+    // ── Tabs ─────────────────────────────────────────────────────────────────
 
-    private fun refreshOverlayButton() {
-        if (canDrawOverlays()) {
-            binding.btnOverlayPermission.text = " Draw over apps: Granted"
-            binding.btnOverlayPermission.isEnabled = false
+    private fun showTab(tabId: Int) {
+        val fm = supportFragmentManager
+        val transaction = fm.beginTransaction()
+
+        // Hide whatever is visible, show the target. Created lazily so a tab the
+        // user never visits costs nothing.
+        tabFragments.values.forEach { transaction.hide(it) }
+
+        val existing = tabFragments[tabId]
+        if (existing != null && existing.isAdded) {
+            transaction.show(existing)
         } else {
-            binding.btnOverlayPermission.text = "Grant 'Draw over apps' (needed for background sync)"
-            binding.btnOverlayPermission.isEnabled = true
+            val fragment = createFragment(tabId)
+            tabFragments[tabId] = fragment
+            transaction.add(R.id.tab_container, fragment, tagFor(tabId))
+        }
+
+        transaction.commit()
+        currentTabId = tabId
+        renderAppBar(tabId)
+    }
+
+    private fun createFragment(tabId: Int): Fragment = when (tabId) {
+        R.id.nav_home -> HomeFragment()
+        R.id.nav_storage -> StorageFragment()
+        R.id.nav_services -> ServicesFragment()
+        R.id.nav_settings -> SettingsFragment()
+        else -> HomeFragment()
+    }
+
+    private fun tagFor(tabId: Int): String = "tab:$tabId"
+
+    private fun renderAppBar(tabId: Int) {
+        val (title, subtitle) = when (tabId) {
+            R.id.nav_home -> getString(R.string.app_name) to getString(R.string.home_tagline)
+            R.id.nav_storage -> getString(R.string.nav_storage) to getString(R.string.storage_subtitle)
+            R.id.nav_services -> getString(R.string.nav_services) to getString(R.string.services_subtitle)
+            R.id.nav_settings -> getString(R.string.nav_settings) to ""
+            else -> getString(R.string.app_name) to ""
+        }
+
+        binding.appbar.title.text = title
+        binding.appbar.subtitle.text = subtitle
+        binding.appbar.subtitle.visibility =
+            if (subtitle.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        // Tabs are top level: nothing to go back to.
+        binding.appbar.btnBack.visibility = android.view.View.GONE
+    }
+
+    // ── Pushing sub-screens ──────────────────────────────────────────────────
+
+    /**
+     * Pushes a Services sub-screen over the current tab.
+     *
+     * The bottom bar stays visible and the Services tab stays selected, which
+     * is what the mockup shows for Connections, SFTP and Clipboard: they are
+     * deeper within Services, not peers of it.
+     */
+    fun pushSubScreen(fragment: Fragment, title: String, subtitle: String) {
+        val fm = supportFragmentManager
+        // Only one sub-screen at a time; replacing keeps Back from walking
+        // through a stack the user cannot see.
+        fm.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        fm.beginTransaction()
+            .add(R.id.content, fragment)
+            .addToBackStack(SUB_SCREEN)
+            .commit()
+
+        // The overlay sits above the tab container, so it only becomes opaque
+        // while something is pushed. Leaving it opaque unconditionally hid
+        // every tab behind a blank panel.
+        binding.content.setBackgroundColor(getColor(R.color.eq_background))
+
+        binding.appbar.title.text = title
+        binding.appbar.subtitle.text = subtitle
+        binding.appbar.subtitle.visibility =
+            if (subtitle.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        binding.appbar.btnBack.visibility = android.view.View.VISIBLE
+        binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+
+        if (binding.bottomNav.selectedItemId != R.id.nav_services) {
+            binding.bottomNav.selectedItemId = R.id.nav_services
         }
     }
 
-    private fun openOverlayPermissionSettings() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
-        )
-        startActivity(intent)
+    /** Navigates to one of the Services sub-screens. */
+    fun openConnections() = pushSubScreen(
+        ConnectionsFragment(),
+        getString(R.string.connections_title),
+        getString(R.string.connections_subtitle)
+    )
+
+    fun openSftp() = pushSubScreen(
+        SftpFragment(),
+        getString(R.string.sftp_title),
+        getString(R.string.sftp_subtitle)
+    )
+
+    fun openClipboard() = pushSubScreen(
+        ClipboardFragment(),
+        getString(R.string.clipboard_title),
+        getString(R.string.clipboard_subtitle)
+    )
+
+    /** Switches to the Storage tab, popping any pushed sub-screen. */
+    fun openStorage() {
+        binding.bottomNav.selectedItemId = R.id.nav_storage
     }
 
-    private fun triggerTailscaleScan() {
-        Toast.makeText(this, "Scanning Tailscale network for clipboard services…", Toast.LENGTH_SHORT).show()
-        CoroutineScope(Dispatchers.IO).launch {
-            val servers = TailscaleDiscovery.discoverAllWorkingServers()
-            withContext(Dispatchers.Main) {
-                if (servers.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "No active clipboard servers found on Tailscale", Toast.LENGTH_LONG).show()
-                } else if (servers.size == 1) {
-                    val ip = servers[0]
-                    val name = if (servers[0].isNotBlank()) servers[0] else ip
-                    Toast.makeText(this@MainActivity, "Discovered active server: $name ($ip)", Toast.LENGTH_LONG).show()
-                    applyNewHost(ip)
-                } else {
-                    showDeviceSelectionDialog(servers) { selectedIp ->
-                        applyNewHost(selectedIp)
-                    }
-                }
-            }
-        }
+    /** Switches to the Services tab. */
+    fun openServices() {
+        binding.bottomNav.selectedItemId = R.id.nav_services
     }
 
-    fun showDeviceSelectionDialog(
-        servers: List<String>,
-        onSelected: (String) -> Unit
-    ) {
-        if (servers.isEmpty()) return
-
-        val items = servers.mapIndexed { i, ip ->
-            "${i + 1}) $ip"
-        }
-
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Select EarthQuack Server")
-            .setItems(items.toTypedArray()) { _, which ->
-                onSelected(servers[which])
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun applyNewHost(host: String) {
-        val oldHost = ServerConfig.getHost(this)
-        val wasRunning = serviceRunning
-        ServerConfig.setHost(this, host)
-        binding.textServer.text = "$host:$SERVER_PORT"
-        if (wasRunning) {
-            Toast.makeText(this, "Target changed to $host — restarting service…", Toast.LENGTH_SHORT).show()
-            startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_STOP_SYNC })
-            binding.root.postDelayed({
-                ContextCompat.startForegroundService(
-                    this,
-                    Intent(this, EarthQuackService::class.java).apply { action = ACTION_START_SYNC }
-                )
-                updateUi(SyncStatus.CONNECTING)
-            }, 600)
-        } else {
-            Toast.makeText(this, "Connected to: $host", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun startSync() {
-        if (!canDrawOverlays()) {
-            Toast.makeText(
-                this,
-                "Grant 'Draw over other apps' first so clipboard can be read in the background",
-                Toast.LENGTH_LONG
-            ).show()
-            openOverlayPermissionSettings()
+    override fun onBackPressed() {
+        // Returning from a pushed sub-screen must restore the tab's app bar,
+        // which the push overwrote.
+        if (supportFragmentManager.backStackEntryCount > 0) {
+            supportFragmentManager.popBackStack()
+            renderAppBar(currentTabId)
+            binding.appbar.btnBack.setOnClickListener(null)
+            // Transparent again so the tab underneath is visible.
+            binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            doStartService()
-        }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 
-    private fun doStartService() {
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, EarthQuackService::class.java).apply { action = ACTION_START_SYNC }
-        )
-        serviceRunning = true
-        updateUi(SyncStatus.CONNECTING)
-    }
+    private companion object {
+        const val KEY_CURRENT_TAB = "current_tab"
+        const val SUB_SCREEN = "sub_screen"
 
-    private fun stopSync() {
-        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_STOP_SYNC })
-        serviceRunning = false
-        updateUi(SyncStatus.STOPPED)
-    }
-
-    private fun pauseSync() {
-        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_PAUSE_SYNC })
-        updateUi(SyncStatus.PAUSED)
-    }
-
-    private fun resumeSync() {
-        startService(Intent(this, EarthQuackService::class.java).apply { action = ACTION_RESUME_SYNC })
-        updateUi(SyncStatus.CONNECTING)
-    }
-
-    private fun updateUi(status: SyncStatus, lastSync: String? = null) {
-        currentStatus  = status
-        serviceRunning = status != SyncStatus.STOPPED
-
-        binding.textStatus.text = when (status) {
-            SyncStatus.RUNNING    -> "Running"
-            SyncStatus.STOPPED    -> "Stopped"
-            SyncStatus.CONNECTING -> "Connecting…"
-            SyncStatus.PAUSED     -> "Paused"
-            SyncStatus.ERROR      -> "Connection error"
-        }
-        binding.textStatusSub.text = when (status) {
-            SyncStatus.RUNNING    -> "Connected to ${ServerConfig.getHost(this)}:${SERVER_PORT}"
-            SyncStatus.CONNECTING -> "Connecting to ${ServerConfig.getHost(this)}…"
-            SyncStatus.PAUSED     -> "Paused — tap Resume to reconnect"
-            SyncStatus.ERROR      -> "Retrying with backoff…"
-            SyncStatus.STOPPED    -> "Tap Start to connect to your Desktop laptop"
-        }
-        binding.dotStatus.setBackgroundResource(when (status) {
-            SyncStatus.RUNNING    -> R.drawable.dot_running
-            SyncStatus.CONNECTING -> R.drawable.dot_connecting
-            SyncStatus.PAUSED     -> R.drawable.dot_paused
-            SyncStatus.ERROR      -> R.drawable.dot_error
-            SyncStatus.STOPPED    -> R.drawable.dot_stopped
-        })
-        // Toggle button style
-        if (serviceRunning) {
-            binding.btnToggle.text = "Stop Sync"
-            binding.btnToggle.setIconResource(android.R.drawable.ic_media_pause)
-        } else {
-            binding.btnToggle.text = "Start Sync"
-            binding.btnToggle.setIconResource(android.R.drawable.ic_media_play)
-        }
-
-        // Pause/Resume button
-        if (serviceRunning) {
-            binding.btnPauseResume.visibility = android.view.View.VISIBLE
-            binding.btnPauseResume.text = if (status == SyncStatus.PAUSED) "Resume" else "Pause"
-            binding.btnPauseResume.setIconResource(
-                if (status == SyncStatus.PAUSED) android.R.drawable.ic_media_play
-                else android.R.drawable.ic_media_pause
-            )
-        } else {
-            binding.btnPauseResume.visibility = android.view.View.GONE
-        }
-
-        if (lastSync != null) {
-            val label   = if (lastSync.startsWith("→")) "Sent to Desktop:" else "Received from Desktop:"
-            val snippet = lastSync.drop(1).trim().let { if (it.length > 80) it.take(80) + "…" else it }
-            binding.textLastSync.text = "$label\n$snippet"
-            binding.cardLastSync.visibility = android.view.View.VISIBLE
-        } else if (status == SyncStatus.STOPPED) {
-            binding.textLastSync.text = ""
-            binding.cardLastSync.visibility = android.view.View.GONE
-        } else if (binding.textLastSync.text.isNotBlank()) {
-            binding.cardLastSync.visibility = android.view.View.VISIBLE
-        }
     }
 }

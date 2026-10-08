@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Remote-add flow. Providers themselves are never listed here: the list comes
+     from rclone at runtime, so hard-coding names would offer backends that are
+     not linked into the binary. -->
+<resources>
+    <string name="add_remote_title">Add remote</string>
+    <string name="add_remote_subtitle">Choose a backend</string>
+    <string name="add_remote_loading">Loading backends…</string>
+    <string name="add_remote_empty">No backends are linked into this build of rclone.</string>
+    <string name="add_remote_error">Could not read rclone’s backend list: %1$s</string>
+
+    <string name="remote_name">Remote name</string>
+    <string name="remote_name_hint">e.g. mybox</string>
+    <string name="remote_name_invalid">A remote name is required, and cannot contain [ ]</string>
+    <string name="remote_field_required">required</string>
+    <string name="remote_secret_hint">Value hidden</string>
+    <string name="remote_no_settings">This backend needs no settings.</string>
+    <string name="remote_field_missing">“%1$s” is required</string>
+
+    <string name="remote_oauth_title">This backend needs sign-in</string>
+    <string name="remote_oauth_body">Saved without authorisation. Some backends will not work until you sign in, which is a separate flow.</string>
+
+    <string name="action_create_remote">Create remote</string>
+    <string name="remote_created">Remote “%1$s” created</string>
+    <string name="remote_create_failed">Could not create remote: %1$s</string>
+</resources>

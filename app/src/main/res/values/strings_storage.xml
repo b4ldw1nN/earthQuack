@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Storage-screen strings. Format strings carry real measured values; the
+     "%1$s / %2$s" shapes are deliberate so unit formatting stays in code and
+     is not duplicated, badly, in several places. -->
+<resources>
+    <string name="storage_usage_format">%1$s used / %2$s total</string>
+    <string name="storage_free_format">%1$s free</string>
+
+    <string name="storage_shared_granted">Android shared storage</string>
+    <string name="storage_shared_not_granted">Not granted — needed to read shared files</string>
+
+    <string name="storage_remote_status">%1$s</string>
+    <string name="storage_remote_type_unknown">Type not declared</string>
+    <string name="storage_remotes_error">Could not read rclone configuration. The native library may have failed to load on this device.</string>
+    <string name="storage_delete_failed">Could not delete remote: %1$s</string>
+
+    <string name="storage_transfers_untracked">Transfer history is not recorded yet, so no totals are shown.</string>
+    <string name="storage_import_remote">Import</string>
+    <string name="storage_import_ok">Imported %1$d remote(s)%2$s</string>
+    <string name="storage_import_backup">A backup of your previous config was kept.</string>
+    <string name="storage_import_failed">That file could not be imported as an rclone config.</string>
+    <string name="storage_import_confirm_title">Replace your rclone config?</string>
+    <string name="storage_import_confirm_body">Importing merges the selected file into the config already on this phone. Remotes with the same name will be overwritten, and a backup is kept first.</string>
+    <string name="storage_add_remote_pending">Adding a remote needs a per-backend settings form driven by rclone’s config/providers output. That screen is not built yet. Configured remotes can still be browsed and deleted here.</string>
+
+    <string name="action_browse">Browse</string>
+    <string name="storage_shared_unavailable">Shared storage is not available on this device</string>
+    <string name="action_delete_remote">Delete remote</string>
+    <string name="action_grant">Grant</string>
+    <string name="action_retry">Retry</string>
+
+    <string name="dialog_delete_remote_title">Delete “%1$s”?</string>
+    <string name="dialog_delete_remote_message">This removes the remote’s stored credentials from rclone.conf. It cannot be undone from the app.</string>
+</resources>

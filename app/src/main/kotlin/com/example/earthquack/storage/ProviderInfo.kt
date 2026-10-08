@@ -27,18 +27,22 @@ data class ProviderInfo(
  * One configuration key of a [ProviderInfo].
  *
  * @param type rclone's declared type, e.g. `String`, `Password`, `Token`,
- *   `Bool`, `Int`, `Duration`. The UI can use this to pick a widget and to
- *   avoid echoing a value back to the screen.
+ *   `Bool`, `Int`, `Duration`. The UI uses this to pick a widget and to avoid
+ *   echoing a value back to the screen.
  * @param required whether [RcloneRemoteManager.createRemote] needs it.
  * @param obscure true when the value is sensitive. rclone masks these in
  *   `config/dump`; we must do the same everywhere.
+ * @param advanced true for keys a user rarely needs. SFTP exposes a dozen; only
+ *   a few are essential, so the generated form hides the rest by default rather
+ *   than presenting every backend's full key set at once.
  */
 data class ProviderSetting(
     val name: String,
     val type: String,
     val required: Boolean,
     val obscure: Boolean,
-    val help: String
+    val help: String,
+    val isAdvanced: Boolean = false
 ) {
     /** True when this setting holds a credential. */
     val isSecret: Boolean

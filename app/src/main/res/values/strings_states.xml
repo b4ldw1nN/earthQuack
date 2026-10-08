@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Connection and state strings, kept separate from strings.xml so the reason
+    each one exists is legible: these are all values the UI must be able to
+    show when something is absent, unknown, or not built yet.
+
+    Every "unknown" here is a real, reachable state. None of them is a fallback
+    standing in for data that ought to have been fetched.
+-->
+<resources>
+
+    <!-- Connection states. Each is paired with a dot in the UI. -->
+    <string name="state_connected">Connected</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_disconnected">Disconnected</string>
+    <string name="state_paused">Paused</string>
+    <string name="state_error">Connection error</string>
+    <string name="state_running">Running</string>
+    <string name="state_stopped">Stopped</string>
+    <string name="state_starting">Starting…</string>
+
+    <!-- Subtitles that explain the state above it. -->
+    <string name="subtitle_connected_via_tailscale">Tailscale</string>
+    <string name="subtitle_connecting_to">Connecting to %1$s…</string>
+    <string name="subtitle_paused">Paused — tap Resume to reconnect</string>
+    <string name="subtitle_retrying">Retrying with backoff…</string>
+    <string name="subtitle_tap_start">Tap Start to connect to your desktop</string>
+    <string name="subtitle_not_configured">Tailscale address not set — tap to configure</string>
+    <string name="subtitle_no_tailnet">Tailscale unavailable</string>
+
+    <!-- Home rows -->
+    <string name="home_row_device">Device</string>
+    <string name="home_row_port">Port</string>
+    <string name="home_row_ipv4">IP (v4)</string>
+    <string name="home_row_peers">Peers</string>
+    <string name="home_row_device_name">Device name</string>
+    <string name="home_row_latency">Latency</string>
+    <string name="home_row_tailnet">Tailnet</string>
+
+    <string name="action_start_sync">Start sync</string>
+    <string name="action_stop_sync">Stop sync</string>
+
+    <string name="direction_sent">Sent to Desktop</string>
+    <string name="direction_received">Received from Desktop</string>
+
+    <string name="toast_needs_overlay">Grant “Draw over other apps” so clipboard sync can read in the background</string>
+
+</resources>
