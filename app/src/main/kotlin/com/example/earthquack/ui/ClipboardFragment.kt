@@ -11,7 +11,9 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.example.earthquack.MainActivity
+import com.example.earthquack.CryptoUtil
 import com.example.earthquack.R
+import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentClipboardBinding
 import com.example.earthquack.databinding.ItemHistoryRowBinding
 import com.example.earthquack.state.ClipboardEntry
@@ -106,7 +108,7 @@ class ClipboardFragment : Fragment() {
             ?.let { relativeTime(it.timestampMillis) }
             ?: getString(R.string.clipboard_never_synced)
 
-        renderDecryptWarning(entries)
+        renderEncryptionStatus(entries)
         renderCurrent(entries.firstOrNull())
         renderHistory(entries)
     }
@@ -116,30 +118,97 @@ class ClipboardFragment : Fragment() {
         com.example.earthquack.ServerConfig.isConfigured(requireContext())
 
     /**
-     * Warns when the desktop is encrypting and this app is not.
+     * Diagnoses why clipboard content is unreadable, instead of showing
+     * ciphertext and leaving the user to guess.
      *
-     * Detected from the data rather than assumed: rclone-free, just looking for
-     * the marker the desktop daemon prefixes onto encrypted payloads while
-     * `ServerConfig.isAesEnabled` is false. That combination has exactly one
-     * cause and exactly one fix, so naming it is more useful than showing
-     * ciphertext and letting the user guess.
+     * Three distinguishable states, because they have three different fixes:
+     *
+     *   - the desktop is encrypting and this app is not
+     *   - both sides are encrypting but with different keys
+     *   - fine
+     *
+     * The middle case is decided by *attempting a decryption*, not inferred.
+     * AES-GCM is authenticated, so a wrong key fails the tag check and throws:
+     * that turns "it looks like garbage" into a definitive answer. Only entries
+     * received from the desktop are tested — an entry we sent was encrypted with
+     * our own key and would always decrypt, so testing it would report a false
+     * mismatch.
      */
-    private fun renderDecryptWarning(entries: List<ClipboardEntry>) {
-        val encryptionOn = com.example.earthquack.ServerConfig.isAesEnabled(requireContext())
-        val hasCiphertext = entries.any { it.text.startsWith(AES_MARKER) }
+    private fun renderEncryptionStatus(entries: List<ClipboardEntry>) {
+        val encryptionOn = ServerConfig.isAesEnabled(requireContext())
+        val key = ServerConfig.getAesKey(requireContext())
 
-        val show = hasCiphertext && !encryptionOn
-        binding.cardDecryptWarning.visibility = if (show) View.VISIBLE else View.GONE
-        if (show) {
-            binding.btnFixEncryption.setOnClickListener {
-                startActivity(
-                    android.content.Intent(
-                        requireContext(),
-                        com.example.earthquack.ui.sub.SecurityActivity::class.java
-                    )
-                )
-            }
+        val fromDesktop = entries.firstOrNull {
+            it.direction == ClipboardEntry.Direction.RECEIVED &&
+                it.text.startsWith(CryptoUtil.PREFIX)
         }
+
+        val diagnosis = when {
+            fromDesktop == null && !encryptionOn -> Diagnosis.NONE
+            fromDesktop == null -> Diagnosis.NONE
+            !encryptionOn -> Diagnosis.DESKTOP_ENCRYPTED_APP_OFF
+            key.isBlank() || !CryptoUtil.isValidKeyBase64(key) -> Diagnosis.NO_LOCAL_KEY
+            canDecrypt(fromDesktop.text, key) -> Diagnosis.NONE
+            else -> Diagnosis.KEY_MISMATCH
+        }
+
+        val banner = binding.cardDecryptWarning
+        val show = diagnosis != Diagnosis.NONE
+        banner.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+
+        when (diagnosis) {
+            Diagnosis.DESKTOP_ENCRYPTED_APP_OFF -> {
+                binding.decryptTitle.setText(R.string.clipboard_encrypted_title)
+                binding.decryptBody.setText(R.string.clipboard_encrypted_body)
+            }
+            Diagnosis.NO_LOCAL_KEY -> {
+                binding.decryptTitle.setText(R.string.clipboard_encrypted_title)
+                binding.decryptBody.setText(R.string.clipboard_no_local_key)
+            }
+            Diagnosis.KEY_MISMATCH -> {
+                binding.decryptTitle.setText(R.string.clipboard_key_mismatch_title)
+                binding.decryptBody.setText(R.string.clipboard_key_mismatch_body)
+            }
+            Diagnosis.NONE -> Unit
+        }
+
+        binding.btnFixEncryption.setOnClickListener {
+            startActivity(
+                android.content.Intent(
+                    requireContext(),
+                    com.example.earthquack.ui.sub.SecurityActivity::class.java
+                )
+            )
+        }
+    }
+
+    /**
+     * True when [cipherText] decrypts with [key].
+     *
+     * Any failure means "not a match", which is the only question being asked.
+     * The plaintext is discarded immediately and never logged: clipboard content
+     * is frequently a credential.
+     */
+    private fun canDecrypt(cipherText: String, key: String): Boolean = try {
+        CryptoUtil.decrypt(cipherText.removePrefix(CryptoUtil.PREFIX), key)
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Why clipboard content is unreadable, if it is. */
+    private enum class Diagnosis {
+        NONE,
+
+        /** The desktop is encrypting; this app has encryption switched off. */
+        DESKTOP_ENCRYPTED_APP_OFF,
+
+        /** Encryption is on here but no usable key is stored. */
+        NO_LOCAL_KEY,
+
+        /** Both sides encrypt, but with different keys. */
+        KEY_MISMATCH
     }
 
     private fun renderCurrent(entry: ClipboardEntry?) {
@@ -291,14 +360,4 @@ class ClipboardFragment : Fragment() {
         _binding = null
     }
 
-    private companion object {
-        /**
-         * Prefix the desktop daemon puts on AES-encrypted clipboard payloads.
-         *
-         * Used only to detect a configuration mismatch, never to decrypt: the
-         * app holds no key when encryption is off, and the payload is not
-         * reversible from this side.
-         */
-        const val AES_MARKER = "AES:"
-    }
 }

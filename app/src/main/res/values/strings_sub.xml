@@ -65,6 +65,9 @@
     <string name="clipboard_encrypted_title">Clipboard is encrypted</string>
     <string name="clipboard_encrypted_body">Your desktop is sending AES-encrypted text but encryption is off here, so values arrive unreadable. Turn it on and enter the same key you set on the desktop.</string>
     <string name="clipboard_encrypted_action">Open Security</string>
+    <string name="clipboard_no_local_key">Encryption is on but no key is stored here, so encrypted text cannot be read. Add the same key your desktop uses.</string>
+    <string name="clipboard_key_mismatch_title">Key does not match</string>
+    <string name="clipboard_key_mismatch_body">Your desktop is sending AES text and this app is decrypting with a different key, so it cannot be read. Replace the key below with the exact one your desktop uses — generating a new one here will not help.</string>
     <string name="clipboard_clear_confirm">This removes all stored clipboard history from the device. It cannot be undone.</string>
     <string name="clipboard_history_cleared">Clipboard history cleared</string>
 

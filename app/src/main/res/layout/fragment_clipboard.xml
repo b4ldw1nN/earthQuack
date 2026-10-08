@@ -89,17 +89,19 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/decryptTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/clipboard_encrypted_title"
-                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                    tools:text="Clipboard is encrypted" />
 
                 <TextView
+                    android:id="@+id/decryptBody"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="@string/clipboard_encrypted_body"
-                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="Your desktop is sending AES-encrypted text." />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
