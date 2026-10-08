@@ -13,6 +13,14 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        // The gomobile/rclone binding currently ships arm64 only. Declared
+        // explicitly so an APK for another ABI fails at build time with a
+        // clear message rather than at runtime with UnsatisfiedLinkError.
+        // Widen this in step with rclone-android/README.md.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -37,6 +45,11 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    // Required by connectedAndroidTest.
+    defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 }
 
 dependencies {
@@ -46,6 +59,17 @@ dependencies {
     implementation(libs.lifecycle.service)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // The gomobile/rclone binding, built by rclone-android/ (see its README).
+    // Resolved via the flatDir repository in settings.gradle.kts so that AGP
+    // unpacks jniLibs/arm64-v8a/libgojni.so into the APK. A plain
+    // files("libs/rclone.aar") compiles but silently drops the .so.
+    implementation("rclone:rclone@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
+    // runTest for the JVM-side RcloneEngine tests.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // On-device verification of the native rclone boundary.
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

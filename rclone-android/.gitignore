@@ -1,0 +1,3 @@
+# Build artifacts of the rclone gomobile binding.
+/rclone-android/pkg/
+/rclone-android/vendor/

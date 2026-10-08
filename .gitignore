@@ -8,10 +8,21 @@ build/
 
 # Local config
 /config.json
+# Compiled node binary. Deliberately unanchored: the previous `/earthquack-node`
+# matched only as `./earthquack-node` and `git status` still listed the file as
+# untracked, so it was not reliably excluded.
 /earthquack-node
+earthquack-node
 local.properties
 *.keystore
 *.jks
+
+# ── rclone / gomobile native binding ──────────────────────────────────────
+# Built artifacts, never committed. Regenerate with:
+#   cd rclone-android && gomobile bind -target=android/arm64 -androidapi 26 \
+#     -javapkg com.example.earthquack -o ../app/libs/rclone.aar ./rclone
+# See rclone-android/README.md.
+/app/libs/
 
 # Logs
 *.log
@@ -22,6 +33,10 @@ local.properties
 *.iml
 .DS_Store
 .basemem.code.db
+# SQLite write-ahead log and shared-memory sidecars. The exact-name rule above
+# does not cover these, and they appear whenever the code index is open.
+.basemem.code.db-shm
+.basemem.code.db-wal
 
 # Compiled daemon binary (build locally: cc -O2 -o clipsyncd clipsyncd.c)
 clipsyncd
