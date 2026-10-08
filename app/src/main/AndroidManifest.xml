@@ -166,6 +166,25 @@
             android:name=".FileTransferService"
             android:exported="false" />
 
+        <!--
+            Embedded SFTP server. Serves one configured directory over SSH to
+            clients on the tailnet (Arch rclone, OpenSSH sftp, ...).
+            Foreground so a transfer is not killed mid-file; the notification is
+            also the only honest indicator that a port is listening.
+        -->
+        <service
+            android:name=".sftp.SftpServerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="SFTP file server: accepts SSH/SFTP connections from
+                    configured tailnet clients to serve one chosen directory. No
+                    standard foreground-service type covers an inbound file
+                    server that must keep running while the screen is off." />
+        </service>
+
         <!-- Input Method Service for reliable background clipboard monitoring -->
         <service
             android:name=".ClipboardImeService"

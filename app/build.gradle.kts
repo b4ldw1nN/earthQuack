@@ -59,6 +59,21 @@ dependencies {
     implementation(libs.lifecycle.service)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+
+    // ── SSH / SFTP ──────────────────────────────────────────────────────────
+    // Apache MINA SSHD. sshd-core carries both the client (SshClient) and the
+    // server (SshServer); sshd-sftp carries the SFTP subsystem for the server
+    // and SftpClient for the client. No native code, so this adds no ABI and
+    // no NDK requirement beyond the rclone AAR that is already arm64-only.
+    implementation(libs.sshd.common)
+    implementation(libs.sshd.core)
+    implementation(libs.sshd.sftp)
+    // Optional in sshd; needed only for ed25519 host keys / client keys.
+    implementation(libs.eddsa)
+    // slf4j binding so sshd's own diagnostics reach logcat instead of being
+    // discarded as "no binding".
+    implementation(libs.slf4j.simple)
+
     // The gomobile/rclone binding, built by rclone-android/ (see its README).
     // Resolved via the flatDir repository in settings.gradle.kts so that AGP
     // unpacks jniLibs/arm64-v8a/libgojni.so into the APK. A plain

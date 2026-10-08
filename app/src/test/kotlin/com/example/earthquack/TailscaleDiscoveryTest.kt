@@ -1,77 +1,44 @@
 package com.example.earthquack
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
+/**
+ * Discovery's candidate iteration and preference order.
+ *
+ * The JSON-parsing variant of this test was removed with the API it tested:
+ * Android cannot run `tailscale status`, so parsing that output was never
+ * something this class could do. What *is* testable without a device is the
+ * decision the class actually makes — probe each candidate in order, take the
+ * first that answers — and that is what these tests cover.
+ */
 class TailscaleDiscoveryTest {
 
-    private val sampleJson = """{
-      "Version": "1.102.3",
-      "Self": {
-        "HostName": "archii",
-        "DNSName": "archii.snares-hexatonic.ts.net.",
-        "OS": "linux",
-        "TailscaleIPs": ["100.92.160.31"],
-        "Online": true
-      },
-      "Peer": {
-        "node1": {
-          "HostName": "DESKTOP-9S55DRM",
-          "DNSName": "desktop-9s55drm.snares-hexatonic.ts.net.",
-          "OS": "windows",
-          "TailscaleIPs": ["100.105.106.87"],
-          "Online": false
-        },
-        "node2": {
-          "HostName": "V2253",
-          "DNSName": "v2253.snares-hexatonic.ts.net.",
-          "OS": "android",
-          "TailscaleIPs": ["100.87.152.1"],
-          "Online": true
-        }
-      }
-    }"""
-
     @Test
-    fun testParseTailscaleStatus() {
-        val (selfNode, peers) = TailscaleDiscovery.parseTailscaleStatus(sampleJson)
-        assertNotNull(selfNode)
-        assertEquals("archii", selfNode?.hostname)
-        assertEquals(listOf("100.92.160.31"), selfNode?.tailscaleIpv4)
-
-        assertEquals(2, peers.size)
-        val offline = peers.first { it.hostname == "DESKTOP-9S55DRM" }
-        assertFalse(offline.online)
-
-        val online = peers.first { it.hostname == "V2253" }
-        assertTrue(online.online)
-        assertEquals("100.87.152.1", online.tailscaleIpv4[0])
-    }
-
-    @Test
-    fun testDiscoverServerIpSingleOnline() {
+    fun `the first candidate that answers is returned`() {
+        val answered = mutableListOf<String>()
         val discovered = TailscaleDiscovery.discoverServerIp(
-            jsonOverride = sampleJson,
-            checkServiceFn = { ip, _ -> ip == "100.87.152.1" }
+            checkServiceFn = { ip, _ -> answered.add(ip); ip == "100.87.152.1" }
         )
         assertEquals("100.87.152.1", discovered)
+        // The probe stopped at the answer rather than scanning every candidate.
+        assertEquals(listOf("100.92.160.31", "100.87.152.1"), answered)
     }
 
     @Test
-    fun testDiscoverServerIpMultipleDeterministic() {
-        val multiJson = """{
-          "Self": {"HostName": "V2253", "Online": true, "TailscaleIPs": ["100.87.152.1"]},
-          "Peer": {
-            "p1": {"HostName": "archii", "Online": true, "TailscaleIPs": ["100.92.160.31"]},
-            "p2": {"HostName": "DESKTOP-9S55DRM", "Online": true, "TailscaleIPs": ["100.105.106.87"]}
-          }
-        }"""
-
+    fun `a network where nothing answers yields null`() {
         val discovered = TailscaleDiscovery.discoverServerIp(
-            jsonOverride = multiJson,
-            checkServiceFn = { _, _ -> true }
+            checkServiceFn = { _, _ -> false }
         )
-        // Numerical sort of 100.92.160.31 vs 100.105.106.87 should pick 100.92.160.31
-        assertEquals("100.92.160.31", discovered)
+        assertNull(discovered)
+    }
+
+    @Test
+    fun `every reachable server is collected`() {
+        val found = TailscaleDiscovery.discoverAllWorkingServers(
+            checkServiceFn = { ip, _ -> ip == "100.92.160.31" || ip == "100.87.152.1" }
+        )
+        assertEquals(listOf("100.92.160.31", "100.87.152.1"), found)
     }
 }

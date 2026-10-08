@@ -46,10 +46,53 @@ data class SftpSettings(
     val passwordAuth: Boolean = true,
     val publicKeyAuth: Boolean = false,
     /** Host key fingerprint, once the server generates one. Null until then. */
-    val hostKeyFingerprint: String? = null
+    val hostKeyFingerprint: String? = null,
+    /**
+     * Username clients authenticate as.
+     *
+     * A fixed name, matching what a single-user phone-as-server would sensibly
+     * use. Not a credential: authentication is by key or a one-time password,
+     * so this string grants nothing on its own.
+     */
+    val username: String = DEFAULT_USERNAME,
+    /**
+     * Maximum simultaneous clients.
+     *
+     * Enforced by the server, not just documented: a connection beyond the
+     * limit is closed as soon as it is accepted.
+     */
+    val maxConnections: Int = DEFAULT_MAX_CONNECTIONS
 ) {
+    /**
+     * Everything wrong with these settings, in the order a user should fix it.
+     *
+     * Empty means usable. Returned as a list rather than thrown so the editor
+     * can show every problem at once, and so validation can be unit tested
+     * without an Android context.
+     */
+    fun problems(): List<String> {
+        val out = mutableListOf<String>()
+        if (port !in VALID_PORT_RANGE) out += "port must be between 1 and 65535"
+        if (rootPath.isBlank()) out += "root directory is required"
+        if (username.isBlank()) out += "username is required"
+        if (username.any { it.isWhitespace() }) out += "username must not contain spaces"
+        if (maxConnections !in 1..MAX_CONNECTIONS_LIMIT) {
+            out += "maximum connections must be between 1 and $MAX_CONNECTIONS_LIMIT"
+        }
+        if (!passwordAuth && !publicKeyAuth) {
+            out += "at least one authentication method must be enabled"
+        }
+        return out
+    }
+
+    val isValid: Boolean get() = problems().isEmpty()
+
     companion object {
         const val DEFAULT_PORT = 8022
+        const val DEFAULT_USERNAME = "earthquack"
+        const val DEFAULT_MAX_CONNECTIONS = 16
+        const val MAX_CONNECTIONS_LIMIT = 64
+        val VALID_PORT_RANGE = 1..65535
 
         /**
          * Shared storage.
@@ -81,6 +124,8 @@ class SftpSettingsStore(context: Context) {
         const val KEY_PASSWORD_AUTH = "password_auth"
         const val KEY_PUBKEY_AUTH = "public_key_auth"
         const val KEY_HOST_KEY = "host_key_fingerprint"
+        const val KEY_USERNAME = "username"
+        const val KEY_MAX_CONNECTIONS = "max_connections"
 
         // 0 is invalid ("any port") and 65536+ is not a port. Being explicit
         // avoids depending on which side of the boundary someone later clamps.
@@ -96,7 +141,10 @@ class SftpSettingsStore(context: Context) {
             ?: SftpSettings.DEFAULT_ROOT,
         passwordAuth = prefs.getBoolean(KEY_PASSWORD_AUTH, true),
         publicKeyAuth = prefs.getBoolean(KEY_PUBKEY_AUTH, false),
-        hostKeyFingerprint = prefs.getString(KEY_HOST_KEY, null)
+        hostKeyFingerprint = prefs.getString(KEY_HOST_KEY, null),
+        username = prefs.getString(KEY_USERNAME, SftpSettings.DEFAULT_USERNAME)
+            ?: SftpSettings.DEFAULT_USERNAME,
+        maxConnections = prefs.getInt(KEY_MAX_CONNECTIONS, SftpSettings.DEFAULT_MAX_CONNECTIONS)
     )
 
     /**
@@ -109,14 +157,15 @@ class SftpSettingsStore(context: Context) {
      * @return true when [settings] were valid and written.
      */
     fun save(settings: SftpSettings): Boolean {
-        if (settings.port !in VALID_PORT_RANGE) return false
-        if (settings.rootPath.isBlank()) return false
+        if (!settings.isValid) return false
 
         prefs.edit()
             .putInt(KEY_PORT, settings.port)
             .putString(KEY_ROOT, settings.rootPath)
             .putBoolean(KEY_PASSWORD_AUTH, settings.passwordAuth)
             .putBoolean(KEY_PUBKEY_AUTH, settings.publicKeyAuth)
+            .putString(KEY_USERNAME, settings.username)
+            .putInt(KEY_MAX_CONNECTIONS, settings.maxConnections)
             .apply {
                 settings.hostKeyFingerprint?.let { putString(KEY_HOST_KEY, it) }
             }

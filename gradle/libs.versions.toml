@@ -7,6 +7,18 @@ material = "1.12.0"
 lifecycleService = "2.8.4"
 coroutines = "1.8.1"
 okhttp = "4.12.0"
+# Apache MINA SSHD — one implementation for SSH client, SSH server and SFTP
+# (client and server). 2.x is the maintained stable line and still targets
+# Java 8, which matters because this app compiles against sourceCompatibility
+# 1.8. NIO2 transport only, so no native code and no extra ABI beyond arm64.
+sshd = "2.20.0"
+# Ed25519 support for sshd. Optional upstream; small and pure Java. Without it
+# sshd simply refuses ed25519 keys and RSA/ECDSA still work.
+eddsa = "0.3.0"
+# slf4j binding. sshd logs through slf4j; Android has no binding, so without
+# this every sshd log line is dropped as "no binding found". slf4j-simple
+# writes to System.err, which lands in logcat.
+slf4j = "1.7.36"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -15,6 +27,11 @@ material = { group = "com.google.android.material", name = "material", version.r
 lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycleService" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+sshd-common = { group = "org.apache.sshd", name = "sshd-common", version.ref = "sshd" }
+sshd-core = { group = "org.apache.sshd", name = "sshd-core", version.ref = "sshd" }
+sshd-sftp = { group = "org.apache.sshd", name = "sshd-sftp", version.ref = "sshd" }
+eddsa = { group = "net.i2p.crypto", name = "eddsa", version.ref = "eddsa" }
+slf4j-simple = { group = "org.slf4j", name = "slf4j-simple", version.ref = "slf4j" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
