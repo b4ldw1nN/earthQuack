@@ -19,11 +19,11 @@ class TailscaleDiscoveryTest {
     fun `the first candidate that answers is returned`() {
         val answered = mutableListOf<String>()
         val discovered = TailscaleDiscovery.discoverServerIp(
-            checkServiceFn = { ip, _ -> answered.add(ip); ip == "100.87.152.1" }
+            checkServiceFn = { ip, _ -> answered.add(ip); ip == SECOND_CANDIDATE }
         )
-        assertEquals("100.87.152.1", discovered)
+        assertEquals(SECOND_CANDIDATE, discovered)
         // The probe stopped at the answer rather than scanning every candidate.
-        assertEquals(listOf("100.92.160.31", "100.87.152.1"), answered)
+        assertEquals(listOf(FIRST_CANDIDATE, SECOND_CANDIDATE), answered)
     }
 
     @Test
@@ -37,8 +37,16 @@ class TailscaleDiscoveryTest {
     @Test
     fun `every reachable server is collected`() {
         val found = TailscaleDiscovery.discoverAllWorkingServers(
-            checkServiceFn = { ip, _ -> ip == "100.92.160.31" || ip == "100.87.152.1" }
+            checkServiceFn = { ip, _ -> ip == FIRST_CANDIDATE || ip == SECOND_CANDIDATE }
         )
-        assertEquals(listOf("100.92.160.31", "100.87.152.1"), found)
+        assertEquals(listOf(FIRST_CANDIDATE, SECOND_CANDIDATE), found)
+    }
+
+    private companion object {
+        // The two entries in TailscaleDiscovery.TAILSCALE_CANDIDATES, in order.
+        // Named rather than inlined so the test cannot drift from the source's
+        // candidate list the way it did when a third address was removed.
+        const val FIRST_CANDIDATE = "100.92.160.31"    // Arch Linux
+        const val SECOND_CANDIDATE = "100.105.106.87"  // Windows (currently offline)
     }
 }

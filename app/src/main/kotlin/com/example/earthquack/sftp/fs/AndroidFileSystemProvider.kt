@@ -144,7 +144,9 @@ internal class AndroidFileSystemProvider(
 
                     override fun next(): java.nio.file.Path {
                         if (!hasNext()) throw java.util.NoSuchElementException()
-                        return next!!
+                        val result = next!!
+                        next = null
+                        return result
                     }
 
                     override fun remove() = throw UnsupportedOperationException()
@@ -174,13 +176,14 @@ internal class AndroidFileSystemProvider(
         println("[PROVIDER] delete: target=$target")
         if (!backend.exists(target)) throw NoSuchFileException(target)
         if (backend.isDirectory(target)) {
-            println("[PROVIDER] delete: is directory, listing...")
             val entries = backend.list(target)
-            println("[PROVIDER] delete: entries=${entries.map { it.name }}")
-            // Deliberately not recursive: SFTP's rmdir is specified to fail on a
-            // non-empty directory, and quietly emptying one because the client
-            // asked would be a data-loss surprise.
-            throw DirectoryNotEmptyException(target)
+            // rmdir is not recursive: refuse a non-empty directory rather than
+            // silently deleting its contents. An empty one, however, must
+            // actually go — throwing unconditionally here meant rmdir never
+            // succeeded, and the client's recursive delete (which empties a
+            // directory first, then rmdirs it) always failed with
+            // SSH_FX_DIR_NOT_EMPTY even though the directory was empty.
+            if (entries.isNotEmpty()) throw DirectoryNotEmptyException(target)
         }
         try {
             backend.delete(target, recursive = false)
@@ -303,10 +306,20 @@ internal class AndroidFileSystemProvider(
         // The string form is "view:name,name,...". sshd asks for a list in one
         // call, so every requested name has to be answered or the whole call
         // fails — which is how a listing ends up reporting OP_UNSUPPORTED.
+        // A bare "*" means every attribute the view defines: expand it to the
+        // full set so a caller asking for everything gets file times rather
+        // than a null modifyTime downstream.
         val view = attributes.substringBefore(':')
-        val requested = attributes.substringAfter(':', "")
-            .split(',')
-            .filter { it.isNotBlank() && it != "*" }
+        val namesPart = attributes.substringAfter(':', "")
+        val requested: List<String> = if (namesPart.split(',').any { it.trim() == "*" }) {
+            listOf(
+                "size", "isRegularFile", "isDirectory", "isSymbolicLink", "isOther",
+                "lastModifiedTime", "lastAccessTime", "creationTime",
+                "permissions", "owner", "group"
+            )
+        } else {
+            namesPart.split(',').filter { it.isNotBlank() }
+        }
         if (requested.isEmpty()) {
             return mutableMapOf()
         }
@@ -397,9 +410,12 @@ private class AndroidFileStore(private val path: String) : FileStore() {
 
     override fun getUnallocatedSpace(): Long = getUsableSpace()
 
-    override fun supportsFileAttributeView(type: Class<out FileAttributeView>): Boolean = false
+    override fun supportsFileAttributeView(type: Class<out FileAttributeView>): Boolean =
+        type == BasicFileAttributeView::class.java ||
+            type.name.contains("Posix", ignoreCase = true)
 
-    override fun supportsFileAttributeView(name: String): Boolean = false
+    override fun supportsFileAttributeView(name: String): Boolean =
+        name.equals("basic", ignoreCase = true) || name.equals("posix", ignoreCase = true)
 
     override fun <V : FileStoreAttributeView?> getFileStoreAttributeView(type: Class<V>): V? = null
 

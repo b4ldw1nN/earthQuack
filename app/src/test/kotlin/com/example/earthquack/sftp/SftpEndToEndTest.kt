@@ -240,6 +240,9 @@ class SftpEndToEndTest {
         println("[TEST] deleting /photos/a.txt")
         sftp.delete("/photos/a.txt")
         println("[TEST] stat /photos after file delete: ${sftp.stat("/photos")}")
+        // The server must report the directory as empty before rmdir;
+        // leftover entries here would explain a DIR_NOT_EMPTY (status 18).
+        println("[TEST] listing /photos before rmdir: ${sftp.list("/photos")}")
         println("[TEST] deleting /photos")
         sftp.delete("/photos")
         // After rmdir, the directory no longer exists

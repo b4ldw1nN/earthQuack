@@ -3,6 +3,7 @@ package com.example.earthquack.sftp
 import android.content.Context
 import android.util.Log
 import com.example.earthquack.ssh.SecretStore
+import com.example.earthquack.sftp.fs.AndroidFileSystemFactory
 import com.example.earthquack.sftp.fs.requireUsableRoot
 import org.apache.sshd.common.config.keys.PublicKeyEntry
 import org.apache.sshd.common.keyprovider.KeyPairProvider
@@ -10,7 +11,10 @@ import org.apache.sshd.common.session.Session
 import org.apache.sshd.common.session.SessionListener
 import org.apache.sshd.server.SshServer
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider
+import org.apache.sshd.sftp.server.FileHandle
+import org.apache.sshd.sftp.server.SftpFileSystemAccessor
 import org.apache.sshd.sftp.server.SftpSubsystemFactory
+import org.apache.sshd.sftp.server.SftpSubsystemProxy
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -58,35 +62,26 @@ interface SftpAuthorizedKeys {
 }
 
 /**
- * Custom SftpFileSystemAccessor that prevents reading through symlinks
- * pointing outside the served root.
+ * Routes file opens through [AndroidFileSystem]'s own channel.
+ *
+ * sshd's default accessor opens the [Path] with `FileChannel.open`, which
+ * bypasses a custom `FileSystemProvider` that only implements
+ * `newByteChannel` (ours delegates `newFileChannel` to the default
+ * implementation, which throws `UnsupportedOperationException` — surfaced to
+ * the client as `SSH_FX_OP_UNSUPPORTED`). Delegating to the provider's
+ * `newByteChannel` keeps every open on the tested backend, where
+ * `PathEscapeException` confinement already lives.
  */
-class ConfinedSftpFileSystemAccessor(
-    private val backend: AndroidFileSystem,
-    private val rootPath: Path
-) : SftpFileSystemAccessor by org.apache.sshd.sftp.server.SftpFileSystemAccessor.DEFAULT {
-
+internal class AndroidFileSystemAccessor : SftpFileSystemAccessor {
     override fun openFile(
-        proxy: SftpSubsystemProxy,
-        handle: org.apache.sshd.sftp.server.FileHandle,
-        path: Path,
-        name: String,
-        options: java.util.Set<java.nio.file.OpenOption>,
+        instance: SftpSubsystemProxy,
+        fileHandle: FileHandle,
+        file: Path,
+        handle: String,
+        options: Set<java.nio.file.OpenOption>,
         attrs: Array<out java.nio.file.attribute.FileAttribute<*>>
-    ): java.nio.channels.SeekableByteChannel {
-        // Check if path is a symlink pointing outside the root
-        val pathStr = path.toString()
-        val entry = backend.stat(pathStr)
-        if (entry != null && entry.isSymbolicLink) {
-            val realPath = backend.realPath(pathStr)
-            if (!realPath.startsWith("/") || realPath == "/" || !realPath.startsWith(rootPath.toString())) {
-                throw java.nio.file.AccessDeniedException(
-                    "symlink points outside served root: $pathStr -> $realPath"
-                )
-            }
-        }
-        return super.openFile(proxy, handle, path, name, options, attrs)
-    }
+    ): java.nio.channels.SeekableByteChannel =
+        file.fileSystem.provider().newByteChannel(file, options, *attrs)
 }
 
 /**
@@ -254,6 +249,7 @@ class SftpServerEngine(
 
         // SFTP only — see the class comment.
         val subsystemFactory = SftpSubsystemFactory()
+        subsystemFactory.setFileSystemAccessor(AndroidFileSystemAccessor())
         println("[ENGINE] sftpEventListener is ${if (sftpEventListener != null) "SET" else "NULL"}")
         sftpEventListener?.let { 
             println("[ENGINE] adding listener")
@@ -261,12 +257,14 @@ class SftpServerEngine(
         }
         ssh.subsystemFactories = listOf(subsystemFactory)
 
-        // Use sshd's VirtualFileSystemFactory which restricts all paths to
-        // the given root. This is the sandbox: a client cannot name a path
-        // above the root because the virtual file system simply doesn't
-        // contain anything outside it.
-        val virtualRoot = root.toPath()
-        ssh.fileSystemFactory = VirtualFileSystemFactory(virtualRoot)
+        // Confinement lives in the tested backend + NIO provider, not in sshd's
+        // virtual filesystem: LocalAndroidFileSystem refuses lexical `..`
+        // escapes and canonical symlink escapes with PathEscapeException
+        // (mapped to SSH_FX_PERMISSION_DENIED), and AndroidFileSystemProvider
+        // is the only way the protocol layer reaches storage. A client asking
+        // for `/../` gets permission-denied rather than a file.
+        val backend = LocalAndroidFileSystem(root)
+        ssh.fileSystemFactory = AndroidFileSystemFactory(backend)
 
         // Persistent host key: the same key on every start, so the first
         // connection's trust does not silently become a new key next week.

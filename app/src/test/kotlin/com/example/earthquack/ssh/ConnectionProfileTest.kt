@@ -87,9 +87,25 @@ class ConnectionProfileTest {
     fun `no profile carries a secret`() {
         val p = profile(authMethod = AuthMethod.PASSWORD, passwordAlias = "pw-1")
         // The password alias is a reference, not the secret; the secret lives in
-        // the SecretStore. If a profile ever held the password itself, this is
-        // the assertion that would catch it.
-        assertFalse(p.toString().contains("pw-1"))
+        // the SecretStore. The invariant that matters is that no field of the
+        // profile can hold the password *itself* — only an alias. Check the
+        // declared fields rather than toString(): a data class's toString
+        // includes its properties, so the alias (a harmless reference) appears
+        // there by design, and asserting otherwise would be testing Kotlin's
+        // codegen, not the security property.
+        val fields = ConnectionProfile::class.java.declaredFields
+        val secretShapedFields = fields.filter { field ->
+            val name = field.name.lowercase()
+            (name.contains("password") || name.contains("passphrase") || name.contains("secret")) &&
+                !name.contains("alias") &&
+                field.type == String::class.java
+        }
+        assertTrue(
+            "ConnectionProfile must not declare a raw password field, found: " +
+                secretShapedFields.joinToString { it.name },
+            secretShapedFields.isEmpty()
+        )
+        // The alias is stored and is a reference, not the secret.
         assertTrue(p.passwordAlias == "pw-1")
     }
 }

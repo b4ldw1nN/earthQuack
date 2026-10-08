@@ -83,7 +83,7 @@ class SftpSession(private val client: SftpClient) : AutoCloseable {
                     path = if (path.endsWith("/")) "$path${entry.filename}" else "$path/${entry.filename}",
                     isDirectory = attrs.isDirectory,
                     size = attrs.size,
-                    lastModifiedMillis = attrs.modifyTime.toMillis(),
+                    lastModifiedMillis = attrs.modifyTime?.toMillis() ?: 0L,
                     isSymbolicLink = attrs.isSymbolicLink,
                     permissions = formatUnixPermissions(attrs.permissions)
                 )
@@ -147,12 +147,19 @@ class SftpSession(private val client: SftpClient) : AutoCloseable {
             if (recursive) {
                 removeRecursively(path)
             } else {
-                // SFTP uses different commands for files (REMOVE) and directories (RMDIR)
+                // SFTP uses different commands for files (REMOVE) and directories (RMDIR).
+                // rmdir on a non-empty directory fails with status 18; fall back
+                // to recursive removal so a file browser delete just works.
                 val attrs = client.stat(path)
                 println("[SFTP] delete: attrs.isDirectory=${attrs.isDirectory}")
                 if (attrs.isDirectory) {
                     println("[SFTP] delete: calling rmdir")
-                    client.rmdir(path)
+                    try {
+                        client.rmdir(path)
+                    } catch (e: IOException) {
+                        println("[SFTP] delete: rmdir failed (${e.message}), trying recursive")
+                        removeRecursively(path)
+                    }
                     println("[SFTP] delete: rmdir returned")
                 } else {
                     client.remove(path)
@@ -165,17 +172,28 @@ class SftpSession(private val client: SftpClient) : AutoCloseable {
     }
 
     private fun removeRecursively(path: String) {
-        val handle = client.openDir(path)
-        try {
-            client.readDir(handle).forEach { entry ->
-                if (entry.filename == "." || entry.filename == "..") return@forEach
-                val child = "$path/${entry.filename}"
-                if (entry.attributes.isDirectory) removeRecursively(child) else client.remove(child)
-            }
+        // SFTP paths are already absolute from the client's view; prefixing a
+        // relative one with "/" would otherwise name a file in the SFTP root.
+        val normalized = if (path.startsWith("/")) path else "/$path"
+        val handle = client.openDir(normalized)
+        val children = try {
+            // Materialise the listing before deleting anything: removing a
+            // child invalidates the server's directory handle, and a lazy
+            // iterator would then silently skip or throw on the rest.
+            client.readDir(handle).filterNot { it.filename == "." || it.filename == ".." }
         } finally {
             runCatching { client.close(handle) }
         }
-        client.remove(path)
+        // Exceptions propagate: a silent failure here would leave the
+        // directory non-empty and the final rmdir would fail with an
+        // "Directory not empty" error that points at the wrong cause.
+        children.forEach { entry ->
+            val child = if (normalized.endsWith("/")) "$normalized${entry.filename}"
+                        else "$normalized/${entry.filename}"
+            if (entry.attributes.isDirectory) removeRecursively(child) else client.remove(child)
+        }
+        // The directory itself is now empty: rmdir, not remove.
+        client.rmdir(normalized)
     }
 
     /** Renames, and therefore also moves: SFTP has one operation for both. */

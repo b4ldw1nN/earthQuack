@@ -47,7 +47,7 @@ internal class AndroidPath(
     override fun getRoot(): Path? = if (pathString == "/") null else fileSystem.getPath("/")
 
     override fun getFileName(): Path? =
-        if (segments.isEmpty()) null else fileSystem.getPath("/" + segments.last())
+        if (segments.isEmpty()) null else NameView(fileSystem, segments.last())
 
     override fun getParent(): Path? {
         if (segments.isEmpty()) return null
@@ -199,6 +199,91 @@ internal class AndroidPath(
             return of(fileSystem, if (raw.startsWith("/")) raw else "/$raw")
         }
     }
+}
+
+/**
+ * The single-segment view sshd's SFTP layer uses as the filename it sends the
+ * client.
+ *
+ * `AndroidPath` is always absolute, so its `toString` is `/a.txt` — and that
+ * is what arrived as the entry name (`expected:<[]a.txt> but was:<[/]a.txt>`).
+ * This view renders as the bare name while resolving back through the same
+ * filesystem, so `readAttributes` and friends keep working on it.
+ */
+internal class NameView(
+    private val fileSystem: AndroidFileSystemNio,
+    private val name: String
+) : Path {
+
+    override fun getFileSystem(): FileSystem = fileSystem
+
+    override fun isAbsolute(): Boolean = false
+
+    override fun getRoot(): Path? = null
+
+    override fun getFileName(): Path = this
+
+    override fun getParent(): Path? = null
+
+    override fun getNameCount(): Int = 1
+
+    override fun getName(index: Int): Path {
+        if (index != 0) throw IllegalArgumentException("no segment $index in $name")
+        return this
+    }
+
+    override fun subpath(fromIndex: Int, toIndex: Int): Path {
+        if (fromIndex != 0 || toIndex != 1) throw IllegalArgumentException("bad subpath $fromIndex..$toIndex")
+        return this
+    }
+
+    override fun startsWith(other: Path): Boolean = toString() == other.toString()
+
+    override fun startsWith(other: String): Boolean = name == other
+
+    override fun endsWith(other: Path): Boolean = toString() == other.toString()
+
+    override fun endsWith(other: String): Boolean = name == other
+
+    override fun normalize(): Path = this
+
+    override fun resolve(other: Path): Path = fileSystem.getPath("/$name").resolve(other)
+
+    override fun resolve(other: String): Path = fileSystem.getPath("/$name").resolve(other)
+
+    override fun resolveSibling(other: Path): Path = fileSystem.getPath("/$name").resolveSibling(other)
+
+    override fun resolveSibling(other: String): Path = fileSystem.getPath("/$name").resolveSibling(other)
+
+    override fun relativize(other: Path): Path = fileSystem.getPath("/$name").relativize(other)
+
+    override fun toUri(): URI = fileSystem.getPath("/$name").toUri()
+
+    override fun toAbsolutePath(): Path = fileSystem.getPath("/$name")
+
+    override fun toRealPath(vararg options: LinkOption): Path = fileSystem.getPath("/$name").toRealPath(*options)
+
+    override fun toFile(): File = fileSystem.getPath("/$name").toFile()
+
+    @Throws(IOException::class)
+    override fun register(
+        watcher: WatchService,
+        events: Array<out WatchEvent.Kind<*>>,
+        vararg modifiers: WatchEvent.Modifier
+    ): WatchKey = throw UnsupportedOperationException("watching is not supported")
+
+    override fun register(watcher: WatchService, vararg events: WatchEvent.Kind<*>): WatchKey =
+        throw UnsupportedOperationException("watching is not supported")
+
+    override fun compareTo(other: Path): Int = name.compareTo(other.toString())
+
+    override fun iterator(): MutableIterator<Path> = mutableListOf<Path>(this).iterator()
+
+    override fun equals(other: Any?): Boolean = other is NameView && other.name == name
+
+    override fun hashCode(): Int = name.hashCode()
+
+    override fun toString(): String = name
 }
 
 /**

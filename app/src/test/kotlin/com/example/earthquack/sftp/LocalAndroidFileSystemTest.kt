@@ -64,15 +64,39 @@ class LocalAndroidFileSystemTest {
         assertRefused("/..")
         assertRefused("/../")
         assertRefused("/a/../../")
-        assertRefused("/..%2F")
+        // "..%2F" is NOT traversal: SFTP paths are raw UTF-8 and are never
+        // URL-decoded (OpenSSH's resolveFile does no decoding either). This is
+        // a legal single segment — a file whose name literally contains a
+        // percent sign — and it must resolve inside the root as such.
+        val resolved = fs.resolve("/..%2F")
+        assertTrue(
+            "expected /..%2F to stay inside the root, got ${resolved.canonicalPath}",
+            resolved.canonicalPath.startsWith(root.canonicalPath)
+        )
     }
 
     @Test
-    fun `absolute path escapes are refused`() {
+    fun `absolute path escapes are confined to the served root`() {
         setUp()
-        // A client that sends an absolute device path must not be served it.
-        assertRefused("/data/data/com.example/files/secret")
-        assertRefused("/data/local/tmp/x")
+        // The SFTP root IS "/" for the client: an absolute device-looking path
+        // is served relative to the root, so "/data/data/..." means
+        // "<root>/data/data/...". What matters is that the real device path is
+        // never reachable — the resolved file must stay under the root. This
+        // matches OpenSSH's ChrootDirectory, which rewrites rather than refuses.
+        val one = fs.resolve("/data/data/com.example/files/secret")
+        assertTrue(
+            "expected confinement, got ${one.canonicalPath}",
+            one.canonicalPath.startsWith(root.canonicalPath)
+        )
+        assertFalse(
+            "the device path itself must not be resolved",
+            one.canonicalPath == "/data/data/com.example/files/secret"
+        )
+        val two = fs.resolve("/data/local/tmp/x")
+        assertTrue(
+            "expected confinement, got ${two.canonicalPath}",
+            two.canonicalPath.startsWith(root.canonicalPath)
+        )
     }
 
     @Test
@@ -108,8 +132,12 @@ class LocalAndroidFileSystemTest {
         setUp()
         File(root, "real").mkdirs()
         java.nio.file.Files.createSymbolicLink(File(root, "alias").toPath(), File(root, "real").toPath())
+        // The link resolves to a real directory inside the root...
         assertTrue(fs.isDirectory("/alias"))
-        assertEquals("/alias", fs.realPath("/alias"))
+        // ...and SFTP REALPATH returns the canonical target, exactly as
+        // OpenSSH's realpath(1) does. What matters for confinement is that the
+        // result stays inside the root — following an *internal* link is safe.
+        assertEquals("/real", fs.realPath("/alias"))
     }
 
     @Test

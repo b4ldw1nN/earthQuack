@@ -73,10 +73,37 @@ class LocalAndroidFileSystem(rootDir: File) : AndroidFileSystem {
     }
 
     override fun stat(path: String): FsEntry? {
+        // A symlink must be stat-able even when its target lies outside the
+        // root: the link itself is inside, and lstat's whole job is to
+        // describe the link, not what it points at. resolve() canonicalises —
+        // it follows the link and then refuses the escaped target — so the
+        // link check has to happen on the lexical path, before that.
+        val relative = normalize(path)
+        val lexical = if (relative.isEmpty()) root else File(root, relative)
+        if (isLink(lexical)) {
+            return describe(lexical, if (path.startsWith("/")) path else "/$path")
+        }
         val file = resolve(path)
         if (!file.exists()) return null
         return describe(file, path)
     }
+
+    /**
+     * Whether [file] is itself a symlink, without following it.
+     *
+     * `File.exists()` follows the link, so a dangling or escaping link would
+     * vanish before `describe` could report it as a link. This check uses
+     * `NOFOLLOW_LINKS` semantics so the SFTP layer can report `SSH_FX_SYMLINK`
+     * honestly and refuse the *target* rather than pretending nothing is there.
+     */
+    private fun isLink(file: File): Boolean =
+        runCatching {
+            java.nio.file.Files.readAttributes(
+                file.toPath(),
+                java.nio.file.attribute.BasicFileAttributes::class.java,
+                java.nio.file.LinkOption.NOFOLLOW_LINKS
+            ).isSymbolicLink
+        }.getOrDefault(false)
 
     override fun list(path: String): List<FsEntry> {
         val dir = resolve(path)
@@ -203,15 +230,37 @@ class LocalAndroidFileSystem(rootDir: File) : AndroidFileSystem {
         if (parent == "/") "/$name" else "$parent/$name"
 
     private fun describe(file: File, clientPath: String): FsEntry {
-        val canonical = runCatching { file.canonicalFile }.getOrDefault(file)
         val link = runCatching { Files.isSymLink(file) }.getOrDefault(false)
+        if (link) {
+            // lstat semantics: the entry IS the link. Report the link's own
+            // metadata, never the target's — the target may be outside the
+            // served root, and reading its size, mtime or mode through a
+            // listing would leak exactly what the confinement is meant to
+            // hide. A symlink is also never a directory per lstat, whatever
+            // it points at.
+            val attrs = runCatching {
+                java.nio.file.Files.readAttributes(
+                    file.toPath(),
+                    java.nio.file.attribute.BasicFileAttributes::class.java,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS
+                )
+            }.getOrNull()
+            return FsEntry(
+                name = file.name,
+                path = clientPath,
+                isDirectory = false,
+                isSymbolicLink = true,
+                size = attrs?.size() ?: 0L,
+                lastModifiedMillis = attrs?.lastModifiedTime()?.toMillis() ?: 0L,
+                permissions = S_IFLNK or 0b111_111_111
+            )
+        }
+        val canonical = runCatching { file.canonicalFile }.getOrDefault(file)
         return FsEntry(
             name = file.name,
             path = clientPath,
             isDirectory = file.isDirectory,
-            // A symlink is reported as a symlink, whatever it points at: that is
-            // what `lstat` means and what a client expects from SSH_FX_SYMLINK.
-            isSymbolicLink = link,
+            isSymbolicLink = false,
             size = if (file.isDirectory) 0L else file.length(),
             lastModifiedMillis = file.lastModified(),
             permissions = modeOf(canonical)
@@ -278,6 +327,7 @@ class LocalAndroidFileSystem(rootDir: File) : AndroidFileSystem {
     private companion object {
         const val S_IFREG = 0x8000
         const val S_IFDIR = 0x4000
+        const val S_IFLNK = 0xA000
         const val R = 0b100
         const val W = 0b010
         const val X = 0b001
