@@ -19,7 +19,6 @@
 {{if .Controls.Services}}
 <section class="managed-services" id="managed-services" aria-labelledby="managed-heading">
   <h2 id="managed-heading">Managed services — this node</h2>
-  <p>Start and stop the services owned by this earthQuack process. Remote and monitor-only services remain read-only. Changes last until node restart.</p>
   {{if .Controls.Notice}}<p role="status">{{.Controls.Notice}}</p>{{end}}
   {{range .Controls.Services}}
   <div class="managed-service">

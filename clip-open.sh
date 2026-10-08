@@ -29,8 +29,25 @@ if [ -z "$CLIPBOARD_SERVER_HOST" ] || [ "$CLIPBOARD_SERVER_HOST" = "YOUR_TAILSCA
 fi
 HOST="${CLIPBOARD_SERVER_HOST:-127.0.0.1}"
 PORT="${CLIPBOARD_SERVER_PORT:-8875}"
-curl -s -X POST "http://$HOST:$PORT/signal" \
-  -H "Content-Type: application/json" \
-  -d "{\"type\":\"open_url\",\"url\":\"$URL\"}"
 
-echo "Opened $URL on Phone"
+# The in-process sync services require the shared bearer token; the Python
+# daemon accepted any caller. Send it when one is available.
+AUTH_ARGS=()
+if [ -n "$EARTHQUACK_AUTH_TOKEN" ]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $EARTHQUACK_AUTH_TOKEN")
+fi
+
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://$HOST:$PORT/signal" \
+  "${AUTH_ARGS[@]}" \
+  -H "Content-Type: application/json" \
+  -d "{\"type\":\"open_url\",\"url\":\"$URL\"}")
+
+if [ "$CODE" = "200" ]; then
+  echo "Opened $URL on Phone"
+else
+  echo "✗ Failed to signal the phone (HTTP $CODE)"
+  if [ "$CODE" = "401" ] || [ "$CODE" = "503" ]; then
+    echo "  The sync services need EARTHQUACK_AUTH_TOKEN set and matching the node."
+  fi
+  exit 1
+fi

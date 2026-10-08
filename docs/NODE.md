@@ -56,7 +56,17 @@ The arch-with-wallpaper example declares the wallpaper module enabled
 ```
 
 Credentials (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) come from the
-environment — never from the config file.
+environment — either exported directly, or read from the credential
+file named by `wallpaper.env_file` in the node config (the environment
+wins over the file). Never from the config file itself.
+
+Because the credential file is reached through the node config, the
+config must actually be loaded: the default lookup searches
+`./config.json`, then `config.json` beside the binary, then
+`~/.config/earthquack/config.json`, so `earthquack-node wallpaper sync`
+works from any directory — including with the binary installed in
+`~/.local/bin`. See the README section "Where the node config is looked
+up" for the full order.
 
 The module's state directory is shared with the standalone
 `wallpaper-backup.py` script, so an existing archive can be adopted

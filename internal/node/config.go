@@ -37,6 +37,10 @@ type Config struct {
 	// and declares where it reads from. Like all config it is
 	// declarations only; archive/upload state remains runtime state.
 	Wallpaper *WallpaperConfig `json:"wallpaper,omitempty"`
+	// Internet optionally enables the Internet Microscope module for
+	// this node. Like all config it is declarations only: the sources
+	// it observes are module state, managed by the CLI.
+	Internet *InternetConfig `json:"internet,omitempty"`
 }
 
 // WallpaperConfig is the optional node declaration that enables the

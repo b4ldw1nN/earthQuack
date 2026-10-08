@@ -1,0 +1,73 @@
+{{template "layout" .}}
+
+{{define "title"}}Internet{{end}}
+
+{{define "content"}}
+<div class="section-header-bar">
+  <div class="section-title-wrap">
+    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+    <div>
+      <h2 class="section">INTERNET</h2>
+      <p class="section-desc">Observed sources — external changes become structured events</p>
+    </div>
+  </div>
+  <span class="view-all-badge">{{if .Internet.Running}}Polling{{else}}Idle{{end}}</span>
+</div>
+
+{{if .Internet.Enabled}}
+<section class="node-detail-section">
+  <h3>Sources</h3>
+  <ul class="services">
+    <li><span class="svc-name">Configured</span><span class="svc-status">{{.Internet.Summary.Sources}}</span></li>
+    <li><span class="svc-name">Active</span><span class="svc-status">{{.Internet.Summary.Enabled}}</span></li>
+    <li><span class="svc-name">Errors</span><span class="svc-status">{{.Internet.Summary.Errors}}</span></li>
+    <li><span class="svc-name">Changed</span><span class="svc-status">{{.Internet.Summary.Changed}}</span></li>
+    <li><span class="svc-name">Pending</span><span class="svc-status">{{.Internet.Summary.Pending}}</span></li>
+    <li><span class="svc-name">Interval</span><span class="svc-status">{{.Internet.DefaultInterval}}</span></li>
+    <li><span class="svc-name">Last poll</span><span class="svc-status">{{if .Internet.LastPoll.IsZero}}never{{else}}{{.Internet.LastPoll.Format "Jan 2 · 15:04:05"}}{{end}}</span></li>
+  </ul>
+</section>
+
+{{if .Internet.Sources}}
+<div class="compact-node-grid nodes-page-grid">
+  {{range .Internet.Sources}}
+  <article class="compact-node-card registered-node-card {{if not .Enabled}}offline{{end}}">
+    <div class="node-card-top">
+      <div class="node-card-title-row">
+        <span class="status-dot dot {{if not .Enabled}}off{{else if eq (printf "%s" .Status) "error"}}off{{else if eq (printf "%s" .Status) "unchanged"}}on{{else}}warn{{end}}"></span>
+        <span class="hostname">{{.DisplayName}}</span>
+        <span class="badge">{{.Type}}</span>
+        <span class="health-pill {{$.InternetStateClass .}}">{{$.InternetStateLabel .}}</span>
+      </div>
+      <div class="node-state-label">
+        <span class="state {{if .Enabled}}on{{else}}off{{end}}">{{if .Enabled}}ACTIVE{{else}}DISABLED{{end}}</span>
+      </div>
+    </div>
+    <div class="node-detail-section">
+      <ul class="services">
+        <li><span class="svc-name">ID</span><span class="svc-status">{{.ID}}</span></li>
+        <li><span class="svc-name">URL</span><span class="svc-status">{{.URL}}</span></li>
+        <li><span class="svc-name">Interval</span><span class="svc-status">{{.IntervalOr $.Internet.DefaultInterval}}</span></li>
+        <li><span class="svc-name">Observed</span><span class="svc-status">{{if .ObservedAt.IsZero}}never{{else}}{{.ObservedAt.Format "Jan 2 · 15:04:05"}}{{end}}</span></li>
+        <li><span class="svc-name">Changed</span><span class="svc-status">{{if .LastChangedAt.IsZero}}never{{else}}{{.LastChangedAt.Format "Jan 2 · 15:04:05"}}{{end}}</span></li>
+        <li><span class="svc-name">Checks</span><span class="svc-status">{{.Checks}} ({{.Errors}} errors)</span></li>
+        {{if .Fingerprint}}<li><span class="svc-name">Fingerprint</span><span class="svc-status">{{.Fingerprint}}</span></li>{{end}}
+        {{if .LastError}}<li><span class="svc-name">Last error</span><span class="svc-status">{{.LastError}}</span></li>{{end}}
+      </ul>
+    </div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<p class="empty">No sources configured. Add one on the node:
+  <code>earthquack-node internet add -id &lt;id&gt; -type http -url &lt;url&gt;</code></p>
+{{end}}
+
+{{else}}
+<div class="events-empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+  <p>The Internet Microscope is not enabled on this node.</p>
+  <span>Declare it in the node config (<code>"internet": {"enabled": true}</code>) or set <code>EARTHQUACK_INTERNET_STATE</code>.</span>
+</div>
+{{end}}
+{{end}}

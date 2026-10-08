@@ -163,6 +163,7 @@ func (h *History) RecentEvents(limit int) []Event {
 			Type:    eventTypeName(e.Kind, e.From, e.To),
 			Name:    e.Name,
 			Message: msg,
+			Data:    e.Data,
 		})
 	}
 

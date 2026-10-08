@@ -22,6 +22,15 @@ const (
 	EvWallpaperSyncStarted   EventType = "wallpaper.sync.started"
 	EvWallpaperSyncCompleted EventType = "wallpaper.sync.completed"
 	EvWallpaperSyncFailed    EventType = "wallpaper.sync.failed"
+
+	// Internet Microscope observation transitions. Emitted by the
+	// internet module and bridged by the node (see internetNodeEvent),
+	// so consumers get Internet changes through the same audit stream
+	// as every other earthQuack transition.
+	EvInternetSourceNew       EventType = "internet.source.new"
+	EvInternetSourceChanged   EventType = "internet.source.changed"
+	EvInternetSourceError     EventType = "internet.source.error"
+	EvInternetSourceRecovered EventType = "internet.source.recovered"
 )
 
 // Event is the public, typed representation of a state transition.
@@ -32,6 +41,12 @@ type Event struct {
 	Type    EventType `json:"type"`
 	Name    string    `json:"name,omitempty"`
 	Message string    `json:"message"`
+	// Data carries optional structured, event-specific details (for
+	// example the source id, url and fingerprints of an Internet
+	// Microscope change). It is additive: events without it are
+	// unchanged, and consumers that only read Type/Message keep
+	// working.
+	Data map[string]string `json:"data,omitempty"`
 }
 
 // HistoryEvent is one discrete transition kept in the underlying History ring.
@@ -44,6 +59,7 @@ type HistoryEvent struct {
 	From    string
 	To      string
 	Message string
+	Data    map[string]string
 }
 
 // eventTypeName converts internal kind/from/to strings or existing EventType
@@ -54,7 +70,9 @@ func eventTypeName(kind, from, to string) EventType {
 		string(EvHealthDegraded), string(EvHealthRecovered),
 		string(EvNodeOffline), string(EvNodeOnline),
 		string(EvWallpaperSyncStarted), string(EvWallpaperSyncCompleted),
-		string(EvWallpaperSyncFailed):
+		string(EvWallpaperSyncFailed),
+		string(EvInternetSourceNew), string(EvInternetSourceChanged),
+		string(EvInternetSourceError), string(EvInternetSourceRecovered):
 		return EventType(kind)
 	case "service":
 		if from == "running" && to == "stopped" {

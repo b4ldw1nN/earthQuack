@@ -21,6 +21,14 @@ fi
 
 FILE_SERVER="${CLIPBOARD_FILE_SERVER:-http://${CLIPBOARD_SERVER_HOST:-127.0.0.1}:${CLIPBOARD_FILE_PORT:-8876}}"
 
+# The in-process sync services require the shared bearer token. The Python
+# daemon accepted any caller, so the header is only added when a token is
+# actually present — that keeps this script working against both.
+AUTH_ARGS=()
+if [ -n "$EARTHQUACK_AUTH_TOKEN" ]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $EARTHQUACK_AUTH_TOKEN")
+fi
+
 if [ $# -eq 0 ]; then
   echo "Usage: clip-send <file> [<file2> ...]"
   exit 1
@@ -40,6 +48,7 @@ for FILE in "$@"; do
   fi
   echo "→ Sending  $NAME  ($HSIZE)"
   CODE=$(curl -s --connect-timeout 5 -m 120 -o /dev/null -w "%{http_code}" -X POST "$FILE_SERVER/upload" \
+    "${AUTH_ARGS[@]}" \
     -H "X-Filename: $NAME" \
     -H "X-Origin: desktop" \
     -H "Content-Type: application/octet-stream" \
@@ -49,6 +58,9 @@ for FILE in "$@"; do
     echo " Sent  $NAME — phone will download automatically"
   else
     echo "✗ Failed (HTTP $CODE)"
+    if [ "$CODE" = "401" ] || [ "$CODE" = "503" ]; then
+      echo "  The sync services need EARTHQUACK_AUTH_TOKEN set and matching the node."
+    fi
   fi
 done
 

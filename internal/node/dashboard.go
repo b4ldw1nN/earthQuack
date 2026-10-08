@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/b4ldw1nN/earthquack/internal/internet"
 	"github.com/b4ldw1nN/earthquack/web"
 )
 
@@ -14,7 +15,7 @@ import (
 // It is built purely from the Node model — the template never sees
 // transport-specific structures (Tailscale JSON, peer maps, etc.).
 type dashboardView struct {
-	ActivePage   string // "overview" | "nodes" | "events" | "peers"
+	ActivePage   string // "overview" | "nodes" | "events" | "peers" | "internet"
 	Local        Node
 	Nodes        []Node
 	Now          time.Time
@@ -23,6 +24,10 @@ type dashboardView struct {
 	HistRows     []historyRow
 	EventStr     string
 	Controls     controlsView
+	// Internet is the Internet Microscope snapshot. It is always
+	// present: a node without the module serves Enabled=false, so the
+	// page renders an explanation instead of an empty list.
+	Internet internet.Snapshot
 }
 
 func (v dashboardView) OnlineNodesCount() int {
@@ -166,6 +171,41 @@ func (v dashboardView) EventStateClass(e Event) string {
 	}
 }
 
+// InternetStateLabel renders the short status label for an Internet
+// Microscope source. "unchanged" is shown as OK: it is the healthy
+// steady state, and OK reads better on a dashboard than a double
+// negative.
+func (v dashboardView) InternetStateLabel(s internet.SourceStatus) string {
+	switch s.Status {
+	case internet.StatusUnchanged:
+		return "OK"
+	case internet.StatusNew:
+		return "NEW"
+	case internet.StatusChanged:
+		return "CHANGED"
+	case internet.StatusError:
+		return "ERROR"
+	default:
+		return "PENDING"
+	}
+}
+
+// InternetStateClass maps a source state onto the dashboard's existing
+// semantic state classes (the same ones node health and services use),
+// so no new visual language is introduced.
+func (v dashboardView) InternetStateClass(s internet.SourceStatus) string {
+	switch s.Status {
+	case internet.StatusUnchanged:
+		return "healthy"
+	case internet.StatusNew, internet.StatusChanged:
+		return "degraded"
+	case internet.StatusError:
+		return "offline"
+	default:
+		return "unknown"
+	}
+}
+
 // buildView constructs a dashboardView for the given page name, drawing
 // all data from the registry. It is read-only: it exposes exactly what
 // /api/nodes exposes, in human-readable form, plus a small history
@@ -183,6 +223,7 @@ func buildView(reg *Registry, page string) dashboardView {
 		RecentEvents: reg.History().RecentEvents(20),
 		HistRows:     buildHistoryRows(samples),
 		EventStr:     formatHistoryEvents(events),
+		Internet:     reg.InternetSnapshot(),
 	}
 }
 
@@ -238,6 +279,17 @@ func NewPeersHandler(reg *Registry) (http.HandlerFunc, error) {
 		return nil, err
 	}
 	return pageHandler(tmpl, reg, "peers"), nil
+}
+
+// NewInternetHandler returns the handler for GET /internet, the Internet
+// Microscope page. Like every dashboard page it only reads: the module
+// is polled by its own poller, never by a page request.
+func NewInternetHandler(reg *Registry) (http.HandlerFunc, error) {
+	tmpl, err := web.InternetTemplate()
+	if err != nil {
+		return nil, err
+	}
+	return pageHandler(tmpl, reg, "internet"), nil
 }
 
 // stylesheetHandler serves the embedded dashboard stylesheet.

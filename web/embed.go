@@ -35,6 +35,9 @@ func EventsTemplate() (*template.Template, error) { return pageTemplate("events"
 // PeersTemplate parses the layout + peers page template.
 func PeersTemplate() (*template.Template, error) { return pageTemplate("peers") }
 
+// InternetTemplate parses the layout + Internet Microscope page template.
+func InternetTemplate() (*template.Template, error) { return pageTemplate("internet") }
+
 // LoginTemplate parses the embedded browser login template.
 func LoginTemplate() (*template.Template, error) {
 	return template.ParseFS(assets, "templates/login.html")

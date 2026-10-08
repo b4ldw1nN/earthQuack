@@ -551,7 +551,13 @@ class EarthQuackService : LifecycleService() {
                 broadcastStatus(SyncStatus.RUNNING, "→ $text")
                 Log.i(TAG, "POST ok, version=$version")
             } else {
-                Log.w(TAG, "POST failed")
+                // Release the claim so the next poll retries this text.
+                // tryClaimLocalChange already recorded it as sent, so
+                // without this a single failed POST (a dropped Wi-Fi
+                // moment, the server restarting) silently loses that
+                // clipboard value for as long as it stays unchanged.
+                Log.w(TAG, "POST failed — releasing claim so it can retry")
+                syncState.releaseLocalClaim(text)
             }
         } finally {
             // Wake lock auto-releases after 10s; explicit release not needed

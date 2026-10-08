@@ -91,6 +91,25 @@ takes precedence over the environment. Leaving both empty disables clipboard enc
 From the project folder, run `./earthquack-node`: it loads `config.json` by default
 (unless `EARTHQUACK_NODE_CONFIG` or `--config` selects another file), without needing
 an `env -u CLIPBOARD_AES_KEY` prefix.
+
+### Where the node config is looked up
+
+The default `--config` value is `config.json`, searched in this order:
+
+1. `--config <path>` — used exactly as given; `--config ""` loads no config at all.
+2. `$EARTHQUACK_NODE_CONFIG` — used exactly as given.
+3. `./config.json` — relative to the working directory.
+4. `config.json` beside the binary — for portable installs that ship together.
+5. `$XDG_CONFIG_HOME/earthquack/config.json`, else `~/.config/earthquack/config.json`.
+
+Nothing is created for you: put the file in one of those places yourself. Steps 3-5
+exist so the node and its CLI behave identically no matter where they are started
+(systemd units, timers, cron, `~/.local/bin` on `PATH`). A working-directory-relative
+default alone silently dropped every declaration — most visibly the wallpaper
+credential file, which then failed with `telegram: TELEGRAM_BOT_TOKEN is required`.
+An explicit `--config` / `$EARTHQUACK_NODE_CONFIG` is never relocated, so a bad value
+is never silently replaced by a fallback.
+
 Keep real keys private: do not commit a populated config, and restrict file access
 (e.g. mode `600`). The node passes the resolved key to its managed Python daemon;
 it does not change an independently managed clipboard service.
@@ -104,7 +123,8 @@ it does not change an independently managed clipboard service.
 | `EARTHQUACK_HOST` | `127.0.0.1` | Bind host for the Python sync services. |
 | `EARTHQUACK_PORT` / `EARTHQUACK_FILE_PORT` | `8875` / `8876` | Ports for clipboard / file transfer. |
 | `EARTHQUACK_NODE_HOST` / `EARTHQUACK_NODE_PORT` | `0.0.0.0` / `8890` | Defaults for the node's `--host` / `--port` flags. |
-| `EARTHQUACK_NODE_CONFIG` | *(none)* | Default `--config` path. |
+| `EARTHQUACK_NODE_CONFIG` | *(none)* | Default `--config` path. Searched after `--config`, before `./config.json`. |
+| `XDG_CONFIG_HOME` | `~/.config` | Base for the per-user config location `earthquack/config.json`. |
 | `EARTHQUACK_REPO` | `.` | Repo root, so the node can find `daemon/app.py`. |
 | `EARTHQUACK_SECURE_COOKIE` | *(off)* | `1` adds the `Secure` flag to session cookies (enable once the dashboard is behind TLS). |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | *(none)* | Wallpaper→Telegram credentials. **Never commit or log.** They register the `wallpaper` capability/service automatically when present. |

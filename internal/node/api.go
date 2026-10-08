@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/b4ldw1nN/earthquack/internal/internet"
 )
 
 // API exposes read-only node endpoints. It is deliberately minimal
@@ -63,12 +65,17 @@ func NewAPI(reg *Registry, version string) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	internetH, err := NewInternetHandler(reg)
+	if err != nil {
+		return nil, err
+	}
 	api := &API{registry: reg, version: version}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", overview)
 	mux.HandleFunc("GET /nodes", nodesH)
 	mux.HandleFunc("GET /events", eventsH)
 	mux.HandleFunc("GET /peers", peersH)
+	mux.HandleFunc("GET /internet", internetH)
 	mux.HandleFunc("GET /static/style.css", stylesheetHandler())
 	mux.HandleFunc("GET /static/background.svg", backgroundHandler())
 	mux.HandleFunc("GET /api/health", api.handleHealth)
@@ -76,6 +83,7 @@ func NewAPI(reg *Registry, version string) (http.Handler, error) {
 	mux.HandleFunc("GET /api/nodes", api.handleNodes)
 	mux.HandleFunc("GET /api/history", api.handleHistory)
 	mux.HandleFunc("GET /api/events", api.handleEvents)
+	mux.HandleFunc("GET /api/internet", api.handleInternet)
 	return mux, nil
 }
 
@@ -106,6 +114,10 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig, services ..
 	if err != nil {
 		return nil, err
 	}
+	internetH, err := NewInternetHandler(reg)
+	if err != nil {
+		return nil, err
+	}
 	if auth.SessionTTL <= 0 {
 		auth.SessionTTL = DefaultSessionTTL
 	}
@@ -124,6 +136,7 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig, services ..
 	apiMux.HandleFunc("GET /api/nodes", api.handleNodes)
 	apiMux.HandleFunc("GET /api/history", api.handleHistory)
 	apiMux.HandleFunc("GET /api/events", api.handleEvents)
+	apiMux.HandleFunc("GET /api/internet", api.handleInternet)
 	apiHandler := AuthMiddleware(apiMux, auth.Token)
 
 	// Browser subtree: session-cookie authenticated, with a pass-through
@@ -137,6 +150,7 @@ func NewServer(reg *Registry, version string, auth ServerAuthConfig, services ..
 	browserMux.HandleFunc("GET /nodes", nodesH)
 	browserMux.HandleFunc("GET /events", eventsH)
 	browserMux.HandleFunc("GET /peers", peersH)
+	browserMux.HandleFunc("GET /internet", internetH)
 	browserMux.HandleFunc("GET /login", loginGetHandler(sessions))
 	browserMux.HandleFunc("POST /login", loginPostHandler(sessions, auth.Token, auth.SecureCookie, auth.SessionTTL))
 	browserMux.HandleFunc("POST /logout", logoutHandler(sessions))
@@ -194,6 +208,19 @@ func (a *API) handleHistory(w http.ResponseWriter, _ *http.Request) {
 // eventsResponse is the JSON shape of GET /api/events.
 type eventsResponse struct {
 	Events []Event `json:"events"`
+}
+
+// handleInternet serves the Internet Microscope snapshot: the module's
+// sources, their last observation, and the headline counts. It is
+// read-only and bounded by the number of configured sources; it never
+// fetches, never triggers a check and never exposes how a source is
+// observed beyond what the module reports.
+func (a *API) handleInternet(w http.ResponseWriter, _ *http.Request) {
+	snap := a.registry.InternetSnapshot()
+	if snap.Sources == nil {
+		snap.Sources = []internet.SourceStatus{}
+	}
+	a.writeJSON(w, http.StatusOK, snap)
 }
 
 // handleEvents serves the local node's recent events as the public typed

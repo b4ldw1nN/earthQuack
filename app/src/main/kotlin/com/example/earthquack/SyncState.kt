@@ -60,6 +60,19 @@ class SyncState {
      * Android clipboard. Also updates [lastRemoteText] and [lastServerVersion].
      */
     suspend fun tryClaimRemoteEvent(text: String, version: Int): Boolean = mutex.withLock {
+        // A server restart rewinds its version counter. Treating that as
+        // "already seen" wedges the client permanently: every subsequent
+        // event looks stale and is dropped, so desktop->phone sync silently
+        // stops until the app itself is restarted. Detecting the rewind and
+        // resynchronising is what makes a node restart survivable.
+        if (version < lastServerVersion) {
+            Log.w(
+                TAG,
+                "tryClaimRemoteEvent: server version went backwards " +
+                    "($version < $lastServerVersion) — resyncing"
+            )
+            lastServerVersion = -1
+        }
         if (version <= lastServerVersion) {
             Log.d(TAG, "tryClaimRemoteEvent: version $version already seen (last=$lastServerVersion), skip")
             return false
@@ -73,6 +86,22 @@ class SyncState {
         lastServerVersion = version
         Log.d(TAG, "tryClaimRemoteEvent: NEW remote v$version → '$text'")
         return true
+    }
+
+    /**
+     * Releases the claim taken by [tryClaimLocalChange] for [text], so it can
+     * be claimed and sent again.
+     *
+     * Called when a POST to the server failed. The claim exists only to stop
+     * the same value being sent in a loop, so holding it after a failed send
+     * turns a transient network blip into permanent data loss for that
+     * clipboard value.
+     */
+    suspend fun releaseLocalClaim(text: String) = mutex.withLock {
+        if (lastLocalText == text) {
+            lastLocalText = null
+            Log.d(TAG, "releaseLocalClaim: released '$text' for retry")
+        }
     }
 
     /**

@@ -35,6 +35,7 @@ type Registry struct {
 	sysProvider  SysInfoProvider
 	storProvider StorageProvider
 	netProvider  NetworkStatsProvider
+	internet     InternetProvider // nil = Internet Microscope not on this node
 	history      *History
 	now          func() time.Time
 }
