@@ -1,6 +1,7 @@
 package com.example.earthquack.ui
 
 import android.graphics.Typeface
+import android.util.Log
 import android.os.Bundle
 import android.text.SpannableStringBuilder
 import android.text.style.BackgroundColorSpan
@@ -51,6 +52,7 @@ class TerminalFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        Log.i("TerminalFragment", "onViewCreated called")
         super.onViewCreated(view, savedInstanceState)
 
         val profileId = arguments?.getString(ARG_PROFILE_ID)
@@ -114,6 +116,7 @@ class TerminalFragment : Fragment() {
     }
 
     private fun connect() {
+        Log.i("TerminalFragment", "connect() called for profile: ${profile?.name}")
         val p = profile ?: return
         lifecycleScope.launch {
             binding.btnConnect.isEnabled = false
@@ -137,32 +140,49 @@ class TerminalFragment : Fragment() {
     private fun openShell() {
         val conn = connection ?: return
         lifecycleScope.launch {
-            // Open shell with PTY
-            val ch = conn.openShell(
-                onData = { data, offset, len ->
-                    val text = vtParser.feed(data, offset, len)
-                    requireActivity().runOnUiThread {
-                        appendToLog(text)
+            try {
+                // Open shell with PTY
+                val ch = conn.openShell(
+                    onData = { data, offset, len ->
+                        val text = vtParser.feed(data, offset, len)
+                        requireActivity().runOnUiThread {
+                            appendToLog(text)
+                        }
+                    },
+                    rows = 24,
+                    cols = 80
+                )
+                shell = ch
+                isConnected = true
+
+                requireActivity().runOnUiThread {
+                    binding.statusText.text = "Connected"
+                    binding.btnConnect.isEnabled = false
+                    binding.btnDisconnect.isEnabled = true
+                    binding.inputField.isEnabled = true
+                    binding.inputField.requestFocus()
+                }
+
+                // Start reading stdin from the input channel
+                lifecycleScope.launch {
+                    for (bytes in inputChannel) {
+                        ch.stdin.offer(bytes, 0, bytes.size)
                     }
-                },
-                rows = 24,
-                cols = 80
-            )
-            shell = ch
-            isConnected = true
-
-            requireActivity().runOnUiThread {
-                binding.statusText.text = "Connected"
-                binding.btnConnect.isEnabled = false
-                binding.btnDisconnect.isEnabled = true
-                binding.inputField.isEnabled = true
-                binding.inputField.requestFocus()
-            }
-
-            // Start reading stdin from the input channel
-            lifecycleScope.launch {
-                for (bytes in inputChannel) {
-                    ch.stdin.offer(bytes, 0, bytes.size)
+                }
+            } catch (e: Throwable) {
+                Log.e("TerminalFragment", "Failed to open shell", e)
+                val msg = when {
+                    e.message?.contains("Closed", ignoreCase = true) == true ->
+                        "Shell channel closed by server. The SSH server may be configured to deny shell access (e.g., ForceCommand internal-sftp, PermitTTY no, or user shell set to nologin). Check server's sshd_config and user shell."
+                    e.message?.contains("timeout", ignoreCase = true) == true ->
+                        "Connection timed out opening shell channel"
+                    e.message?.contains("auth", ignoreCase = true) == true ->
+                        "Authentication failed"
+                    else ->
+                        "Terminal error: ${e.message}"
+                }
+                requireActivity().runOnUiThread {
+                    showError(msg)
                 }
             }
         }

@@ -158,6 +158,19 @@ class SftpServerEngine(
     }
 
     /**
+     * Settings that require a server restart when changed.
+     * These are the settings that affect how the server binds and authenticates.
+     */
+    private data class ServerSettings(
+        val port: Int,
+        val rootPath: String,
+        val username: String,
+        val passwordAuth: Boolean,
+        val publicKeyAuth: Boolean,
+        val maxConnections: Int
+    )
+
+    /**
      * Optional listener for SFTP-level events, for diagnostics.
      *
      * sshd reports failures to the client as a status code and swallows the
@@ -170,6 +183,10 @@ class SftpServerEngine(
     @Volatile
     private var server: SshServer? = null
 
+    /** Current server settings, used to detect when a restart is needed. */
+    @Volatile
+    private var currentSettings: ServerSettings? = null
+
     private val activeConnections = AtomicInteger(0)
 
     /**
@@ -178,6 +195,9 @@ class SftpServerEngine(
      * Never throws. A port already in use, a root that became unreadable and a
      * corrupt host-key file are all conditions the user can fix, and the
      * screen needs to be able to say which one it was.
+     *
+     * If the server is already running with the same settings, returns success.
+     * If settings have changed, stops the current server and restarts with new settings.
      */
     fun start(settings: SftpSettings): Result<SftpServerInstance> {
         val root = File(settings.rootPath)
@@ -188,8 +208,24 @@ class SftpServerEngine(
             return Result.failure(e)
         }
 
-        server?.takeIf { it.isStarted }?.let {
-            return Result.success(SftpServerInstance.of(it, activeConnections, hostKeyStore))
+        val newSettings = ServerSettings(
+            port = settings.port,
+            rootPath = settings.rootPath,
+            username = settings.username,
+            passwordAuth = settings.passwordAuth,
+            publicKeyAuth = settings.publicKeyAuth,
+            maxConnections = settings.maxConnections
+        )
+
+        // If server is running, check if settings have changed
+        server?.takeIf { it.isStarted }?.let { existingServer ->
+            if (settingsMatch(currentSettings, newSettings)) {
+                Log.i(TAG, "Server already running with same settings")
+                return Result.success(SftpServerInstance.of(existingServer, activeConnections, hostKeyStore))
+            } else {
+                Log.i(TAG, "Settings changed, restarting server")
+                stop()
+            }
         }
 
         if (settings.publicKeyAuth && authorizedKeys.list().isEmpty()) {
@@ -211,6 +247,7 @@ class SftpServerEngine(
         return try {
             ssh.start()
             server = ssh
+            currentSettings = newSettings
             Log.i(TAG, "listening on ${settings.port}, serving ${settings.rootPath}")
             Result.success(SftpServerInstance.of(ssh, activeConnections, hostKeyStore))
         } catch (e: IOException) {
@@ -219,10 +256,22 @@ class SftpServerEngine(
         }
     }
 
+    /** Compares two server settings to determine if a restart is needed. */
+    private fun settingsMatch(current: ServerSettings?, next: ServerSettings): Boolean {
+        if (current == null) return false
+        return current.port == next.port &&
+            current.rootPath == next.rootPath &&
+            current.username == next.username &&
+            current.passwordAuth == next.passwordAuth &&
+            current.publicKeyAuth == next.publicKeyAuth &&
+            current.maxConnections == next.maxConnections
+    }
+
     /** Stops the server, if it is running. Returns false when it was not. */
     fun stop(): Boolean {
         val ssh = server ?: return false
         server = null
+        currentSettings = null
         return try {
             ssh.stop(true)
             true
@@ -245,6 +294,10 @@ class SftpServerEngine(
     fun hostKeyFingerprint(): String? = hostKeyStore.fingerprint()
 
     private fun buildServer(settings: SftpSettings, root: File, hostKeyFile: Path): SshServer {
+        // Android has no user home folder. sshd's default resolver throws
+        // ExceptionInInitializerError on setUpDefaultServer() without this.
+        org.apache.sshd.common.util.io.PathUtils.setUserHomeFolderResolver { root.toPath() }
+
         val ssh = SshServer.setUpDefaultServer()
 
         // SFTP only — see the class comment.

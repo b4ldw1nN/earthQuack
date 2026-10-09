@@ -1,6 +1,10 @@
 package com.example.earthquack.ui
 
+import android.content.Context
+
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
@@ -8,18 +12,26 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.R
-import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentSftpBinding
 import com.example.earthquack.sftp.SftpServerController
 import com.example.earthquack.sftp.SftpServerControllerImpl
 import com.example.earthquack.sftp.SftpServerStatus
 import com.example.earthquack.sftp.SftpSettings
 import com.example.earthquack.sftp.SftpSettingsStore
+import com.example.earthquack.sftp.AuthorizedKeysStore
+import com.example.earthquack.ssh.IdentityKeyStore
+import com.example.earthquack.ssh.KeystoreSecretStore
+import com.example.earthquack.ssh.SecretStore
+import com.example.earthquack.state.TailnetStatus
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.nio.charset.StandardCharsets
 
 /**
  * SFTP server screen.
@@ -53,6 +65,42 @@ class SftpFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var store: SftpSettingsStore
+    private lateinit var secrets: SecretStore
+    private lateinit var authorizedKeys: AuthorizedKeysStore
+    private lateinit var keyStore: IdentityKeyStore
+
+    /** SAF picker for a private key file. */
+    private val importKeyLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+
+        // Show file selected feedback
+        val fileName = getFileName(uri) ?: "key file"
+        toast(getString(R.string.profile_key_selected_file, fileName))
+
+        // Ask for passphrase before importing
+        promptPassphrase { passphrase ->
+            lifecycleScope.launch {
+                val bytes = requireContext().contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+                val imported = withContext(Dispatchers.IO) {
+                    keyStore.importKey(
+                        "key-" + System.currentTimeMillis(),
+                        "imported",
+                        bytes,
+                        passphrase?.toCharArray()
+                    )
+                }.getOrNull()
+                if (imported == null) {
+                    toast(R.string.profile_key_import_failed)
+                } else {
+                    refreshKeys()
+                    selectKey(imported.alias)
+                    toast(R.string.profile_key_imported)
+                }
+            }
+        }
+    }
 
     /**
      * The real SFTP server controller.
@@ -63,6 +111,19 @@ class SftpFragment : Fragment() {
      * initialization time — the context is only guaranteed after attachment.
      */
     private lateinit var controller: SftpServerController
+
+    private companion object {
+        const val PASSWORD_ALIAS = "sftp_password"
+
+        /**
+         * Username presented to SFTP clients.
+         *
+         * A fixed name, matching what a single-user phone-as-server would
+         * sensibly use. Not a credential: authentication is by key or a
+         * one-time password, so this string grants nothing on its own.
+         */
+        const val USERNAME = "earthquack"
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -77,15 +138,29 @@ class SftpFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         store = SftpSettingsStore(requireContext())
         controller = SftpServerControllerImpl(requireContext())
+        secrets = KeystoreSecretStore(requireContext().filesDir)
+        authorizedKeys = AuthorizedKeysStore(requireContext())
 
         binding.rowPortEdit.setOnClickListener { promptPort() }
         binding.rowRootEdit.setOnClickListener { promptRoot() }
+        binding.rowPasswordSet.setOnClickListener { promptPassword() }
+        binding.rowAuthorizedKeys.setOnClickListener { showKeysDialog() }
 
         // Persist immediately on toggle. A settings screen where a switch needs
         // a separate Save button is a settings screen where people forget to
         // press it.
         binding.switchPasswordAuth.setOnCheckedChangeListener { _, checked ->
-            update { it.copy(passwordAuth = checked) }
+            if (checked && !secrets.has(PASSWORD_ALIAS)) {
+                // If enabling password auth but no password is set, prompt for one
+                promptPassword { success ->
+                    if (!success) {
+                        // User cancelled or failed to set password, revert the switch
+                        binding.switchPasswordAuth.isChecked = false
+                    }
+                }
+            } else {
+                update { it.copy(passwordAuth = checked) }
+            }
         }
         binding.switchPubkeyAuth.setOnCheckedChangeListener { _, checked ->
             update { it.copy(publicKeyAuth = checked) }
@@ -139,10 +214,11 @@ class SftpFragment : Fragment() {
         // Connection details. Endpoint is real when a host is configured, and
         // says so plainly when not -- the placeholder is never printed as an
         // address.
-        val configured = ServerConfig.isConfigured(requireContext())
+        val configured = true
+        val phoneIp = TailnetStatus(requireContext()).tailnetAddress()
         binding.rowEndpoint.label.text = getString(R.string.sftp_endpoint)
         binding.rowEndpoint.value.text = if (configured) {
-            "${ServerConfig.getHost(requireContext())}:${settings.port}"
+            "${phoneIp ?: "no tailnet IP"}:${settings.port}"
         } else {
             getString(R.string.state_not_configured)
         }
@@ -160,6 +236,14 @@ class SftpFragment : Fragment() {
         // resume.
         binding.switchPasswordAuth.isChecked = settings.passwordAuth
         binding.switchPubkeyAuth.isChecked = settings.publicKeyAuth
+
+        // Password status
+        val passwordSet = secrets.has(PASSWORD_ALIAS)
+        binding.textPasswordStatus.text = if (passwordSet) {
+            getString(R.string.sftp_password_set_sub)
+        } else {
+            getString(R.string.sftp_password_none)
+        }
 
         binding.textPort.text = settings.port.toString()
         binding.textRoot.text = settings.rootPath
@@ -219,11 +303,144 @@ class SftpFragment : Fragment() {
         addView(input)
     }
 
+    /**
+     * Shows the authorized keys management dialog.
+     */
+    private fun showKeysDialog() {
+        val keys = authorizedKeys.list()
+        if (keys.isEmpty()) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.sftp_authorized_keys)
+                .setMessage(R.string.sftp_no_authorized_keys)
+                .setPositiveButton(R.string.sftp_add_key) { _, _ ->
+                    // TODO: Implement key import from file
+                    toast("Key import not yet implemented")
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        } else {
+            val items = keys.map { it.label }.toTypedArray()
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.sftp_authorized_keys)
+                .setItems(items) { _, which ->
+                    val entry = keys[which]
+                    MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(entry.label)
+                        .setMessage(entry.publicKey)
+                        .setPositiveButton(R.string.sftp_remove_key) { _, _ ->
+                            authorizedKeys.remove(entry.publicKey)
+                            render()
+                            toast(R.string.sftp_key_removed)
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }
+                .setPositiveButton(R.string.sftp_add_key) { _, _ ->
+                    importKeyLauncher.launch(arrayOf("*/*"))
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /**
+     * Prompts the user to set/change/clear the SFTP server password.
+     *
+     * When a password is already set, offers to change or clear it.
+     * When no password is set, only offers to set one.
+     */
+    private fun promptPassword(onComplete: ((Boolean) -> Unit)? = null) {
+        val hasPassword = secrets.has(PASSWORD_ALIAS)
+        val title = if (hasPassword) getString(R.string.sftp_password_change) else getString(R.string.sftp_password_set)
+        val items = if (hasPassword) {
+            arrayOf(getString(R.string.sftp_password_change), getString(R.string.sftp_password_clear))
+        } else {
+            arrayOf(getString(R.string.sftp_password_set))
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(title)
+            .setItems(items) { _, which ->
+                if (hasPassword) {
+                    when (which) {
+                        0 -> promptNewPassword(onComplete) // Change
+                        1 -> clearPassword(onComplete)     // Clear
+                    }
+                } else {
+                    when (which) {
+                        0 -> promptNewPassword(onComplete) // Set
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> onComplete?.invoke(false) }
+            .show()
+    }
+
+    private fun promptNewPassword(onComplete: ((Boolean) -> Unit)? = null) {
+        val input = EditText(requireContext()).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.sftp_password_set_hint)
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.sftp_password_set))
+            .setView(pad(input))
+            .setNegativeButton(android.R.string.cancel) { _, _ -> onComplete?.invoke(false) }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val password = input.text.toString()
+                if (password.isBlank()) {
+                    toast(R.string.sftp_settings_invalid)
+                    onComplete?.invoke(false)
+                } else {
+                    secrets.put(PASSWORD_ALIAS, password.toByteArray(StandardCharsets.UTF_8))
+                    render()
+                    onComplete?.invoke(true)
+                }
+            }
+            .show()
+    }
+
+    private fun clearPassword(onComplete: ((Boolean) -> Unit)? = null) {
+        secrets.delete(PASSWORD_ALIAS)
+        // If password auth is enabled but we cleared the password, disable it
+        val settings = store.load()
+        if (settings.passwordAuth) {
+            update { it.copy(passwordAuth = false) }
+        } else {
+            render()
+        }
+        onComplete?.invoke(true)
+    }
+
     /** Applies a change, saves it, and re-renders. Invalid values are rejected. */
     private fun update(transform: (SftpSettings) -> SftpSettings) {
-        val candidate = transform(store.load())
+        val oldSettings = store.load()
+        val candidate = transform(oldSettings)
         if (store.save(candidate)) {
+            // Check if any setting that requires a server restart has changed
+            val needsRestart = oldSettings.port != candidate.port ||
+                oldSettings.rootPath != candidate.rootPath ||
+                oldSettings.username != candidate.username ||
+                oldSettings.passwordAuth != candidate.passwordAuth ||
+                oldSettings.publicKeyAuth != candidate.publicKeyAuth ||
+                oldSettings.maxConnections != candidate.maxConnections
+
             render()
+
+            if (needsRestart) {
+                // Server needs restart to apply new settings
+                val currentStatus = controller.status()
+                if (currentStatus is SftpServerStatus.Running) {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val result = controller.start(candidate)
+                        if (result is SftpServerStatus.Error) {
+                            // Restart failed, show error and revert to old settings
+                            toast(R.string.sftp_start_failed)
+                            store.save(oldSettings)
+                            render()
+                        }
+                    }
+                }
+            }
         } else {
             // save() rejects an out-of-range port or blank root; say so instead
             // of silently discarding the edit.
@@ -247,19 +464,52 @@ class SftpFragment : Fragment() {
     private fun toast(res: Int) =
         Toast.makeText(requireContext(), res, Toast.LENGTH_SHORT).show()
 
+    private fun toast(msg: String) =
+        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 
-    private companion object {
-        /**
-         * Username presented to SFTP clients.
-         *
-         * A fixed name, matching what a single-user phone-as-server would
-         * sensibly use. Not a credential: authentication is by key or a
-         * one-time password, so this string grants nothing on its own.
-         */
-        const val USERNAME = "earthquack"
+    /**
+     * Gets a display name for a SAF URI.
+     */
+    private fun getFileName(uri: Uri): String? {
+        return requireContext().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else null
+        }
+    }
+
+    /**
+     * Prompts the user for a key passphrase.
+     */
+    private fun promptPassphrase(onResult: (String?) -> Unit) {
+        val input = android.widget.EditText(requireContext()).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.profile_key_passphrase_hint)
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.profile_key_passphrase_title)
+            .setView(input.apply {
+                val pad = resources.getDimensionPixelSize(R.dimen.eq_gap_lg)
+                setPadding(pad, pad / 2, pad, 0)
+            })
+            .setNegativeButton(android.R.string.cancel) { _, _ -> onResult(null) }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val text = input.text.toString()
+                onResult(if (text.isEmpty()) null else text)
+            }
+            .show()
+    }
+
+    private fun refreshKeys() {
+        // Not needed for SftpFragment - keys are managed in ProfileEditorActivity
+    }
+
+    private fun selectKey(alias: String?) {
+        // Not needed for SftpFragment - keys are managed in ProfileEditorActivity
     }
 }

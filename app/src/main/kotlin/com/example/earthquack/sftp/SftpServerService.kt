@@ -56,6 +56,7 @@ class SftpServerService : Service() {
         const val EXTRA_PASSWORD_AUTH = "password_auth"
         const val EXTRA_PUBLIC_KEY_AUTH = "public_key_auth"
         const val EXTRA_MAX_CONNECTIONS = "max_connections"
+        const val EXTRA_ERROR = "error"
 
         const val ACTION_STATUS_UPDATE = "com.example.earthquack.sftp.STATUS_UPDATE"
 
@@ -96,6 +97,7 @@ class SftpServerService : Service() {
                 val settings = intent.toSftpSettings()
                 if (settings == null || !settings.isValid) {
                     Log.w(TAG, "refusing to start with invalid settings")
+                    broadcastError("Invalid settings")
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -109,6 +111,7 @@ class SftpServerService : Service() {
                     val message = result.exceptionOrNull()?.message ?: "unknown error"
                     Log.e(TAG, "start failed: $message")
                     notifyError(message)
+                    broadcastError(message)
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -209,6 +212,14 @@ class SftpServerService : Service() {
 
     private fun broadcastStatus() {
         sendBroadcast(Intent(ACTION_STATUS_UPDATE).setPackage(packageName))
+    }
+
+    private fun broadcastError(message: String) {
+        sendBroadcast(
+            Intent(ACTION_STATUS_UPDATE)
+                .setPackage(packageName)
+                .putExtra(EXTRA_ERROR, message)
+        )
     }
 
     private fun Intent.toSftpSettings(): SftpSettings? {

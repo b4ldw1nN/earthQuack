@@ -10,6 +10,7 @@ import org.apache.sshd.client.channel.ClientChannelEvent
 import org.apache.sshd.client.session.ClientSession
 import org.apache.sshd.client.keyverifier.ServerKeyVerifier
 import org.apache.sshd.common.SshException
+import org.apache.sshd.common.util.io.PathUtils
 import org.apache.sshd.sftp.client.SftpClientFactory
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -20,6 +21,8 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 
 /**
@@ -64,11 +67,18 @@ class SshConnectionFactory(
     private val identityKeys: IdentityKeyStore,
     private val secrets: SecretStore,
     private val knownHosts: KnownHostsStore,
+    private val filesDir: java.io.File,
     private val timeouts: SshTimeouts = SshTimeouts()
 ) {
 
     private companion object {
         const val TAG = "EarthQuackSsh"
+
+        init {
+            // On Android, sshd needs a user home folder resolver since there's no
+            // traditional $HOME. Must be set before any sshd classes are loaded.
+            PathUtils.setUserHomeFolderResolver { Paths.get(System.getProperty("user.dir")) }
+        }
     }
 
     /**
@@ -79,6 +89,7 @@ class SshConnectionFactory(
      * cannot forget it.
      */
     suspend fun connect(profile: ConnectionProfile): SshConnectResult {
+        Log.i(TAG, "SshConnectionFactory.connect() called for ${profile.name}@${profile.endpoint}")
         val problems = profile.problems()
         if (problems.isNotEmpty()) {
             return SshConnectResult.Failed(SshFailure.InvalidProfile(problems))
@@ -170,6 +181,19 @@ class SshConnectionFactory(
                 )
             )
         }
+
+        // Test if session stays alive by executing a simple command
+        // This helps diagnose if the session is being closed by the server immediately after auth
+        try {
+            val testChannel: ChannelExec = session.createExecChannel("echo 'test'")
+            testChannel.setOut(CallbackOutputStream { _, _, _ -> })
+            testChannel.setErr(CallbackOutputStream { _, _, _ -> })
+            testChannel.open().verify(5000, TimeUnit.MILLISECONDS)
+            Log.i("EarthQuackSsh", "Test exec command succeeded, session is alive")
+            testChannel.close()
+        } catch (e: Throwable) {
+            Log.w("EarthQuackSsh", "Test exec command failed: ${e.message}", e)
+        }
     }
 
     /**
@@ -238,6 +262,17 @@ class SshConnection(
      *   together. A terminal has one pane, and hiding errors in a second
      *   channel that is never displayed is worse than interleaving them.
      */
+    /**
+     * Opens an interactive shell with a PTY.
+     *
+     * [rows] and [cols] are the geometry the remote side should assume; they
+     * must be kept current with [ShellChannel.resize] or full-screen programs
+     * (vim, less, htop) will draw for the wrong size.
+     *
+     * @param onData receives everything the server writes — stdout and stderr
+     *   together. A terminal has one pane, and hiding errors in a second
+     *   channel that is never displayed is worse than interleaving them.
+     */
     fun openShell(
         onData: (ByteArray, Int, Int) -> Unit,
         term: String = "xterm-256color",
@@ -246,19 +281,108 @@ class SshConnection(
     ): ShellChannel {
         check(isOpen) { "session is closed" }
 
+        Log.i("EarthQuackSsh", "Opening shell channel with term=$term, rows=$rows, cols=$cols")
+
         val channel: ChannelShell = session.createShellChannel()
-        channel.setPtyType(term)
-        channel.setPtyHeight(rows)
-        channel.setPtyWidth(cols)
-        channel.setUsePty(true)
+        setupPtyChannel(channel, term, rows, cols)
 
         val stdin = QueueInputStream()
         channel.setIn(stdin)
         channel.setOut(CallbackOutputStream(onData))
         channel.setErr(CallbackOutputStream(onData))
-        channel.open().verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        try {
+            Log.i("EarthQuackSsh", "Opening shell channel...")
+            val future = channel.open()
+            Log.i("EarthQuackSsh", "Channel open future created, verifying...")
+            future.verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            Log.i("EarthQuackSsh", "Shell channel opened successfully")
+        } catch (e: Throwable) {
+            Log.e("EarthQuackSsh", "Failed to open shell channel, trying exec fallback", e)
+            // Fallback: try exec channel with explicit shell command
+            return openShellFallback(onData, term, rows, cols, e)
+        }
 
         return ShellChannel(channel, stdin)
+    }
+
+    private fun setupPtyChannel(channel: ChannelShell, term: String, rows: Int, cols: Int) {
+        channel.setPtyType(term)
+        channel.setPtyHeight(rows)
+        channel.setPtyWidth(cols)
+        channel.setUsePty(true)
+
+        // Set basic PTY modes that most servers expect
+        val ptyModes = mutableMapOf<org.apache.sshd.common.channel.PtyMode, Int>()
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ECHO] = 1
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ECHOCTL] = 1
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ICRNL] = 1
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ONLCR] = 1
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ISIG] = 1
+        ptyModes[org.apache.sshd.common.channel.PtyMode.ICANON] = 1
+        channel.setPtyModes(ptyModes)
+    }
+
+    /**
+     * Fallback: opens an exec channel with an explicit shell command.
+     * Used when the shell channel fails (e.g., server closes shell channel).
+     */
+    private fun openShellFallback(
+        onData: (ByteArray, Int, Int) -> Unit,
+        term: String,
+        rows: Int,
+        cols: Int,
+        originalError: Throwable
+    ): ShellChannel {
+        Log.w("EarthQuackSsh", "Attempting fallback: exec channel with explicit shell", originalError)
+
+        // Try common shells in order of preference
+        val shells = listOf("bash -l", "sh -l", "bash", "sh")
+        var lastError: Throwable? = originalError
+
+        for (shellCmd in shells) {
+            try {
+                Log.i("EarthQuackSsh", "Trying fallback shell: $shellCmd")
+                val execChannel: ChannelExec = session.createExecChannel(shellCmd)
+                execChannel.setPtyType(term)
+                execChannel.setPtyHeight(rows)
+                execChannel.setPtyWidth(cols)
+                execChannel.setUsePty(true)
+
+                val ptyModes = mutableMapOf<org.apache.sshd.common.channel.PtyMode, Int>()
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ECHO] = 1
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ECHOCTL] = 1
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ICRNL] = 1
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ONLCR] = 1
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ISIG] = 1
+                ptyModes[org.apache.sshd.common.channel.PtyMode.ICANON] = 1
+                execChannel.setPtyModes(ptyModes)
+
+                val stdin = QueueInputStream()
+                execChannel.setIn(stdin)
+                execChannel.setOut(CallbackOutputStream(onData))
+                execChannel.setErr(CallbackOutputStream(onData))
+                execChannel.open().verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                Log.i("EarthQuackSsh", "Fallback exec channel opened successfully with: $shellCmd")
+                return ShellChannel(execChannel, stdin)
+            } catch (e: Throwable) {
+                Log.w("EarthQuackSsh", "Fallback shell '$shellCmd' failed", e)
+                lastError = e
+            }
+        }
+
+        // All fallbacks failed
+        val msg = when {
+            lastError?.message?.contains("Closed", ignoreCase = true) == true ->
+                "All shell attempts failed. The SSH server may be configured to deny shell access (e.g., ForceCommand internal-sftp, PermitTTY no, or user shell set to nologin). Check server's sshd_config and user shell."
+            lastError?.message?.contains("timeout", ignoreCase = true) == true ->
+                "Connection timed out opening shell channel"
+            lastError?.message?.contains("auth", ignoreCase = true) == true ->
+                "Authentication failed"
+            else ->
+                "Terminal error: ${lastError?.message ?: "Unknown error"}"
+        }
+        Log.e("EarthQuackSsh", "All shell attempts failed: $msg", lastError)
+        throw IOException("Failed to open shell channel: $msg", lastError!!)
     }
 
     /** Opens the SFTP subsystem on this session. The caller closes it. */
@@ -311,22 +435,27 @@ class SshConnection(
      * [stdin] is where keystrokes go; [close] tears the channel down. Both are
      * safe to call from any thread.
      */
-    class ShellChannel internal constructor(
-        private val channel: ChannelShell,
-        val stdin: QueueInputStream
-    ) {
-        /** Sends a terminal resize to the remote side. */
-        fun resize(rows: Int, cols: Int) {
-            runCatching { channel.sendWindowChange(rows, cols, 0, 0) }
-        }
-
-        val isOpen: Boolean get() = channel.isOpen
-
-        fun close() {
-            runCatching { stdin.close() }
-            runCatching { channel.close() }
+    /**
+ * A live interactive shell.
+ */
+class ShellChannel internal constructor(
+    private val channel: org.apache.sshd.client.channel.ClientChannel,
+    val stdin: QueueInputStream
+) {
+    /** Sends a terminal resize to the remote side. */
+    fun resize(rows: Int, cols: Int) {
+        if (channel is ChannelShell) {
+            runCatching { (channel as ChannelShell).sendWindowChange(rows, cols, 0, 0) }
         }
     }
+
+    val isOpen: Boolean get() = channel.isOpen
+
+    fun close() {
+        runCatching { stdin.close() }
+        runCatching { channel.close() }
+    }
+}
 
     private companion object {
         const val CHANNEL_OPEN_TIMEOUT_MS = 20_000L

@@ -118,6 +118,9 @@
     <string name="profile_key_public_body">Install this line in ~/.ssh/authorized_keys on the server. The private key never leaves this device.</string>
     <string name="profile_select_key">Select a key</string>
     <string name="profile_no_keys">No keys yet — generate or import one first.</string>
+    <string name="profile_key_passphrase_title">Key passphrase</string>
+    <string name="profile_key_passphrase_hint">Enter passphrase (leave empty if none)</string>
+    <string name="profile_key_selected_file">Key file selected: %1$s</string>
     <string name="profile_password">Password</string>
     <string name="profile_password_hint">Stored encrypted, never in the profile</string>
     <string name="profile_password_note">Saved to the Android Keystore, not to the profile. Leave blank to keep the existing password.</string>
@@ -144,16 +147,25 @@
     <string name="sftp_host_key">Host key</string>
     <string name="sftp_start">Start</string>
     <string name="sftp_stop">Stop</string>
-    <string name="sftp_password_set">Server password</string>
-    <string name="sftp_password_set_sub">Set the password SFTP clients use</string>
-    <string name="sftp_password_set_hint">Stored in the Android Keystore, not in preferences</string>
+
     <string name="sftp_password_change">Change password</string>
+    <string name="sftp_password_change_sub">Enter a new password</string>
     <string name="sftp_password_clear">Clear password</string>
+    <string name="sftp_password_clear_sub">Disable password authentication</string>
     <string name="sftp_password_none">Not set — enable public key auth or set one</string>
+    <string name="sftp_password_set">Set password</string>
+    <string name="sftp_password_set_sub">Enter password for SFTP clients</string>
+    <string name="sftp_password_set_hint">Stored in the Android Keystore, not in preferences</string>
+
     <string name="sftp_keys_header">Client keys</string>
     <string name="sftp_keys_add">Authorize a key</string>
     <string name="sftp_keys_empty">No keys authorized. Add a public key from the Keys screen.</string>
     <string name="sftp_keys_count">%1$d authorized</string>
+    <string name="sftp_authorized_keys">Authorized keys</string>
+    <string name="sftp_no_authorized_keys">No keys authorized</string>
+    <string name="sftp_add_key">Add key</string>
+    <string name="sftp_remove_key">Remove key</string>
+    <string name="sftp_key_removed">Key removed</string>
 
     <!-- Services hub subtitles -->
     <string name="services_sftp_running">Running on port %1$d</string>

@@ -3,8 +3,11 @@ package com.example.earthquack.ui
 import android.content.ClipData
 import android.content.Intent
 import android.content.ClipboardManager
+import android.provider.OpenableColumns
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,18 +70,30 @@ class ProfileEditorActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@registerForActivityResult
-        lifecycleScope.launch {
-            // importKey returns Result<IdentityKeyInfo>, so we unwrap it.
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
-            val imported = withContext(Dispatchers.IO) {
-                keyStore.importKey("key-" + System.currentTimeMillis(), "imported", bytes, null)
-            }.getOrNull()
-            if (imported == null) {
-                toast(R.string.profile_key_import_failed)
-            } else {
-                refreshKeys()
-                selectKey(imported.alias)
-                toast(R.string.profile_key_imported)
+
+        // Show file selected feedback
+        val fileName = getFileName(uri) ?: "key file"
+        toast(getString(R.string.profile_key_selected_file, fileName))
+
+        // Ask for passphrase before importing
+        promptPassphrase { passphrase ->
+            lifecycleScope.launch {
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+                val imported = withContext(Dispatchers.IO) {
+                    keyStore.importKey(
+                        "key-" + System.currentTimeMillis(),
+                        "imported",
+                        bytes,
+                        passphrase?.toCharArray()
+                    )
+                }.getOrNull()
+                if (imported == null) {
+                    toast(R.string.profile_key_import_failed)
+                } else {
+                    refreshKeys()
+                    selectKey(imported.alias)
+                    toast(R.string.profile_key_imported)
+                }
             }
         }
     }
@@ -248,7 +263,42 @@ class ProfileEditorActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Gets a display name for a SAF URI.
+     */
+    private fun getFileName(uri: Uri): String? {
+        return contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else null
+        }
+    }
+
+    /**
+     * Prompts the user for a key passphrase.
+     */
+    private fun promptPassphrase(onResult: (String?) -> Unit) {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.profile_key_passphrase_hint)
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.profile_key_passphrase_title)
+            .setView(input.apply {
+                val pad = resources.getDimensionPixelSize(R.dimen.eq_gap_lg)
+                setPadding(pad, pad / 2, pad, 0)
+            })
+            .setNegativeButton(android.R.string.cancel) { _, _ -> onResult(null) }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val text = input.text.toString()
+                onResult(if (text.isEmpty()) null else text)
+            }
+            .show()
+    }
+
     private fun toast(res: Int) = Toast.makeText(this, res, Toast.LENGTH_SHORT).show()
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     companion object {
         private const val EXTRA_PROFILE_ID = "profile_id"

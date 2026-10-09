@@ -47,6 +47,7 @@ object SshServices {
     fun connectionFactory(context: Context): SshConnectionFactory = SshConnectionFactory(
         identityKeys = identityKeys(context),
         secrets = secretStore(context),
-        knownHosts = knownHosts(context)
+        knownHosts = knownHosts(context),
+        filesDir = context.filesDir
     )
 }

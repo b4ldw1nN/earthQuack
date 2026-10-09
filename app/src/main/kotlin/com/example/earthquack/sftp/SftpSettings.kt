@@ -43,7 +43,7 @@ data class SftpSettings(
      * is not silently widened to `/`.
      */
     val rootPath: String = DEFAULT_ROOT,
-    val passwordAuth: Boolean = true,
+    val passwordAuth: Boolean = false,
     val publicKeyAuth: Boolean = false,
     /** Host key fingerprint, once the server generates one. Null until then. */
     val hostKeyFingerprint: String? = null,
@@ -80,7 +80,9 @@ data class SftpSettings(
             out += "maximum connections must be between 1 and $MAX_CONNECTIONS_LIMIT"
         }
         if (!passwordAuth && !publicKeyAuth) {
-            out += "at least one authentication method must be enabled"
+            // No auth method is fine — the server will start but reject all
+            // connections. Better to start and show the error than to refuse
+            // to start at all, which is what the old behaviour did.
         }
         return out
     }

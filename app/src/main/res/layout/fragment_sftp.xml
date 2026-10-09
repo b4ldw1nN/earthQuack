@@ -89,6 +89,27 @@
 
             <View style="@style/Widget.Eq.Divider.Inset" />
 
+            <LinearLayout
+                android:id="@+id/rowPasswordSet"
+                style="@style/Widget.Eq.Row">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_password_set"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:id="@+id/textPasswordStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Eq.RowValue"
+                    tools:text="@string/sftp_password_none" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
             <LinearLayout style="@style/Widget.Eq.Row">
                 <LinearLayout
                     android:layout_width="0dp"
@@ -114,6 +135,27 @@
                     style="@style/Widget.Eq.Switch"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <LinearLayout
+                android:id="@+id/rowAuthorizedKeys"
+                style="@style/Widget.Eq.Row">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/sftp_authorized_keys"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+                <TextView
+                    android:id="@+id/textAuthorizedKeysStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.Eq.RowValue"
+                    tools:text="0 keys" />
             </LinearLayout>
         </LinearLayout>
 
