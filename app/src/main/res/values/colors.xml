@@ -64,6 +64,15 @@
     <color name="eq_ripple">#22FFFFFF</color>
     <color name="eq_scrim">#B3000000</color>
 
+    <!-- ── Terminal ────────────────────────────────────────────────────────
+         The terminal is intentionally closer to Termux than the rest of the
+         app: black canvas, high-contrast monospace text, quiet chrome. -->
+    <color name="eq_terminal_background">#000000</color>
+    <color name="eq_terminal_text">#E6EDF3</color>
+    <color name="eq_terminal_muted">#7D8590</color>
+    <color name="eq_terminal_field">#050505</color>
+    <color name="eq_terminal_border">#22272E</color>
+
     <!-- Per-provider icon tints for the rclone remote list. These are
          decorative only: the remote's name and status are always shown as
          text, so the colour is never the sole carrier of meaning. -->

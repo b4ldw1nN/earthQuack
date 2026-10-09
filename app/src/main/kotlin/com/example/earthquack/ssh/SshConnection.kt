@@ -344,25 +344,38 @@ class SshConnection(
         Log.i("EarthQuackSsh", "Opening shell channel with term=$term, rows=$rows, cols=$cols")
 
         val channel: ChannelShell = session.createShellChannel()
-        setupPtyChannel(channel, term, rows, cols)
 
-        val stdin = QueueInputStream()
-        channel.setIn(stdin)
+        // PTY and both output sinks are configured *before* the channel is
+        // opened. sshd sends pty-req and the shell request in the same burst
+        // as SSH_MSG_CHANNEL_OPEN, and doOpen() — which consumes setOut and
+        // setErr — runs on an I/O thread as soon as the server answers, so
+        // anything set afterwards races the first bytes of output.
+        setupPtyChannel(channel, term, rows, cols)
         channel.setOut(CallbackOutputStream(onData))
         channel.setErr(CallbackOutputStream(onData))
+
         try {
-            val future = channel.open()
-            future.verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            channel.open().verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         } catch (e: Throwable) {
             // Close the half-open channel before reporting. Leaving it to the
             // finaliser keeps a window descriptor (a PTY on most servers) alive
             // for an unknown time after the screen is gone.
             runCatching { channel.close() }
-            runCatching { stdin.close() }
             throw IOException(shellUnavailableReason(e), e)
         }
 
-        return ShellChannel(channel, stdin)
+        // The inverted input stream is created by sshd inside doOpen(), which
+        // runs only once the server has confirmed the channel. Taking it before
+        // the verified open would hand back null (or a stream whose remote
+        // window is not yet initialised); taking it now is the earliest point
+        // at which writes are meaningful. A channel that opens without one is
+        // broken, not something to paper over with a blocking queue.
+        val input: OutputStream = channel.invertedIn ?: run {
+            runCatching { channel.close() }
+            throw IOException("the server opened a shell but no input stream for it")
+        }
+
+        return ShellChannel(channel, input)
     }
 
     private fun setupPtyChannel(channel: ChannelShell, term: String, rows: Int, cols: Int) {
@@ -383,7 +396,9 @@ class SshConnection(
     }
 
 
-    /** Opens the SFTP subsystem on this session. The caller closes it. */
+    /**
+     * Opens the SFTP subsystem on this session. The caller closes it.
+     */
     fun openSftp(): SftpSession = SftpSession(SftpClientFactory.instance().createSftpClient(session))
 
     /**
@@ -405,6 +420,11 @@ class SshConnection(
         val stdout = RetainingOutputStream(retainLimit, onOutput)
         val stderr = RetainingOutputStream(retainLimit, onOutput)
         val channel: ChannelExec = session.createExecChannel(command)
+        // `setIn` is the *only* consumer of [QueueInputStream], and it is here
+        // rather than in the shell path for two reasons: an exec channel sends
+        // nothing to the server, and the input stream is what makes sshd start
+        // a `ClientInputStreamPump` thread that parks in a blocking read until
+        // the channel closes. See [QueueInputStream].
         channel.setIn(QueueInputStream())
         channel.setOut(stdout)
         channel.setErr(stderr)
@@ -444,30 +464,80 @@ class SshConnection(
     /**
      * A live interactive shell.
      *
-     * [stdin] is where keystrokes go; [close] tears the channel down. Both are
-     * safe to call from any thread.
+     * Owns the sshd channel *and* the stream that writes into it, so the caller
+     * has exactly one object to hold, check with [isOpen], write to with
+     * [write] and release with [close]. Nothing between the input field and the
+     * socket buffers or re-encodes input.
+     *
+     * Thread-safe: [write] may be called from any thread, and concurrent writes
+     * are serialised so one keystroke's bytes cannot be interleaved into the
+     * middle of another's.
      */
-    /**
- * A live interactive shell.
- */
-class ShellChannel internal constructor(
-    private val channel: org.apache.sshd.client.channel.ClientChannel,
-    val stdin: QueueInputStream
-) {
-    /** Sends a terminal resize to the remote side. */
-    fun resize(rows: Int, cols: Int) {
-        if (channel is ChannelShell) {
-            runCatching { (channel as ChannelShell).sendWindowChange(rows, cols, 0, 0) }
+    class ShellChannel internal constructor(
+        private val channel: org.apache.sshd.client.channel.ClientChannel,
+        /**
+         * Application → remote stdin, straight from
+         * `ClientChannel.getInvertedIn()`. Valid for the life of [channel].
+         */
+        private val input: OutputStream
+    ) {
+        /**
+         * Serialises `write` + `flush`.
+         *
+         * sshd's [org.apache.sshd.common.channel.ChannelOutputStream] makes
+         * `write(byte[], int, int)` synchronous but `flush()` is not, so without
+         * this a second thread could flush between the first thread's write and
+         * flush and cut the first submission in half.
+         */
+        private val writeLock = Any()
+
+        /** Whether the channel is still open and can carry input. */
+        val isOpen: Boolean get() = channel.isOpen
+
+        /**
+         * Sends a terminal resize to the remote side.
+         *
+         * This is direct SSH channel I/O, so callers must not invoke it from the
+         * Android main thread.
+         */
+        fun resize(rows: Int, cols: Int) {
+            if (channel is ChannelShell && channel.isOpen && !channel.isClosing) {
+                (channel as ChannelShell).sendWindowChange(rows, cols, 0, 0)
+            }
+        }
+
+        /**
+         * Sends [data] to the remote shell and flushes it.
+         *
+         * Blocking by nature — the bytes go into the channel's remote window and
+         * the window may be full — so callers not on a background thread should
+         * dispatch. Throws [IOException] when the channel is closed or the
+         * connection drops, which is how a dead terminal becomes visible instead
+         * of a text field that accepts input nobody receives.
+         */
+        fun write(data: ByteArray) {
+            if (data.isEmpty()) return
+            // Copy before handing the bytes to another thread: the caller owns
+            // the array and is free to reuse it (the fragment reuses nothing
+            // today, but a paste path could).
+            val bytes = data.copyOf()
+            if (channel.isClosing || !channel.isOpen) {
+                throw IOException("the shell channel is closed; no input can be sent")
+            }
+            synchronized(writeLock) {
+                input.write(bytes)
+                input.flush()
+            }
+        }
+
+        /** Tears the channel down. Idempotent, and safe from any thread. */
+        fun close() {
+            // The channel owns the inverted input stream; closing the channel
+            // invalidates every stream it handed out, so clearing [input] is not
+            // needed and closing it separately would only mask the real error.
+            runCatching { channel.close() }
         }
     }
-
-    val isOpen: Boolean get() = channel.isOpen
-
-    fun close() {
-        runCatching { stdin.close() }
-        runCatching { channel.close() }
-    }
-}
 
     private companion object {
         const val CHANNEL_OPEN_TIMEOUT_MS = 20_000L
@@ -519,14 +589,35 @@ class ShellChannel internal constructor(
 }
 
 /**
- * A blocking [InputStream] fed by [offer], for the server→client direction of
- * keystrokes.
+ * A blocking [InputStream] fed by [offer].
  *
- * sshd reads a client channel's input on its own thread, so the UI thread
- * writes into a queue and that thread drains it. A pipe would do, but its
- * 1 KiB buffer means a paste larger than that blocks the writer until the
- * reader catches up — which, for an interactive terminal, is a visible stall
- * rather than buffering.
+ * ## Where it is used, and where it is not
+ *
+ * Only by [SshConnection.exec], which needs *some* input stream to keep sshd's
+ * `ClientInputStreamPump` happy without ever writing to it.
+ *
+ * The interactive shell used to go through here too: the UI pushed keystrokes
+ * into a `Channel<ByteArray>`, a coroutine drained that into this queue, and a
+ * sshd pump thread drained this into the channel. It was the wrong shape for
+ * three reasons, and none of them were sshd's fault:
+ *
+ *  - the fragment's `Channel` was closed on disconnect and never recreated, so
+ *    after one reconnect every send failed on a closed channel that nobody
+ *    checked;
+ *  - the results of `trySend`/`offer` were discarded, so a dropped keystroke was
+ *    indistinguishable from a delivered one, to the user and to the log;
+ *  - the bytes stopped at a queue rather than at the socket, so a full or
+ *    closed queue produced silence rather than an error.
+ *
+ * The shell now writes straight to `ClientChannel.getInvertedIn()` through
+ * [ShellChannel.write], which owns the stream and throws when the channel is
+ * gone. That is why this class survives only for the exec path.
+ *
+ * ## The queue versus a pipe
+ *
+ * A `java.io.PipedInputStream` would do instead, but its 1 KiB buffer means a
+ * paste larger than that blocks the writer until the reader catches up — which,
+ * for an interactive terminal, is a visible stall rather than buffering.
  *
  * [fail] exists so a reader blocked on an empty queue when the connection dies
  * wakes up and throws instead of hanging forever; that is the difference

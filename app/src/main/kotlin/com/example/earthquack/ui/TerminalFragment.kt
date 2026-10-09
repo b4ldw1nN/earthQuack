@@ -23,7 +23,6 @@ import com.example.earthquack.ssh.SshConnection
 import com.example.earthquack.ssh.SshServices
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -41,8 +40,18 @@ class TerminalFragment : Fragment() {
     private var connection: SshConnection? = null
     private var shell: SshConnection.ShellChannel? = null
 
-    private val inputChannel = Channel<ByteArray>(64)
     private var isConnected = false
+
+    /**
+     * Bumped whenever the shell is replaced or torn down.
+     *
+     * A write started for one shell can otherwise land on an sshd I/O thread and
+     * return its failure after a reconnect has already swapped in a new shell:
+     * the old error would then be reported against a connection that is fine.
+     * Each send records the generation it belongs to and only reports against
+     * the current one.
+     */
+    private var shellGeneration = 0
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -77,15 +86,15 @@ class TerminalFragment : Fragment() {
         binding.terminalLog.setTextIsSelectable(true)
         binding.terminalLog.typeface = Typeface.MONOSPACE
         binding.terminalLog.textSize = 13f
+        binding.terminalLog.includeFontPadding = false
+        binding.inputField.typeface = Typeface.MONOSPACE
 
-        // Input field: intercepts soft keyboard
+        // Input field: intercepts soft keyboard. Both paths end in submitInput(),
+        // which owns the "send and clear" contract; neither clears the field
+        // itself, because a submission that fails must leave its text behind.
         binding.inputField.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND || actionId == EditorInfo.IME_ACTION_UNSPECIFIED) {
-                val text = binding.inputField.text.toString()
-                if (text.isNotEmpty()) {
-                    writeToShell(text + "\n")
-                    binding.inputField.text.clear()
-                }
+                submitInput()
                 true
             } else false
         }
@@ -94,17 +103,13 @@ class TerminalFragment : Fragment() {
         binding.btnConnect.setOnClickListener { connect() }
         binding.btnDisconnect.setOnClickListener { disconnect() }
         binding.btnSend.setOnClickListener {
-            val text = binding.inputField.text.toString()
-            if (text.isNotEmpty()) {
-                writeToShell(text + "\n")
-                binding.inputField.text.clear()
-                // Dismiss the keyboard: leaving it up covers most of the log,
-                // and a terminal is watched while it works rather than typed
-                // into exclusively.
-                val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                    as android.view.inputmethod.InputMethodManager
-                imm.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
-            }
+            submitInput()
+            // Dismiss the keyboard: leaving it up covers most of the log,
+            // and a terminal is watched while it works rather than typed
+            // into exclusively.
+            val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
         }
 
         // Handle orientation/window resize
@@ -115,7 +120,7 @@ class TerminalFragment : Fragment() {
                 if (w > 0 && h > 0) {
                     val cols = maxOf(1, w / (binding.terminalLog.paint.measureText("M").toInt()))
                     val rows = maxOf(1, h / binding.terminalLog.lineHeight)
-                    shell?.resize(rows, cols)
+                    resizeShell(rows, cols)
                 }
             }
         }
@@ -127,6 +132,8 @@ class TerminalFragment : Fragment() {
         Log.i("TerminalFragment", "connect() called for profile: ${profile?.name}")
         val p = profile ?: return
         lifecycleScope.launch {
+            vtParser.reset()
+            binding.terminalLog.text = ""
             binding.btnConnect.isEnabled = false
             binding.statusText.text = "Connecting…"
 
@@ -176,6 +183,10 @@ class TerminalFragment : Fragment() {
                 }
                 shell = ch
                 isConnected = true
+                // A fresh shell means a fresh input path: nothing carries over
+                // from a previous session, so a reconnect cannot be handed a
+                // transport the last one already closed.
+                shellGeneration++
 
                 requireActivity().runOnUiThread {
                     if (view == null) return@runOnUiThread
@@ -184,13 +195,6 @@ class TerminalFragment : Fragment() {
                     binding.btnDisconnect.isEnabled = true
                     binding.inputField.isEnabled = true
                     binding.inputField.requestFocus()
-                }
-
-                // Start reading stdin from the input channel
-                lifecycleScope.launch {
-                    for (bytes in inputChannel) {
-                        ch.stdin.offer(bytes, 0, bytes.size)
-                    }
                 }
             } catch (e: CancellationException) {
                 // The screen went away while the channel was opening: nothing to
@@ -211,18 +215,98 @@ class TerminalFragment : Fragment() {
         }
     }
 
-    private fun writeToShell(text: String) {
-        inputChannel.trySend(text.toByteArray(Charsets.UTF_8))
+    /**
+     * Reads the input field, sends it, and clears it *only* if the send was
+     * accepted.
+     *
+     * The order matters. Clearing first is what made the old transport look
+     * broken: the field emptied, and the send then failed on a queue that
+     * disconnect had already closed — with the result discarded, so nothing
+     * anywhere recorded that the command never left the device.
+     */
+    private fun submitInput() {
+        val text = binding.inputField.text.toString()
+        if (text.isEmpty()) return
+        sendToShell(text)
+    }
+
+    /**
+     * Sends [text] as one command, terminated by the newline the shell needs to
+     * run it.
+     *
+     * The blocking write happens on [Dispatchers.IO]; the main thread only does
+     * view work. [target] is captured by value, so a disconnect or reconnect
+     * that clears [shell] mid-flight cannot make this write reach a channel the
+     * user has moved on from — it either lands on the shell it was meant for, or
+     * it fails and says so.
+     */
+    private fun sendToShell(text: String) {
+        val target = shell
+        if (target == null || !target.isOpen) {
+            // Reporting here rather than dropping: an input field that accepts
+            // keystrokes for a shell that is gone is the whole bug.
+            Log.w(TAG, "not sending ${text.length} chars — no open shell channel")
+            showInputError("The terminal is not connected, so that was not sent.")
+            return
+        }
+        val generation = shellGeneration
+        val payload = (text + "\n").toByteArray(Charsets.UTF_8)
+        lifecycleScope.launch {
+            val sent = withContext(Dispatchers.IO) {
+                runCatching { target.write(payload) }
+            }
+            if (sent.isSuccess) {
+                if (_binding != null) binding.inputField.text.clear()
+            } else if (generation == shellGeneration && view != null) {
+                // Length and class only: the payload is user input and may hold
+                // a password typed into a terminal command.
+                val error = sent.exceptionOrNull()
+                Log.w(TAG, "shell write of ${payload.size} bytes failed: ${error?.javaClass?.simpleName}")
+                showInputError(
+                    "The terminal did not accept that: ${error?.message ?: "the connection dropped"}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Sends PTY size changes off the main thread.
+     *
+     * sshd's sendWindowChange writes a channel request packet immediately. The
+     * layout listener runs on Android's main thread, so doing the resize inline
+     * can trip NetworkOnMainThreadException and close the shell before input is
+     * ever sent.
+     */
+    private fun resizeShell(rows: Int, cols: Int) {
+        val target = shell ?: return
+        if (!target.isOpen) return
+        val generation = shellGeneration
+        lifecycleScope.launch(Dispatchers.IO) {
+            val resized = runCatching {
+                if (generation == shellGeneration && target.isOpen) {
+                    target.resize(rows, cols)
+                }
+            }
+            if (resized.isFailure && generation == shellGeneration) {
+                Log.w(TAG, "terminal resize to ${rows}x${cols} failed", resized.exceptionOrNull())
+            }
+        }
     }
 
     private fun disconnect() {
         isConnected = false
-        inputChannel.close()
-        shell?.close()
+        // Retire the shell before closing it, so a write that is already on
+        // Dispatchers.IO is seen as belonging to the previous session and is
+        // not reported against whatever the next one opens.
+        shellGeneration++
+        val dying = shell
+        shell = null
+        dying?.close()
         connection?.close()
         connection = null
-        shell = null
-        requireActivity().runOnUiThread {
+        // Repeated disconnects are safe: close() is idempotent on both the
+        // shell channel and the connection, and every field is already null.
+        if (view != null) {
             binding.statusText.text = "Disconnected"
             binding.btnConnect.isEnabled = true
             binding.btnDisconnect.isEnabled = false
@@ -251,13 +335,30 @@ class TerminalFragment : Fragment() {
         binding.btnConnect.isEnabled = true
     }
 
+    /**
+     * Reports a send that did not happen.
+     *
+     * Separate from [showError] on purpose: the field keeps its text, so the
+     * difference between "the command ran and produced nothing" and "the command
+     * never left the device" has to be visible in the status line.
+     */
+    private fun showInputError(msg: String) {
+        if (_binding == null) return
+        binding.statusText.text = "Error: $msg"
+    }
+
     override fun onDestroyView() {
+        // The view is going away, so no view may be touched afterwards — and
+        // every coroutine in lifecycleScope is cancelled by the framework, which
+        // is what stops the last write from reaching a channel nothing is
+        // watching any more.
         disconnect()
         _binding = null
         super.onDestroyView()
     }
 
     companion object {
+        const val TAG = "TerminalFragment"
         const val ARG_PROFILE_ID = "profile_id"
 
         fun newInstance(profileId: String): TerminalFragment {
@@ -273,7 +374,7 @@ class TerminalFragment : Fragment() {
  */
 class VT100Parser {
 
-    private enum class State { GROUND, ESC, CSI, OSC, OSC_STRING }
+    private enum class State { GROUND, ESC, CSI, OSC, OSC_STRING, CHARSET }
 
     private var state = State.GROUND
     private val params = mutableListOf<Int>()
@@ -281,11 +382,37 @@ class VT100Parser {
     private var intermediate = 0
     private val output = SpannableStringBuilder()
 
+    /**
+     * A multi-byte sequence split across two reads, held until it completes.
+     *
+     * sshd hands over whatever arrived in one TCP read, which can end in the
+     * middle of a UTF-8 sequence. Decoding per read would then turn the second
+     * half into two replacement characters — gibberish in the log, with no
+     * fault on the wire.
+     */
+    private var pendingUtf8: ByteArray? = null
+
     private var currentFg: Int? = null
     private var currentBg: Int? = null
     private var bold = false
     private var underline = false
     private var reverse = false
+    private var concealed = false
+
+    fun reset() {
+        state = State.GROUND
+        params.clear()
+        paramBuf = ""
+        intermediate = 0
+        output.clear()
+        pendingUtf8 = null
+        currentFg = null
+        currentBg = null
+        bold = false
+        underline = false
+        reverse = false
+        concealed = false
+    }
 
     /**
      * Feeds raw bytes, returns styled text ready to append.
@@ -305,6 +432,11 @@ class VT100Parser {
         while (i < end) {
             val b = data[i].toInt() and 0xFF
             i++
+
+            if (state == State.GROUND && handleGroundByte(b)) {
+                continue
+            }
+
             when (state) {
                 State.GROUND -> when (b) {
                     0x1B -> state = State.ESC // ESC
@@ -319,8 +451,10 @@ class VT100Parser {
                 State.ESC -> when (b) {
                     0x5B -> { state = State.CSI; params.clear(); paramBuf = ""; intermediate = 0 } // [
                     0x5D -> { state = State.OSC; paramBuf = "" } // ]
-                    0x37 -> { /* DECSC - save cursor */ }
-                    0x38 -> { /* DECRC - restore cursor */ }
+                    0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x2E, 0x2F -> state = State.CHARSET
+                    0x37 -> state = State.GROUND // DECSC - save cursor
+                    0x38 -> state = State.GROUND // DECRC - restore cursor
+                    0x63 -> { reset() } // RIS
                     else -> { state = State.GROUND; append(b.toChar()) }
                 }
                 State.CSI -> when (b) {
@@ -348,6 +482,7 @@ class VT100Parser {
                     0x07 -> { state = State.GROUND; paramBuf = "" } // BEL
                     else -> state = State.OSC
                 }
+                State.CHARSET -> state = State.GROUND
             }
         }
         // Return only what this call produced. A substring of `output` carries the
@@ -385,16 +520,18 @@ class VT100Parser {
         while (i < params.size) {
             when (val p = params[i].toInt()) {
                 0 -> { // reset
-                    currentFg = null; currentBg = null; bold = false; underline = false; reverse = false
+                    currentFg = null; currentBg = null; bold = false; underline = false; reverse = false; concealed = false
                 }
                 1 -> bold = true
                 2 -> { /* faint */ }
                 3 -> { /* italic */ }
                 4 -> underline = true
                 7 -> reverse = true
+                8 -> concealed = true
                 22 -> bold = false
                 24 -> underline = false
                 27 -> reverse = false
+                28 -> concealed = false
                 in 30..37 -> currentFg = p - 30 // standard fg
                 39 -> currentFg = null
                 in 40..47 -> currentBg = p - 40 // standard bg
@@ -424,15 +561,109 @@ class VT100Parser {
     // Output helpers
 
     private fun append(c: Char) {
+        if (concealed) return
         val start = output.length
         output.append(c)
         applyAttributes(start, output.length)
     }
 
     private fun append(text: String) {
+        if (concealed) return
         val start = output.length
         output.append(text)
         applyAttributes(start, output.length)
+    }
+
+    /**
+     * Handles printable/control bytes while in GROUND state.
+     *
+     * Returns true when the byte was consumed. UTF-8 is accumulated byte by byte
+     * so a prompt marker, emoji, or non-Latin filename split across TCP reads is
+     * decoded as one character instead of mojibake.
+     */
+    private fun handleGroundByte(b: Int): Boolean {
+        val carried = pendingUtf8
+        if (carried != null) {
+            if (isUtf8Continuation(b)) {
+                val bytes = carried + byteArrayOf(b.toByte())
+                if (bytes.size == utf8SequenceLength(bytes[0].toInt() and 0xFF)) {
+                    pendingUtf8 = null
+                    append(decodeUtf8(bytes))
+                } else {
+                    pendingUtf8 = bytes
+                }
+                return true
+            }
+
+            pendingUtf8 = null
+            append(decodeUtf8(carried))
+        }
+
+        return when (b) {
+            0x9B -> {
+                state = State.CSI
+                params.clear()
+                paramBuf = ""
+                intermediate = 0
+                true
+            }
+            0x9D -> {
+                state = State.OSC
+                paramBuf = ""
+                true
+            }
+            0x1B -> {
+                state = State.ESC
+                true
+            }
+            0x07 -> true // BEL
+            0x08 -> {
+                backspace()
+                true
+            }
+            0x0A -> {
+                newline()
+                true
+            }
+            0x0D -> true // CR
+            0x0C -> {
+                clearScreen()
+                true
+            }
+            0x09 -> {
+                append('\t')
+                true
+            }
+            in 0x00..0x1F -> true
+            in 0x20..0x7E -> {
+                append(b.toChar())
+                true
+            }
+            else -> {
+                if (isUtf8Lead(b)) {
+                    pendingUtf8 = byteArrayOf(b.toByte())
+                } else {
+                    append("\uFFFD")
+                }
+                true
+            }
+        }
+    }
+
+    private fun decodeUtf8(bytes: ByteArray): String =
+        String(bytes, Charsets.UTF_8)
+
+    private fun isUtf8Lead(b: Int): Boolean =
+        b in 0xC2..0xF4
+
+    private fun isUtf8Continuation(b: Int): Boolean =
+        b in 0x80..0xBF
+
+    private fun utf8SequenceLength(lead: Int): Int = when (lead) {
+        in 0xC2..0xDF -> 2
+        in 0xE0..0xEF -> 3
+        in 0xF0..0xF4 -> 4
+        else -> 1
     }
 
     private fun applyAttributes(start: Int, end: Int) {

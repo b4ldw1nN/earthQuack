@@ -10,7 +10,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/eq_background">
+    android:background="@color/eq_terminal_background">
 
     <LinearLayout
         style="@style/Widget.Eq.Screen">
@@ -21,18 +21,21 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="@dimen/eq_gutter"
-            android:paddingEnd="@dimen/eq_gutter"
-            android:paddingTop="@dimen/eq_gap_sm"
-            android:paddingBottom="@dimen/eq_gap_sm"
-            android:background="@color/eq_background">
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:background="@color/eq_terminal_background">
 
             <TextView
                 android:id="@+id/statusText"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:textColor="@color/eq_terminal_muted"
+                android:includeFontPadding="false"
                 android:text="Disconnected"
                 tools:text="Connected" />
 
@@ -40,8 +43,8 @@
                 android:id="@+id/btnConnect"
                 style="@style/Widget.Eq.Button"
                 android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginStart="@dimen/eq_gap_md"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
                 android:text="@string/terminal_connect"
                 app:icon="@drawable/ic_eq_play"
                 app:iconSize="16dp" />
@@ -50,8 +53,8 @@
                 android:id="@+id/btnDisconnect"
                 style="@style/Widget.Eq.Button.Outlined"
                 android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginStart="@dimen/eq_gap_md"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
                 android:text="@string/terminal_disconnect"
                 android:enabled="false"
                 app:icon="@drawable/ic_eq_stop"
@@ -68,18 +71,22 @@
             android:layout_weight="1"
             android:fillViewport="true"
             android:scrollbars="vertical"
-            android:paddingStart="@dimen/eq_gutter"
-            android:paddingEnd="@dimen/eq_gutter"
-            android:paddingTop="@dimen/eq_gap_md"
-            android:paddingBottom="@dimen/eq_gap_md">
+            android:background="@color/eq_terminal_background"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
 
             <TextView
                 android:id="@+id/terminalLog"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.Eq.Meta"
-                android:lineSpacingMultiplier="1.2"
-                android:letterSpacing="0.02"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:textColor="@color/eq_terminal_text"
+                android:includeFontPadding="false"
+                android:lineSpacingMultiplier="1.1"
+                android:letterSpacing="0"
                 tools:text="user@archii:~$ ls&#10;file1.txt  file2.txt  dir1/&#10;user@archii:~$ " />
         </androidx.core.widget.NestedScrollView>
 
@@ -91,23 +98,25 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="@dimen/eq_gutter"
-            android:paddingEnd="@dimen/eq_gutter"
-            android:paddingTop="@dimen/eq_gap_md"
-            android:paddingBottom="@dimen/eq_gap_md"
-            android:background="@color/eq_background">
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="@color/eq_terminal_background">
 
             <EditText
                 android:id="@+id/inputField"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:minHeight="@dimen/eq_touch_min"
-                android:paddingStart="@dimen/eq_gap_md"
-                android:paddingEnd="@dimen/eq_gap_md"
+                android:minHeight="44dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:background="@drawable/bg_eq_field"
-                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
-                android:textColor="@color/eq_text_primary"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:textColor="@color/eq_terminal_text"
+                android:textColorHint="@color/eq_terminal_muted"
                 android:hint="@string/terminal_input_hint"
                 android:inputType="text|textNoSuggestions|textVisiblePassword"
                 android:imeOptions="actionSend|flagNoExtractUi"
@@ -120,8 +129,8 @@
                 android:id="@+id/btnSend"
                 style="@style/Widget.Eq.Button"
                 android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginStart="@dimen/eq_gap_md"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
                 android:text="@string/terminal_send"
                 app:icon="@drawable/ic_eq_send"
                 app:iconSize="16dp" />
