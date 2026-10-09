@@ -31,6 +31,8 @@
             <include android:id="@+id/rowSftp" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />
             <include android:id="@+id/rowClipboard" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowProfiles" layout="@layout/item_settings_row" />
 
         </LinearLayout>
 

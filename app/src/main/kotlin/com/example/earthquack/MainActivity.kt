@@ -15,6 +15,7 @@ import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.ui.ClipboardFragment
 import com.example.earthquack.ui.ConnectionsFragment
 import com.example.earthquack.ui.HomeFragment
+import com.example.earthquack.ui.ProfilesFragment
 import com.example.earthquack.ui.ServicesFragment
 import com.example.earthquack.ui.SettingsFragment
 import com.example.earthquack.ui.SftpFragment
@@ -241,6 +242,12 @@ class MainActivity : AppCompatActivity() {
         ClipboardFragment(),
         getString(R.string.clipboard_title),
         getString(R.string.clipboard_subtitle)
+    )
+
+    fun openProfiles() = pushSubScreen(
+        ProfilesFragment(),
+        getString(R.string.services_profiles),
+        getString(R.string.profiles_subtitle)
     )
 
     /** Switches to the Storage tab, popping any pushed sub-screen. */

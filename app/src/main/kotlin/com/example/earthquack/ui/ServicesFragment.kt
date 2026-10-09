@@ -8,8 +8,7 @@ import androidx.fragment.app.Fragment
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentServicesBinding
-import com.example.earthquack.sftp.SftpServerStatus
-import com.example.earthquack.sftp.UnavailableSftpController
+import com.example.earthquack.sftp.SftpServerControllerImpl
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
 
@@ -27,7 +26,14 @@ class ServicesFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var statusProvider: SystemStatusProvider
-    private val sftpController = UnavailableSftpController()
+
+    /**
+     * The real SFTP server controller, for the SFTP row's subtitle.
+     *
+     * Constructed in [onViewCreated]: it needs a Context, which a Fragment does
+     * not have at field-initializer time.
+     */
+    private lateinit var sftpController: SftpServerControllerImpl
 
     private val mainActivity: MainActivity? get() = activity as? MainActivity
 
@@ -43,6 +49,7 @@ class ServicesFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         statusProvider = SystemStatusProvider(requireContext())
+        sftpController = SftpServerControllerImpl(requireContext())
 
         // Static labels and icons; the subtitles are set in refresh().
         binding.rowTailscale.apply {
@@ -60,6 +67,11 @@ class ServicesFragment : Fragment() {
             rowIcon.setImageResource(R.drawable.ic_eq_clipboard)
             rowTitle.setText(R.string.services_clipboard)
             root.setOnClickListener { mainActivity?.openClipboard() }
+        }
+        binding.rowProfiles.apply {
+            rowIcon.setImageResource(R.drawable.ic_eq_computer)
+            rowTitle.setText(R.string.services_profiles)
+            root.setOnClickListener { mainActivity?.openProfiles() }
         }
     }
 
@@ -80,9 +92,14 @@ class ServicesFragment : Fragment() {
             else -> getString(R.string.state_disconnected)
         }
 
-        // SFTP: from the controller. Currently NotImplemented, which is reported
-        // as such rather than as "Stopped".
-        binding.rowSftp.rowSubtitle.text = sftpController.status().label
+        // SFTP: the server's real state, from the engine. Running shows the
+        // bound port because that is what a client needs; Stopped says Stopped.
+        binding.rowSftp.rowSubtitle.text = when (val s = sftpController.status()) {
+            is com.example.earthquack.sftp.SftpServerStatus.Running ->
+                getString(R.string.services_sftp_running, s.port)
+            is com.example.earthquack.sftp.SftpServerStatus.Error -> s.message
+            else -> getString(R.string.services_sftp_sub)
+        }
 
         // Clipboard: the service's own state.
         binding.rowClipboard.rowSubtitle.text = when {

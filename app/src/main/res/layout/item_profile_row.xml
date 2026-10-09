@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One profile in the list: a tinted key icon, the name, and the endpoint
+    (host plus username). The chevron marks it as a place you tap rather than
+    a thing you can open in place.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowIcon"
+    android:id="@+id/profileRow">
+
+    <ImageView
+        android:id="@+id/rowIcon"
+        android:layout_width="@dimen/eq_icon_lg"
+        android:layout_height="@dimen/eq_icon_lg"
+        android:src="@drawable/ic_eq_key"
+        app:tint="@color/eq_primary"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/rowName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+            android:maxLines="1"
+            android:ellipsize="middle"
+            tools:text="archii" />
+
+        <TextView
+            android:id="@+id/rowSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_xs"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+            tools:text="archii@tailnet · zoro" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/rowChevron"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_marginStart="@dimen/eq_gap_sm"
+        android:src="@drawable/ic_eq_chevron"
+        app:tint="@color/eq_text_muted"
+        android:contentDescription="@null" />
+
+    <ImageButton
+        android:id="@+id/btnOverflow"
+        android:layout_width="@dimen/eq_touch_min"
+        android:layout_height="@dimen/eq_touch_min"
+        android:layout_marginEnd="@dimen/eq_gap_sm"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/action_more"
+        android:focusable="false"
+        android:padding="@dimen/eq_gap_md"
+        android:src="@drawable/ic_eq_more_vert"
+        app:tint="@color/eq_text_muted" />
+
+</LinearLayout>

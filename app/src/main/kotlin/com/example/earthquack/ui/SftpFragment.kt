@@ -14,38 +14,38 @@ import com.example.earthquack.R
 import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentSftpBinding
 import com.example.earthquack.sftp.SftpServerController
+import com.example.earthquack.sftp.SftpServerControllerImpl
 import com.example.earthquack.sftp.SftpServerStatus
 import com.example.earthquack.sftp.SftpSettings
 import com.example.earthquack.sftp.SftpSettingsStore
-import com.example.earthquack.sftp.UnavailableSftpController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 
 /**
  * SFTP server screen.
  *
- * ## Status: not implemented, and the screen says so
+ * ## What this controls
  *
- * There is no SSH server in this build. This screen does **not** pretend
- * otherwise: the status reads "Not yet available", Start is disabled, and the
- * reason is stated in view. Showing "Stopped" with a working-looking Start button
- * would be a promise the app cannot keep, and a user who trusted it would wait
- * for a server that would never bind a port.
+ * The embedded MINA SSHD server via [SftpServerControllerImpl]. Start and Stop
+ * are live controls: the server binds a port, keeps running in a foreground
+ * service, and reports its real state back here. Nothing on this screen is a
+ * placeholder — the status row reads the engine, the endpoint is derived from
+ * the configured tailnet host, and the client count comes from the server.
  *
  * ## Why the settings are real anyway
  *
  * Port, root directory and authentication choices persist through
- * [SftpSettingsStore] and are validated on save. That work is not wasted: when
- * the backend lands it reads these values directly, so nothing has to be
- * re-entered or migrated. The screen is finished; only the server is missing.
+ * [SftpSettingsStore] and are validated on save, so a restart reads exactly the
+ * values the user chose.
  *
  * ## No password is stored
  *
  * There is deliberately no password field. `ServerConfig` already keeps a bearer
  * token and an AES key as plaintext in SharedPreferences, and copying that
  * pattern to a new credential is the exact mistake the Security screen
- * documents. When the server arrives it can generate a one-time credential and
- * show it once, or rely on public-key auth, which stores nothing sensitive.
+ * documents. Authentication is public-key first; when password auth is enabled
+ * the server expects a one-time credential held in the Keystore-backed
+ * SecretStore, never in preferences.
  */
 class SftpFragment : Fragment() {
 
@@ -55,12 +55,14 @@ class SftpFragment : Fragment() {
     private lateinit var store: SftpSettingsStore
 
     /**
-     * The seam the backend will implement.
+     * The real SFTP server controller.
      *
-     * Swapped in one place when the server exists; no layout or binding in this
-     * class changes.
+     * Constructed in [onViewCreated] rather than as a field initializer: the
+     * implementation needs a Context (for SharedPreferences-backed settings and
+     * the Keystore-backed SecretStore), which a Fragment does not have at field
+     * initialization time — the context is only guaranteed after attachment.
      */
-    private val controller: SftpServerController = UnavailableSftpController()
+    private lateinit var controller: SftpServerController
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -74,6 +76,7 @@ class SftpFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         store = SftpSettingsStore(requireContext())
+        controller = SftpServerControllerImpl(requireContext())
 
         binding.rowPortEdit.setOnClickListener { promptPort() }
         binding.rowRootEdit.setOnClickListener { promptRoot() }
@@ -99,30 +102,26 @@ class SftpFragment : Fragment() {
         val status = controller.status()
 
         binding.statusServer.apply {
-            toggle.visibility = View.GONE
             dot.setBackgroundResource(
                 when (status) {
-                    SftpServerStatus.NotImplemented -> R.drawable.eq_dot_hollow_muted
                     SftpServerStatus.Stopped -> R.drawable.eq_dot_hollow_muted
                     is SftpServerStatus.Running -> R.drawable.eq_dot_hollow_success
-                    is SftpServerStatus.Error -> R.drawable.eq_dot_hollow_muted
+                    is SftpServerStatus.Error -> R.drawable.eq_dot_error
+                    SftpServerStatus.NotImplemented -> R.drawable.eq_dot_hollow_muted
                 }
             )
             statusText.text = status.label
             statusSub.text = when (status) {
-                SftpServerStatus.NotImplemented -> getString(R.string.sftp_not_implemented_sub)
                 SftpServerStatus.Stopped -> getString(R.string.sftp_stopped_sub)
                 is SftpServerStatus.Running -> getString(R.string.sftp_running_sub, status.port)
                 is SftpServerStatus.Error -> status.message
+                SftpServerStatus.NotImplemented -> getString(R.string.sftp_not_implemented_sub)
             }
 
-            // Disabled, and the reason is on screen. The button is still visible
-            // so the screen's purpose is obvious.
-            //
-            // Start unless genuinely running. Keying this on "is Running" rather
-            // than "is Stopped" matters: NotImplemented also means nothing is
-            // listening, and the earlier form of this expression showed "Stop"
-            // for a server that does not exist.
+            // Start unless genuinely running. The real controller always
+            // reports Stopped/Running/Error, so the control is always live —
+            // unlike the previous build, where Start was disabled because no
+            // server existed.
             action.visibility = View.VISIBLE
             action.isEnabled = status.isControllable
             action.alpha = if (status.isControllable) 1f else 0.4f
@@ -131,9 +130,7 @@ class SftpFragment : Fragment() {
             action.setIconResource(
                 if (running) R.drawable.ic_eq_stop else R.drawable.ic_eq_play
             )
-            action.setOnClickListener {
-                if (status.isControllable) toggleServer(status) else showNotImplementedDialog()
-            }
+            action.setOnClickListener { toggleServer(status) }
         }
 
         binding.textUnavailable.visibility =
@@ -245,14 +242,6 @@ class SftpFragment : Fragment() {
             render()
             if (next is SftpServerStatus.Error) toast(R.string.sftp_start_failed)
         }
-    }
-
-    private fun showNotImplementedDialog() {
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.sftp_not_implemented_title)
-            .setMessage(R.string.sftp_not_implemented_body)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
     }
 
     private fun toast(res: Int) =

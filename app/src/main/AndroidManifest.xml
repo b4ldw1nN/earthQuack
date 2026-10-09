@@ -66,6 +66,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.ProfileEditorActivity"
+            android:exported="false"
+            android:label="@string/profile_editor_add_title" />
+
         <!--
             Share-sheet target — appears as "earthQuack" in the Android share sheet.
             Accepts any single file or multiple files from any app.

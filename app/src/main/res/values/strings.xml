@@ -54,6 +54,7 @@
     <string name="services_clipboard">Clipboard</string>
     <string name="services_clipboard_sub">Sync text between devices</string>
     <string name="services_history">History</string>
+    <string name="services_profiles">Connections</string>
 
     <!-- Connections -->
     <string name="connections_title">Connections</string>
@@ -63,6 +64,62 @@
     <string name="connections_peers">Peers</string>
     <string name="connections_scan">Scan for Devices</string>
     <string name="connections_discovered">Discovered Devices</string>
+
+    <!-- Connection profiles (Phase 7) -->
+    <string name="profiles_header">Connection Profiles</string>
+    <string name="profiles_add">Add profile</string>
+    <string name="profiles_empty">No profiles yet. Add one to connect over SSH.</string>
+    <string name="profiles_terminal">Terminal</string>
+    <string name="profiles_files">Files</string>
+    <string name="profiles_edit">Edit</string>
+    <string name="profiles_delete">Delete</string>
+    <string name="profiles_delete_confirm">Delete this profile? Its recorded host key is forgotten too.</string>
+    <string name="profiles_deleted">Profile deleted</string>
+    <string name="profiles_count">%1$d profiles</string>
+    <string name="profiles_subtitle">Connection profiles</string>
+    <string name="profiles_empty_sub">No profiles yet — add one to connect over SSH.</string>
+    <string name="profile_terminal_not_implemented">Terminal not implemented yet</string>
+    <string name="profile_files_not_implemented">File browser not implemented yet</string>
+    <string name="profiles_terminal_not_implemented">Terminal is not implemented yet</string>
+    <string name="profiles_files_not_implemented">Files are not implemented yet</string>
+    <string name="profiles_auth_key">SSH key</string>
+    <string name="profiles_auth_password">Password</string>
+
+    <!-- Profile editor -->
+    <string name="profile_name">Name</string>
+    <string name="profile_name_hint">e.g. archii</string>
+    <string name="profile_host">Host</string>
+    <string name="profile_host_hint">Tailscale IP or hostname</string>
+    <string name="profile_port">Port</string>
+    <string name="profile_port_hint">e.g. 22</string>
+    <string name="profile_username">Username</string>
+    <string name="profile_username_hint">e.g. zoro</string>
+    <string name="profile_auth_header">Authentication</string>
+    <string name="profile_auth_key">SSH public key</string>
+    <string name="profile_auth_password">Password</string>
+    <string name="profile_key">Identity key</string>
+    <string name="profile_key_none">No key selected</string>
+    <string name="profile_key_selected">%1$s · %2$s</string>
+    <string name="profile_key_generate">Generate</string>
+    <string name="profile_key_import">Import</string>
+    <string name="profile_key_generate_failed">Could not generate a key</string>
+    <string name="profile_key_import_failed">Could not import that key file</string>
+    <string name="profile_key_imported">Key imported</string>
+    <string name="profile_key_copied">Public key copied</string>
+    <string name="profile_key_public_title">Public key</string>
+    <string name="profile_key_public_body">Install this line in ~/.ssh/authorized_keys on the server. The private key never leaves this device.</string>
+    <string name="profile_select_key">Select a key</string>
+    <string name="profile_no_keys">No keys yet — generate or import one first.</string>
+    <string name="profile_password">Password</string>
+    <string name="profile_password_hint">Stored encrypted, never in the profile</string>
+    <string name="profile_password_note">Saved to the Android Keystore, not to the profile. Leave blank to keep the existing password.</string>
+    <string name="profile_password_required">A password is required for password authentication.</string>
+    <string name="profile_host_key">Host key</string>
+    <string name="profile_host_key_unverified">Not verified yet — recorded on first connection.</string>
+    <string name="profile_save">Save</string>
+    <string name="profile_save_failed">Could not save the profile.</string>
+    <string name="profile_editor_add_title">New connection</string>
+    <string name="profile_editor_edit_title">Edit connection</string>
 
     <!-- SFTP -->
     <string name="sftp_title">SFTP Server</string>
@@ -79,6 +136,19 @@
     <string name="sftp_host_key">Host key</string>
     <string name="sftp_start">Start</string>
     <string name="sftp_stop">Stop</string>
+    <string name="sftp_password_set">Server password</string>
+    <string name="sftp_password_set_sub">Set the password SFTP clients use</string>
+    <string name="sftp_password_set_hint">Stored in the Android Keystore, not in preferences</string>
+    <string name="sftp_password_change">Change password</string>
+    <string name="sftp_password_clear">Clear password</string>
+    <string name="sftp_password_none">Not set — enable public key auth or set one</string>
+    <string name="sftp_keys_header">Client keys</string>
+    <string name="sftp_keys_add">Authorize a key</string>
+    <string name="sftp_keys_empty">No keys authorized. Add a public key from the Keys screen.</string>
+    <string name="sftp_keys_count">%1$d authorized</string>
+
+    <!-- Services hub subtitles -->
+    <string name="services_sftp_running">Running on port %1$d</string>
     <string name="sftp_server_channel_name">SFTP server</string>
     <string name="sftp_server_channel_description">Shown while the SFTP server is listening</string>
     <string name="sftp_notification_title">SFTP server running</string>
