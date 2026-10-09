@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SSH Terminal.
+    Top: status row + connect/disconnect. Middle: scrollable terminal log.
+    Bottom: input field with send.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background">
+
+    <LinearLayout
+        style="@style/Widget.Eq.Screen">
+
+        <!-- Status + actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_sm"
+            android:paddingBottom="@dimen/eq_gap_sm"
+            android:background="@color/eq_background">
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                android:text="Disconnected"
+                tools:text="Connected" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnConnect"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/eq_gap_md"
+                android:text="@string/terminal_connect"
+                app:icon="@drawable/ic_eq_play"
+                app:iconSize="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDisconnect"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/eq_gap_md"
+                android:text="@string/terminal_disconnect"
+                android:enabled="false"
+                app:icon="@drawable/ic_eq_stop"
+                app:iconSize="16dp" />
+        </LinearLayout>
+
+        <View style="@style/Widget.Eq.Divider" />
+
+        <!-- Terminal log (scrollable) -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/terminalScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_md"
+            android:paddingBottom="@dimen/eq_gap_md">
+
+            <TextView
+                android:id="@+id/terminalLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.Meta"
+                android:lineSpacingMultiplier="1.2"
+                android:letterSpacing="0.02"
+                tools:text="user@archii:~$ ls&#10;file1.txt  file2.txt  dir1/&#10;user@archii:~$ " />
+        </androidx.core.widget.NestedScrollView>
+
+        <View style="@style/Widget.Eq.Divider" />
+
+        <!-- Input field + send -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_md"
+            android:paddingBottom="@dimen/eq_gap_md"
+            android:background="@color/eq_background">
+
+            <EditText
+                android:id="@+id/inputField"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="@dimen/eq_touch_min"
+                android:paddingStart="@dimen/eq_gap_md"
+                android:paddingEnd="@dimen/eq_gap_md"
+                android:background="@drawable/bg_eq_field"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                android:textColor="@color/eq_text_primary"
+                android:hint="@string/terminal_input_hint"
+                android:inputType="text"
+                android:imeOptions="actionSend"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:enabled="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSend"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/eq_gap_md"
+                android:text="@string/terminal_send"
+                app:icon="@drawable/ic_eq_send"
+                app:iconSize="16dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

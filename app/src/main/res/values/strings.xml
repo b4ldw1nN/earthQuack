@@ -56,6 +56,15 @@
     <string name="services_history">History</string>
     <string name="services_profiles">Connections</string>
 
+    <!-- Terminal -->
+    <string name="terminal_connect">Connect</string>
+    <string name="terminal_disconnect">Disconnect</string>
+    <string name="terminal_send">Send</string>
+    <string name="terminal_input_hint">Type command…</string>
+    <string name="terminal_title">Terminal: %1$s</string>
+    <string name="profile_terminal_not_implemented">Terminal not implemented yet</string>
+    <string name="profile_files_not_implemented">File browser not implemented yet</string>
+
     <!-- Connections -->
     <string name="connections_title">Connections</string>
     <string name="connections_subtitle">Tailscale</string>
@@ -78,8 +87,7 @@
     <string name="profiles_count">%1$d profiles</string>
     <string name="profiles_subtitle">Connection profiles</string>
     <string name="profiles_empty_sub">No profiles yet — add one to connect over SSH.</string>
-    <string name="profile_terminal_not_implemented">Terminal not implemented yet</string>
-    <string name="profile_files_not_implemented">File browser not implemented yet</string>
+    
     <string name="profiles_terminal_not_implemented">Terminal is not implemented yet</string>
     <string name="profiles_files_not_implemented">Files are not implemented yet</string>
     <string name="profiles_auth_key">SSH key</string>

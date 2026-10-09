@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.databinding.ActivityMainBinding
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
+import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ui.ClipboardFragment
 import com.example.earthquack.ui.ConnectionsFragment
 import com.example.earthquack.ui.HomeFragment
@@ -20,6 +21,7 @@ import com.example.earthquack.ui.ServicesFragment
 import com.example.earthquack.ui.SettingsFragment
 import com.example.earthquack.ui.SftpFragment
 import com.example.earthquack.ui.StorageFragment
+import com.example.earthquack.ui.TerminalFragment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -248,6 +250,12 @@ class MainActivity : AppCompatActivity() {
         ProfilesFragment(),
         getString(R.string.services_profiles),
         getString(R.string.profiles_subtitle)
+    )
+
+    fun openTerminal(profile: ConnectionProfile) = pushSubScreen(
+        TerminalFragment.newInstance(profile.id),
+        getString(R.string.terminal_title, profile.name),
+        profile.endpoint
     )
 
     /** Switches to the Storage tab, popping any pushed sub-screen. */

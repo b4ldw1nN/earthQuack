@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentProfilesBinding
 import com.example.earthquack.databinding.ItemProfileRowBinding
@@ -40,6 +41,8 @@ class ProfilesFragment : Fragment() {
     private val knownHosts by lazy { SshServices.knownHosts(requireContext()) }
 
     private var profiles: List<ConnectionProfile> = emptyList()
+
+    private val mainActivity: MainActivity? get() = activity as? MainActivity
 
 
 
@@ -106,9 +109,8 @@ class ProfilesFragment : Fragment() {
         startActivity(ProfileEditorActivity.intent(requireContext(), profile.id))
     }
 
-    /** Not implemented yet: replaced by the SSH terminal screen. */
     private fun openTerminal(profile: ConnectionProfile) {
-        toast(R.string.profile_terminal_not_implemented)
+        mainActivity?.openTerminal(profile)
     }
 
     /** Not implemented yet: replaced by the file browser screen. */
