@@ -15,6 +15,7 @@ import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.state.TailnetStatus
 import java.io.IOException
+import java.util.concurrent.CompletableFuture
 
 /**
  * Runs the SFTP server as a foreground service.
@@ -60,6 +61,41 @@ class SftpServerService : Service() {
 
         const val ACTION_STATUS_UPDATE = "com.example.earthquack.sftp.STATUS_UPDATE"
 
+        /**
+         * The result of the start request currently in flight.
+         *
+         * A `startForegroundService` intent is asynchronous: it returns as soon
+         * as the request is queued, long before the listener is bound. The
+         * caller therefore has no way to learn the outcome except by polling
+         * `isRunning()` — which cannot distinguish "the new configuration is
+         * live" from "the previous one is still up", and so reports a
+         * successful port change as a no-op on the old port.
+         *
+         * The service completes this future with the status it actually reached.
+         * Registered *before* the intent is sent, so the result can never be
+         * missed, and it is the bound port sshd reports rather than the
+         * requested one.
+         */
+        private val pendingStart = java.util.concurrent.atomic.AtomicReference<CompletableFuture<SftpServerStatus>?>(null)
+
+        /**
+         * Requests a start and returns the future its result will arrive on.
+         *
+         * @return a future completed with [SftpServerStatus.Running] carrying
+         *   the bound port, or [SftpServerStatus.Error] carrying the reason.
+         */
+        fun requestStart(context: Context, settings: SftpSettings): CompletableFuture<SftpServerStatus> {
+            val future = CompletableFuture<SftpServerStatus>()
+            pendingStart.set(future)
+            start(context, settings)
+            return future
+        }
+
+        /** Completes the in-flight request, if any. Never blocks. */
+        private fun completePending(status: SftpServerStatus) {
+            pendingStart.getAndSet(null)?.complete(status)
+        }
+
         fun start(context: Context, settings: SftpSettings) {
             val intent = Intent(context, SftpServerService::class.java).apply {
                 action = ACTION_START
@@ -91,6 +127,7 @@ class SftpServerService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 stopServer()
+                completePending(SftpServerStatus.Stopped)
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -98,13 +135,14 @@ class SftpServerService : Service() {
                 if (settings == null || !settings.isValid) {
                     Log.w(TAG, "refusing to start with invalid settings")
                     broadcastError("Invalid settings")
+                    completePending(SftpServerStatus.Error("Invalid settings"))
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
                 // Foreground first: Android requires the notification within a
                 // few seconds of startForegroundService, and a server that
                 // cannot start should not be advertised as running.
-                startForeground(NOTIFICATION_ID, buildNotification(settings, 0))
+                startForeground(NOTIFICATION_ID, buildNotification(settings.port, 0))
 
                 val result = SftpServerHolder.engine(this).start(settings)
                 if (result.isFailure) {
@@ -112,11 +150,19 @@ class SftpServerService : Service() {
                     Log.e(TAG, "start failed: $message")
                     notifyError(message)
                     broadcastError(message)
+                    completePending(SftpServerStatus.Error(message))
+                    // Leaving the service in the foreground with an error
+                    // notification and a dead listener would show the user a
+                    // persistent notification for a server that is not running.
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                updateNotification()
+                val instance = result.getOrThrow()
+                val status = SftpServerStatus.Running(instance.port, instance.connectedClients)
+                updateNotification(instance.port)
                 broadcastStatus()
+                completePending(status)
             }
             else -> stopSelf(startId)
         }
@@ -124,8 +170,13 @@ class SftpServerService : Service() {
     }
 
     override fun onDestroy() {
-        // Unconditional: however the service ends, the port must not stay bound.
+        // The service owns the listener for as long as it is alive, so the port
+        // must not survive this method. `engine()` returns the one process-wide
+        // engine — it is never cleared out from under the service, which is what
+        // stops a late onDestroy from tearing down a server that a newer start
+        // request has already brought up.
         runCatching { SftpServerHolder.engine(this).stop() }
+        completePending(SftpServerStatus.Stopped)
         broadcastStatus()
         super.onDestroy()
     }
@@ -147,7 +198,7 @@ class SftpServerService : Service() {
         }
     }
 
-    private fun buildNotification(settings: SftpSettings, clients: Int): Notification {
+    private fun buildNotification(boundPort: Int, clients: Int): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -162,7 +213,7 @@ class SftpServerService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.sftp_notification_title))
-            .setContentText(notificationText(settings, clients))
+            .setContentText(notificationText(boundPort, clients))
             .setSmallIcon(R.drawable.ic_eq_transfer)
             .setOngoing(true)
             .setContentIntent(contentIntent)
@@ -174,20 +225,23 @@ class SftpServerService : Service() {
             .build()
     }
 
-    private fun notificationText(settings: SftpSettings, clients: Int): String {
+    private fun notificationText(port: Int, clients: Int): String {
         val host = TailnetStatus(this).tailnetAddress() ?: "this device"
         val clientWord = resources.getQuantityString(
             R.plurals.sftp_client_count,
             clients,
             clients
         )
-        return "$host:${settings.port} · $clientWord"
+        // The bound port, not the saved preference: those differ whenever the
+        // server was started on an ephemeral port or the setting changed while
+        // the process was alive, and the notification is the user's only proof
+        // of what is actually reachable.
+        return "$host:$port · $clientWord"
     }
 
-    private fun updateNotification() {
+    private fun updateNotification(boundPort: Int) {
         val engine = SftpServerHolder.engine(this)
-        val settings = SftpSettingsStore(this).load()
-        val notification = buildNotification(settings, engine.connectedClients())
+        val notification = buildNotification(boundPort, engine.connectedClients())
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .notify(NOTIFICATION_ID, notification)
     }

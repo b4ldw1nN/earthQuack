@@ -3,9 +3,11 @@ package com.example.earthquack.sftp
 import android.content.Context
 import android.util.Log
 import com.example.earthquack.ssh.SecretStore
+import com.example.earthquack.ssh.SshdEnvironment
 import com.example.earthquack.sftp.fs.AndroidFileSystemFactory
 import com.example.earthquack.sftp.fs.requireUsableRoot
 import org.apache.sshd.common.config.keys.PublicKeyEntry
+import org.apache.sshd.common.config.keys.KeyUtils
 import org.apache.sshd.common.keyprovider.KeyPairProvider
 import org.apache.sshd.common.session.Session
 import org.apache.sshd.common.session.SessionListener
@@ -190,22 +192,42 @@ class SftpServerEngine(
     private val activeConnections = AtomicInteger(0)
 
     /**
+     * Serialises every lifecycle transition.
+     *
+     * `start` is called from the foreground service's main thread, `stop` from
+     * a notification action and from `onDestroy`, and the UI polls `isRunning`
+     * meanwhile. Without a single lock around start/stop/restart, two overlapping
+     * starts could each build a server and each assign `server`, so one of them
+     * would be listening with nobody holding the reference — an orphaned listener
+     * holding the port and invisible to `stop()`.
+     */
+    private val lifecycle = Any()
+
+    /**
      * Starts the server, or returns why it could not start.
      *
      * Never throws. A port already in use, a root that became unreadable and a
      * corrupt host-key file are all conditions the user can fix, and the
      * screen needs to be able to say which one it was.
      *
-     * If the server is already running with the same settings, returns success.
-     * If settings have changed, stops the current server and restarts with new settings.
+     * If the server is already running with the same settings, returns the
+     * running instance without touching it. If the settings differ, the
+     * replacement is validated *before* the running server is stopped, so a
+     * rejected configuration leaves the working server alone.
+     *
+     * On success the returned instance reports the port sshd actually bound,
+     * which for an ephemeral (`port = 0`) request is not the requested port.
      */
-    fun start(settings: SftpSettings): Result<SftpServerInstance> {
+    fun start(settings: SftpSettings): Result<SftpServerInstance> = synchronized(lifecycle) {
         val root = File(settings.rootPath)
-        try {
-            requireUsableRoot(root)
-        } catch (e: IOException) {
-            Log.w(TAG, "refusing to start: ${e.message}")
-            return Result.failure(e)
+
+        // Validate first. Everything below this point is allowed to stop a
+        // working server; nothing above it is. That ordering is the difference
+        // between "your new port is in use" and "your new port was in use and
+        // now nothing is running either".
+        validate(settings, root)?.let { problem ->
+            Log.w(TAG, "refusing to start: ${problem.message}")
+            return@synchronized Result.failure(problem)
         }
 
         val newSettings = ServerSettings(
@@ -217,50 +239,106 @@ class SftpServerEngine(
             maxConnections = settings.maxConnections
         )
 
-        // If server is running, check if settings have changed
         server?.takeIf { it.isStarted }?.let { existingServer ->
-            if (settingsMatch(currentSettings, newSettings)) {
-                Log.i(TAG, "Server already running with same settings")
-                return Result.success(SftpServerInstance.of(existingServer, activeConnections, hostKeyStore))
-            } else {
-                Log.i(TAG, "Settings changed, restarting server")
-                stop()
-            }
-        }
-
-        if (settings.publicKeyAuth && authorizedKeys.list().isEmpty()) {
-            return Result.failure(
-                IOException(
-                    "Public-key authentication is on, but no key is installed. " +
-                        "Add one in the server screen first."
+            if (settingsMatch(currentSettings, existingServer.port, settings)) {
+                Log.i(TAG, "already running with the requested settings on ${existingServer.port}")
+                return@synchronized Result.success(
+                    SftpServerInstance.of(existingServer, activeConnections, hostKeyStore)
                 )
-            )
-        }
-        if (settings.passwordAuth && secrets.get(PASSWORD_ALIAS) == null) {
-            return Result.failure(
-                IOException("Password authentication is on, but no password is set.")
-            )
+            }
+            Log.i(TAG, "settings changed, restarting")
+            stopLocked()
         }
 
         val hostKeyFile = File(filesDir, HOST_KEY_FILE)
         val ssh = buildServer(settings, root, hostKeyFile.toPath())
-        return try {
+        return@synchronized try {
             ssh.start()
             server = ssh
             currentSettings = newSettings
-            Log.i(TAG, "listening on ${settings.port}, serving ${settings.rootPath}")
+            // sshd rewrites `port` with the port it actually bound, which is the
+            // only number the UI may show. Requesting 0 and reading back the
+            // saved preference would report a port nothing is listening on.
+            recordHostKey(ssh)
+            Log.i(TAG, "listening on ${ssh.port}, serving ${settings.rootPath}")
             Result.success(SftpServerInstance.of(ssh, activeConnections, hostKeyStore))
         } catch (e: IOException) {
+            // The listener may already be bound even though start() threw (a
+            // session accepted during the bind, a failure in a post-bind
+            // initialiser). Leaving it running would hold the port with no
+            // reference to stop it, so the half-built server is torn down here.
+            runCatching { ssh.stop(true) }
+            server = null
+            currentSettings = null
             Log.e(TAG, "start failed: ${e.message}", e)
             Result.failure(e)
         }
     }
 
-    /** Compares two server settings to determine if a restart is needed. */
-    private fun settingsMatch(current: ServerSettings?, next: ServerSettings): Boolean {
+    /**
+     * Everything that can be checked without binding a port, as a problem.
+     *
+     * Returns null when the settings are usable. Split out from [start] so the
+     * checks provably run before any state is destroyed.
+     */
+    private fun validate(settings: SftpSettings, root: File): IOException? {
+        settings.problems().firstOrNull()?.let { return IOException(it) }
+        try {
+            requireUsableRoot(root)
+        } catch (e: IOException) {
+            return e
+        }
+        if (!settings.passwordAuth && !settings.publicKeyAuth) {
+            return IOException(
+                "No authentication method is enabled, so no client could connect. " +
+                    "Turn password or public-key authentication on first."
+            )
+        }
+        if (settings.publicKeyAuth && authorizedKeys.list().isEmpty()) {
+            return IOException(
+                "Public-key authentication is on, but no key is installed. " +
+                    "Add one in the server screen first."
+            )
+        }
+        if (settings.passwordAuth && secrets.get(PASSWORD_ALIAS) == null) {
+            return IOException("Password authentication is on, but no password is set.")
+        }
+        return null
+    }
+
+    /**
+     * Publishes the running host key's fingerprint so the security screen has
+     * something to show and the user can verify it out of band.
+     *
+     * Recorded only after a successful start, and re-recorded identically on
+     * every restart, because the key file is stable: an unchanged fingerprint
+     * across restarts is the property that makes TOFU usable.
+     */
+    private fun recordHostKey(ssh: SshServer) {
+        val key = runCatching { ssh.keyPairProvider?.loadKeys(null) }.getOrNull()
+            ?.firstOrNull()
+            ?: return
+        val fingerprint = runCatching { KeyUtils.getFingerPrint(key.public) }.getOrNull() ?: return
+        if (fingerprint != hostKeyStore.fingerprint()) {
+            hostKeyStore.record(fingerprint)
+            Log.i(TAG, "host key fingerprint: $fingerprint")
+        }
+    }
+
+    /**
+     * Whether a restart is needed.
+     *
+     * [boundPort] is what sshd actually listens on. A request for port 0 binds
+     * an ephemeral port, so comparing the requested `0` against the recorded `0`
+     * would call two unrelated servers "the same settings" — hence the separate
+     * port argument. An explicit port must match exactly; an ephemeral request
+     * matches whatever the existing listener is bound to, because there is no
+     * port for the user to have meant.
+     */
+    private fun settingsMatch(current: ServerSettings?, boundPort: Int, next: SftpSettings): Boolean {
         if (current == null) return false
-        return current.port == next.port &&
-            current.rootPath == next.rootPath &&
+        if (next.port != 0 && next.port != boundPort) return false
+        return current.rootPath == next.rootPath &&
             current.username == next.username &&
             current.passwordAuth == next.passwordAuth &&
             current.publicKeyAuth == next.publicKeyAuth &&
@@ -268,7 +346,15 @@ class SftpServerEngine(
     }
 
     /** Stops the server, if it is running. Returns false when it was not. */
-    fun stop(): Boolean {
+    fun stop(): Boolean = synchronized(lifecycle) { stopLocked() }
+
+    /**
+     * The body of [stop], for callers already holding [lifecycle].
+     *
+     * `stopSelf()` and `onDestroy()` on the service reach this through [stop];
+     * a restart reaches it from inside [start] while holding the same lock.
+     */
+    private fun stopLocked(): Boolean {
         val ssh = server ?: return false
         server = null
         currentSettings = null
@@ -276,16 +362,37 @@ class SftpServerEngine(
             ssh.stop(true)
             true
         } catch (e: Throwable) {
-            Log.w(TAG, "stop threw: ${e.message}")
+            Log.w(TAG, "stop threw: ${e.message}", e)
             false
         }
     }
 
-    /** Whether a server is currently listening. */
+    /**
+     * Whether a server is currently listening.
+     *
+     * True only when this engine started *this* server and sshd still reports
+     * it as started. It deliberately does not consult [serverPort]: a caller
+     * that wants "running with these settings" must ask [matches], because
+     * "running" alone is exactly the answer that lets a restart be mistaken for
+     * success on the previous configuration.
+     */
     fun isRunning(): Boolean = server?.isStarted == true
 
+    /**
+     * Whether the running server was started with exactly [settings].
+     *
+     * The distinction that makes a restart observable: a server bound to the
+     * old port is running, so `isRunning()` alone cannot tell a caller that the
+     * requested configuration is not the one in effect.
+     */
+    fun matches(settings: SftpSettings): Boolean {
+        val current = currentSettings ?: return false
+        val running = server?.takeIf { it.isStarted } ?: return false
+        return settingsMatch(current, running.port, settings)
+    }
+
     /** The port the server is bound to, or 0 when it is not running. */
-    fun serverPort(): Int = server?.port ?: 0
+    fun serverPort(): Int = server?.takeIf { it.isStarted }?.port ?: 0
 
     /** Number of clients currently connected. */
     fun connectedClients(): Int = activeConnections.get()
@@ -294,20 +401,20 @@ class SftpServerEngine(
     fun hostKeyFingerprint(): String? = hostKeyStore.fingerprint()
 
     private fun buildServer(settings: SftpSettings, root: File, hostKeyFile: Path): SshServer {
-        // Android has no user home folder. sshd's default resolver throws
-        // ExceptionInInitializerError on setUpDefaultServer() without this.
-        org.apache.sshd.common.util.io.PathUtils.setUserHomeFolderResolver { root.toPath() }
+        // sshd's user-home resolver is process-global and is installed once, by
+        // SshdEnvironment. This class deliberately does not set it: the served
+        // root is user-configurable and meant to be reachable, which makes it
+        // the wrong value for the slot that decides where sshd looks for
+        // client-side key material. A client's start directory comes from
+        // AndroidFileSystemFactory.getUserHomeDir instead, per session.
+        SshdEnvironment.ensureUserHome(filesDir)
 
         val ssh = SshServer.setUpDefaultServer()
 
         // SFTP only — see the class comment.
         val subsystemFactory = SftpSubsystemFactory()
         subsystemFactory.setFileSystemAccessor(AndroidFileSystemAccessor())
-        println("[ENGINE] sftpEventListener is ${if (sftpEventListener != null) "SET" else "NULL"}")
-        sftpEventListener?.let { 
-            println("[ENGINE] adding listener")
-            subsystemFactory.addSftpEventListener(it) 
-        }
+        sftpEventListener?.let { subsystemFactory.addSftpEventListener(it) }
         ssh.subsystemFactories = listOf(subsystemFactory)
 
         // Confinement lives in the tested backend + NIO provider, not in sshd's
@@ -400,14 +507,17 @@ class SftpServerInstance(
     private val hostKeyStore: SftpHostKeys
 ) {
 
+    /**
+     * The port sshd actually bound.
+     *
+     * Read from the live server rather than from the requested setting: for an
+     * ephemeral request the two differ, and the bound port is the only one a
+     * client can connect to.
+     */
     val port: Int get() = server.port
     val isRunning: Boolean get() = server.isStarted
     val connectedClients: Int get() = connections.get()
     val hostKeyFingerprint: String? get() = hostKeyStore.fingerprint()
-
-    fun shutdown() {
-        runCatching { server.stop(true) }
-    }
 
     companion object {
         fun of(
@@ -442,6 +552,56 @@ class HostKeyStore(context: Context) : SftpHostKeys {
     }
 
     override fun forget() = prefs.edit().remove(KEY_FINGERPRINT).apply()
+}
+
+/**
+ * Parses one `authorized_keys` line into the form this store keeps.
+ *
+ * Pure and top-level so it can be unit tested without a Context. An
+ * authorized_keys line is public data, so no passphrase is involved and nothing
+ * secret is handled here.
+ *
+ * @param text a whole file's worth of text. Real `cat ~/.ssh/id_ed25519.pub`
+ *   output, which may include comments and blank lines.
+ * @return the entry, or null with a reason when nothing usable is present.
+ */
+fun parseAuthorizedKeyLine(text: String): Result<AuthorKeyLine> {
+    val line = text.lineSequence().map { it.trim() }
+        .firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
+        ?: return Result.failure(IOException("the file has no key line in it"))
+
+    val parts = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (parts.size < 2) {
+        return Result.failure(IOException("an authorized_keys line needs a key type and a key"))
+    }
+    // The key-type tokens ssh uses, plus the certificate forms ssh keygen emits.
+    val knownTypes = setOf("ssh-rsa", "ssh-dss", "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521")
+    val isCertificate = parts[0].endsWith("-cert-v01@openssh.com") ||
+        parts[0].startsWith("ssh-") && parts[0].contains("@")
+    if (parts[0] !in knownTypes && !isCertificate && !parts[0].startsWith("ecdsa-")) {
+        return Result.failure(IOException("this does not look like an OpenSSH public key: ${parts[0].take(24)}"))
+    }
+    // The blob must be base64 of a plausible length for a key; a short or empty
+    // one is a truncation, and installing it would produce a client that can
+    // never authenticate and a server that reports success.
+    if (parts[1].length < 20) {
+        return Result.failure(IOException("the key itself is too short to be a whole key"))
+    }
+    val label = parts.drop(2).joinToString(" ").ifBlank { parts[0] }
+    return Result.success(AuthorKeyLine(parts[0], parts[1], label))
+}
+
+/** One parsed authorized_keys entry. */
+data class AuthorKeyLine(
+    /** e.g. `ssh-ed25519`, `ecdsa-sha2-nistp256`. */
+    val type: String,
+    /** The base64 key blob. */
+    val key: String,
+    /** The trailing comment, or the type when the client wrote none. */
+    val label: String
+) {
+    /** The line as `authorized_keys` wants it. */
+    fun toAuthorizedKeyText(): String = listOf(type, key, label).joinToString(" ")
 }
 
 /**
@@ -532,44 +692,34 @@ class AuthorizedKeysStore(context: Context) : SftpAuthorizedKeys {
  * JVM, where the Android runtime returns null for it. The alphabet and padding
  * are the standard ones, so a key written here is the same key sshd reads.
  */
+/**
+ * Base64, using the JDK.
+ *
+ * The previous implementation hand-rolled the alphabet and indexed
+ * `ALPHABET[0x40]` to emit padding — an index that does not exist, so every
+ * digest whose length was not a multiple of three threw
+ * `StringIndexOutOfBoundsException`. A SHA-256 digest is 32 bytes, so *every*
+ * fingerprint hit it, and `AuthorizedKeysStore.matches()` threw for every key a
+ * client presented. Public-key authentication on the embedded server therefore
+ * never succeeded against an installed key.
+ *
+ * `java.util.Base64` exists on Android API 26, which is this app's minSdk, so
+ * there is no reason to carry a hand-written codec at all. The old comment
+ * avoided `android.util.Base64` (which is unusable on the JVM) — a different
+ * class that does not have that problem.
+ */
 internal object Base64Codec {
 
-    private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    private val encoder = java.util.Base64.getEncoder()
+    private val decoder = java.util.Base64.getDecoder()
 
-    fun decode(input: String): ByteArray? = runCatching {
-        val out = java.io.ByteArrayOutputStream()
-        var buffer = 0
-        var bits = 0
-        for (c in input) {
-            if (c == '=') break
-            val index = ALPHABET.indexOf(c)
-            if (index < 0) throw IllegalArgumentException("not base64: '$c'")
-            buffer = (buffer shl 6) or index
-            bits += 6
-            if (bits >= 8) {
-                bits -= 8
-                out.write((buffer shr bits) and 0xFF)
-            }
-        }
-        out.toByteArray()
-    }.getOrNull()
+    /** Decoded bytes, or null when [input] is not valid base64. */
+    fun decode(input: String): ByteArray? = runCatching { decoder.decode(input) }.getOrNull()
 
-    fun encode(bytes: ByteArray): String {
-        val sb = StringBuilder((bytes.size + 2) / 3 * 4)
-        var index = 0
-        while (index < bytes.size) {
-            val b0 = bytes[index++].toInt() and 0xFF
-            val b1 = if (index < bytes.size) bytes[index++].toInt() and 0xFF else -1
-            val b2 = if (index < bytes.size) bytes[index++].toInt() and 0xFF else -1
-            sb.append(ALPHABET[(b0 shr 2) and 0x3F])
-            sb.append(ALPHABET[((b0 shl 4) or (if (b1 >= 0) b1 shr 4 else 0)) and 0x3F])
-            if (b1 >= 0) {
-                sb.append(ALPHABET[((b1 shl 2) or (if (b2 >= 0) b2 shr 6 else 0)) and 0x3F])
-                sb.append(ALPHABET[if (b2 >= 0) b2 and 0x3F else 0x40])
-            } else {
-                sb.append("==")
-            }
-        }
-        return sb.toString()
-    }
+    /** Standard base64, padded — the form OpenSSH uses in `authorized_keys`. */
+    fun encode(bytes: ByteArray): String = encoder.encodeToString(bytes)
+
+    /** Unpadded base64url, the form sshd uses in a `SHA256:` fingerprint. */
+    fun encodeUrlNoPadding(bytes: ByteArray): String =
+        encoder.encodeToString(bytes).replace('+', '-').replace('/', '_').trimEnd('=')
 }

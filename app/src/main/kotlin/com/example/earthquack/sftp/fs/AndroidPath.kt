@@ -3,25 +3,43 @@ package com.example.earthquack.sftp.fs
 import com.example.earthquack.sftp.AndroidFileSystem
 import java.io.File
 import java.io.IOException
+import java.net.URI
 import java.nio.file.FileSystem
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.PathMatcher
-import java.nio.file.WatchKey
 import java.nio.file.WatchEvent
+import java.nio.file.WatchKey
 import java.nio.file.WatchService
-import java.net.URI
 
 /**
  * A [Path] into an [AndroidFileSystem].
  *
- * ## Purely lexical
+ * ## Absolute, plus single-name relative views
  *
- * A `Path` here is a string that has been normalised — no `.`, no `..`, exactly
- * one leading `/`. It performs **no** I/O and no existence check, which is what
- * the [Path] contract requires and what keeps `getParent()` cheap enough to
- * call in a listing loop. Symlink resolution is the backend's job, at the point
- * of use, where it can throw instead of quietly returning something else.
+ * Every path that names a location is absolute and normalised — no `.`, no
+ * `..`, exactly one leading `/` — and does no I/O, which is what the [Path]
+ * contract requires and what keeps `getParent()` cheap enough to call in a
+ * listing loop.
+ *
+ * A [Path] can additionally be a *single-name relative view* of an absolute
+ * path: the thing `getFileName()`, `getName(i)` and `subpath()` return. That is
+ * a distinct state rather than a separate class, because the previous design
+ * returned a `NameView` that was not an [AndroidPath] at all. That had three
+ * consequences, all of them sshd-visible:
+ *
+ *  - every provider method rejected it with `ProviderMismatchException`,
+ *    because the provider identifies a path by type;
+ *  - `getParent()` returned null, so `x.getFileName().getParent()` did not
+ *    name the directory the entry was listed from;
+ *  - `toAbsolutePath()` resolved against the served root instead of the
+ *    entry's own directory, so the name `a.txt` of `/photos/a.txt` came back
+ *    as `/a.txt`.
+ *
+ * Keeping both forms in one class means a relative view is still an
+ * [AndroidPath], still resolves to the same absolute location, and can be passed
+ * straight to `readAttributes` — while `toString()` still renders the bare name
+ * that a directory listing must report (`a.txt`, never `/a.txt`).
  *
  * ## toFile is refused
  *
@@ -29,108 +47,192 @@ import java.net.URI
  * `java.io`, and every path from the protocol code into the protocol code
  * through it would skip the confinement rules. The protocol layer must go
  * through the provider instead, which enforces them.
+ *
+ * ## Symlink resolution
+ *
+ * Not done here. [AndroidPath] performs no I/O by contract, so it cannot follow
+ * a link; resolution belongs to the backend at the point of use, where it can
+ * throw instead of quietly returning something else.
  */
 internal class AndroidPath(
     private val fileSystem: AndroidFileSystemNio,
     /** Normalised, absolute, no trailing slash. The root is exactly "/". */
-    val pathString: String
+    val pathString: String,
+    /**
+     * The name this path renders as, when it is a relative single-name view.
+     *
+     * Null for an ordinary absolute path, which renders as [pathString].
+     */
+    private val displayName: String? = null
 ) : Path {
 
     /** The path split into its non-empty segments. */
     private val segments: List<String> =
         if (pathString == "/") emptyList() else pathString.substring(1).split("/")
 
+    /** The absolute path this view names. A relative view resolves to itself. */
+    private val absolute: AndroidPath
+        get() = if (displayName == null) this else AndroidPath.of(fileSystem, pathString)
+
     override fun getFileSystem(): FileSystem = fileSystem
 
-    override fun isAbsolute(): Boolean = true
+    override fun isAbsolute(): Boolean = displayName == null
 
-    override fun getRoot(): Path? = if (pathString == "/") null else fileSystem.getPath("/")
+    override fun getRoot(): Path? = if (displayName != null) null else fileSystem.getPath("/")
 
+    /**
+     * The last element, as a relative single-name view.
+     *
+     * Null only for the root, which has no name. Rendering is the bare name so
+     * that a directory listing reports `a.txt` and not `/a.txt`.
+     */
     override fun getFileName(): Path? =
-        if (segments.isEmpty()) null else NameView(fileSystem, segments.last())
+        if (displayName != null) this else segments.lastOrNull()
+            ?.let { relativeView(it) }
 
     override fun getParent(): Path? {
-        if (segments.isEmpty()) return null
+        if (displayName != null || segments.isEmpty()) return null
         val parent = segments.dropLast(1)
         return fileSystem.getPath(if (parent.isEmpty()) "/" else "/" + parent.joinToString("/"))
     }
 
-    override fun getNameCount(): Int = segments.size
+    override fun getNameCount(): Int = if (displayName != null) 1 else segments.size
 
-    override fun getName(index: Int): Path = fileSystem.getPath("/" + segments[index])
+    override fun getName(index: Int): Path {
+        val bounded = requireIndex(index)
+        return relativeView(bounded[index])
+    }
 
     override fun subpath(fromIndex: Int, toIndex: Int): Path {
+        if (displayName != null) {
+            if (fromIndex != 0 || toIndex != 1) {
+                throw IllegalArgumentException("bad subpath $fromIndex..$toIndex for $displayName")
+            }
+            return this
+        }
         if (fromIndex < 0 || toIndex > segments.size || fromIndex >= toIndex) {
             throw IllegalArgumentException("bad subpath range $fromIndex..$toIndex for $pathString")
         }
-        return fileSystem.getPath("/" + segments.subList(fromIndex, toIndex).joinToString("/"))
+        val selected = segments.subList(fromIndex, toIndex)
+        return relativeView(selected.joinToString("/"))
+    }
+
+    /** A relative view rendering as [name] but pointing at this path's location. */
+    private fun relativeView(name: String): AndroidPath =
+        if (displayName == name) this else AndroidPath(fileSystem, pathString, name)
+
+    private fun requireIndex(index: Int): List<String> {
+        if (displayName != null) {
+            if (index != 0) throw IllegalArgumentException("no segment $index in $displayName")
+            return listOf(displayName)
+        }
+        if (index < 0 || index >= segments.size) {
+            throw IllegalArgumentException("no segment $index in $pathString")
+        }
+        return segments
     }
 
     override fun startsWith(other: Path): Boolean {
-        val prefix = other.toString()
-        if (prefix == "/") return true
+        val prefix = other.toString().trimEnd('/')
+        if (prefix.isEmpty()) return true
         return pathString == prefix || pathString.startsWith("$prefix/")
     }
 
     override fun endsWith(other: Path): Boolean {
-        val suffix = other.toString().trim('/')
-        return segments.lastOrNull() == suffix
+        val otherName = other.fileName?.toString() ?: return false
+        return segments.lastOrNull() == otherName
     }
 
     override fun startsWith(other: String): Boolean =
-        pathString == other || pathString.startsWith("$other/")
+        startsWith(fileSystem.getPath(normaliseText(other)))
 
     override fun endsWith(other: String): Boolean = segments.lastOrNull() == other.trim('/')
 
+    /** Textual normalisation for a caller-supplied prefix, which need not be clean. */
+    private fun normaliseText(raw: String): String {
+        val out = mutableListOf<String>()
+        for (segment in raw.split('/')) {
+            when (segment) {
+                "", "." -> Unit
+                ".." -> if (out.isNotEmpty()) out.removeAt(out.size - 1)
+                else -> out.add(segment)
+            }
+        }
+        return if (out.isEmpty()) "/" else "/" + out.joinToString("/")
+    }
+
     /**
-     * Absolute-path resolution: [other] wins unless it is relative.
+     * Resolution against an absolute path.
      *
-     * Every path produced here is absolute, so this only ever has the one
-     * meaningful case. It exists because [Path] declares it abstract, and
-     * returning "not supported" from a method sshd might call during a
-     * canonicalisation pass would surface as an unexplained SFTP failure.
+     * For a relative view the base is the location it was derived from, which is
+     * why `photos.getFileName().resolve("b.txt")` is `/photos/b.txt` rather than
+     * `/b.txt`.
      */
     override fun resolve(other: Path): Path =
-        if (other.isAbsolute) other else getPath(resolveString(other.toString()))
+        if (other.isAbsolute) other else resolveString(other.toString())
 
-    override fun resolve(other: String): Path =
-        if (other.startsWith("/")) getPath(other) else getPath(resolveString(other))
+    override fun resolve(other: String): Path = resolveString(other)
 
-    override fun resolveSibling(other: Path): Path = resolve(other)
+    override fun resolveSibling(other: Path): Path =
+        if (other.isAbsolute) other else (getParent() ?: fileSystem.getPath("/")).resolve(other)
 
-    override fun resolveSibling(other: String): Path = resolve(other)
+    override fun resolveSibling(other: String): Path {
+        if (other.startsWith("/")) return fileSystem.getPath(other)
+        val parent = getParent() ?: return resolveString(other)
+        return parent.resolve(other)
+    }
 
     /** Present because android.jar declares the `Iterable` default as abstract. */
     override fun iterator(): MutableIterator<Path> = object : MutableIterator<Path> {
         private var index = 0
-        override fun hasNext(): Boolean = index < segments.size
-        override fun next(): Path = getName(index++)
+        private val names = if (displayName != null) listOf(displayName) else segments
+        override fun hasNext(): Boolean = index < names.size
+        override fun next(): Path = relativeView(names[index++])
         override fun remove() = throw UnsupportedOperationException()
     }
 
+    /**
+     * The relative path from this one to [other].
+     *
+     * The result is a *relative* path, which is the whole point of the call: it
+     * may legitimately begin with `..`, and building it through the normalising
+     * factory would throw [com.example.earthquack.sftp.PathEscapeException] for
+     * exactly the case the caller asked for.
+     */
     override fun relativize(other: Path): Path {
-        val mine = segments
-        val theirs = if (other.toString() == "/") emptyList() else other.toString().substring(1).split("/")
+        if (displayName != null) {
+            throw IllegalArgumentException("cannot relativize from the relative path $displayName")
+        }
+        val target = other.toString()
+        if (target == pathString) return AndroidPath.relative(fileSystem, "")
+        val theirs = if (target == "/") emptyList() else target.substring(1).split("/")
         var common = 0
-        while (common < mine.size && common < theirs.size && mine[common] == theirs[common]) common++
-        val up = mine.drop(common).map { ".." }
+        while (common < segments.size && common < theirs.size && segments[common] == theirs[common]) {
+            common++
+        }
+        val up = segments.drop(common).map { ".." }
         val down = theirs.drop(common)
-        return getPath((up + down).joinToString("/"))
+        return AndroidPath.relative(fileSystem, (up + down).joinToString("/"))
     }
 
-    /** Joins a relative path onto this one, without touching the filesystem. */
-    internal fun resolveString(relative: String): String {
-        if (relative.startsWith("/")) return relative
-        val joined = if (pathString == "/") relative else "$pathString/$relative"
-        return AndroidPath.of(fileSystem, joined).pathString
+    /**
+     * Joins a path onto this one, without touching the filesystem.
+     *
+     * An absolute argument replaces the result, as [Path.resolve] requires; a
+     * relative one is appended and normalised. A `..` that would climb above the
+     * root is refused by [AndroidPath.of], which is the confinement rule rather
+     * than a silent clamp.
+     */
+    internal fun resolveString(relative: String): AndroidPath {
+        if (relative.startsWith("/")) return AndroidPath.of(fileSystem, relative)
+        val base = pathString.trimEnd('/')
+        return AndroidPath.of(fileSystem, if (base.isEmpty()) relative else "$base/$relative")
     }
-
-    private fun getPath(value: String): AndroidPath = AndroidPath.of(fileSystem, value)
 
     /** Already normal; returns this. */
     override fun normalize(): Path = this
 
-    override fun toAbsolutePath(): Path = this
+    override fun toAbsolutePath(): Path = absolute
 
     @Throws(IOException::class)
     override fun toRealPath(vararg linkOptions: LinkOption): Path =
@@ -157,24 +259,25 @@ internal class AndroidPath(
 
     override fun compareTo(other: Path): Int = pathString.compareTo(other.toString())
 
-    override fun equals(other: Any?): Boolean =
-        other is AndroidPath && other.pathString == pathString
+    override fun equals(other: Any?): Boolean = other is AndroidPath &&
+        other.pathString == pathString &&
+        other.displayName == displayName
 
-    override fun hashCode(): Int = pathString.hashCode()
+    override fun hashCode(): Int = 31 * pathString.hashCode() + (displayName?.hashCode() ?: 0)
 
-    override fun toString(): String = pathString
+    override fun toString(): String = displayName ?: pathString
 
     companion object {
         const val SCHEME = "android"
 
         /**
-         * Builds a path from raw client input.
+         * Builds an absolute path from raw client input.
          *
          * Normalisation here is textual only (`.` dropped, `..` popped, slashes
-         * collapsed) and refuses to climb above the root, exactly as the
-         * backend does. Two independent checks on the same rule are deliberate:
-         * this one keeps the `Path` objects well-formed, and the backend's
-         * catches what reaches it through a route that skipped this.
+         * collapsed) and refuses to climb above the root, exactly as the backend
+         * does. Two independent checks on the same rule are deliberate: this one
+         * keeps the `Path` objects well-formed, and the backend's catches what
+         * reaches it through a route that skipped this.
          */
         fun of(fileSystem: AndroidFileSystemNio, raw: String): AndroidPath {
             val out = mutableListOf<String>()
@@ -190,7 +293,36 @@ internal class AndroidPath(
                     else -> out.add(segment)
                 }
             }
-            return AndroidPath(fileSystem, if (out.isEmpty()) "/" else "/" + out.joinToString("/"))
+            val normalised = if (out.isEmpty()) "/" else "/" + out.joinToString("/")
+            return AndroidPath(fileSystem, normalised)
+        }
+
+        /**
+         * Builds a relative view that renders as [rendered].
+         *
+         * Used by [relativize], whose result may legitimately be `..`-prefixed
+         * and so cannot be produced by [of] — normalising `..` against nothing
+         * is exactly the escape [of] refuses. The absolute location is derived
+         * separately and carried alongside the text, so the view still points
+         * somewhere the provider can act on.
+         *
+         * @param rendered the text a listing shows, which for `relativize` is
+         *   the relative form and for an empty result is the empty string.
+         */
+        fun relative(fileSystem: AndroidFileSystemNio, rendered: String): AndroidPath {
+            val out = mutableListOf<String>()
+            for (segment in rendered.split('/')) {
+                when (segment) {
+                    "", "." -> Unit
+                    // Cannot pop past the root here: a relative result that
+                    // walked above both paths is not expressible, and silently
+                    // clamping it would make the caller believe it had.
+                    ".." -> if (out.isNotEmpty()) out.removeAt(out.size - 1)
+                    else -> out.add(segment)
+                }
+            }
+            val location = if (out.isEmpty()) "/" else "/" + out.joinToString("/")
+            return AndroidPath(fileSystem, location, rendered)
         }
 
         /** Parses `android:///a/b` back into a path. */
@@ -199,91 +331,6 @@ internal class AndroidPath(
             return of(fileSystem, if (raw.startsWith("/")) raw else "/$raw")
         }
     }
-}
-
-/**
- * The single-segment view sshd's SFTP layer uses as the filename it sends the
- * client.
- *
- * `AndroidPath` is always absolute, so its `toString` is `/a.txt` — and that
- * is what arrived as the entry name (`expected:<[]a.txt> but was:<[/]a.txt>`).
- * This view renders as the bare name while resolving back through the same
- * filesystem, so `readAttributes` and friends keep working on it.
- */
-internal class NameView(
-    private val fileSystem: AndroidFileSystemNio,
-    private val name: String
-) : Path {
-
-    override fun getFileSystem(): FileSystem = fileSystem
-
-    override fun isAbsolute(): Boolean = false
-
-    override fun getRoot(): Path? = null
-
-    override fun getFileName(): Path = this
-
-    override fun getParent(): Path? = null
-
-    override fun getNameCount(): Int = 1
-
-    override fun getName(index: Int): Path {
-        if (index != 0) throw IllegalArgumentException("no segment $index in $name")
-        return this
-    }
-
-    override fun subpath(fromIndex: Int, toIndex: Int): Path {
-        if (fromIndex != 0 || toIndex != 1) throw IllegalArgumentException("bad subpath $fromIndex..$toIndex")
-        return this
-    }
-
-    override fun startsWith(other: Path): Boolean = toString() == other.toString()
-
-    override fun startsWith(other: String): Boolean = name == other
-
-    override fun endsWith(other: Path): Boolean = toString() == other.toString()
-
-    override fun endsWith(other: String): Boolean = name == other
-
-    override fun normalize(): Path = this
-
-    override fun resolve(other: Path): Path = fileSystem.getPath("/$name").resolve(other)
-
-    override fun resolve(other: String): Path = fileSystem.getPath("/$name").resolve(other)
-
-    override fun resolveSibling(other: Path): Path = fileSystem.getPath("/$name").resolveSibling(other)
-
-    override fun resolveSibling(other: String): Path = fileSystem.getPath("/$name").resolveSibling(other)
-
-    override fun relativize(other: Path): Path = fileSystem.getPath("/$name").relativize(other)
-
-    override fun toUri(): URI = fileSystem.getPath("/$name").toUri()
-
-    override fun toAbsolutePath(): Path = fileSystem.getPath("/$name")
-
-    override fun toRealPath(vararg options: LinkOption): Path = fileSystem.getPath("/$name").toRealPath(*options)
-
-    override fun toFile(): File = fileSystem.getPath("/$name").toFile()
-
-    @Throws(IOException::class)
-    override fun register(
-        watcher: WatchService,
-        events: Array<out WatchEvent.Kind<*>>,
-        vararg modifiers: WatchEvent.Modifier
-    ): WatchKey = throw UnsupportedOperationException("watching is not supported")
-
-    override fun register(watcher: WatchService, vararg events: WatchEvent.Kind<*>): WatchKey =
-        throw UnsupportedOperationException("watching is not supported")
-
-    override fun compareTo(other: Path): Int = name.compareTo(other.toString())
-
-    override fun iterator(): MutableIterator<Path> = mutableListOf<Path>(this).iterator()
-
-    override fun equals(other: Any?): Boolean = other is NameView && other.name == name
-
-    override fun hashCode(): Int = name.hashCode()
-
-    override fun toString(): String = name
 }
 
 /**

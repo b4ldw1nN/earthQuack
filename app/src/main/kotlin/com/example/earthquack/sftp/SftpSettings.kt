@@ -80,9 +80,12 @@ data class SftpSettings(
             out += "maximum connections must be between 1 and $MAX_CONNECTIONS_LIMIT"
         }
         if (!passwordAuth && !publicKeyAuth) {
-            // No auth method is fine — the server will start but reject all
-            // connections. Better to start and show the error than to refuse
-            // to start at all, which is what the old behaviour did.
+            // Not reported here: [problems] has no access to the secret store or
+            // the authorized-keys list, and this pair is not by itself invalid —
+            // it is only unusable, and the engine says so with a reason once it
+            // can see the keys and secrets. Reporting it here would make the
+            // editor reject a half-finished configuration the user is still
+            // filling in.
         }
         return out
     }
@@ -94,7 +97,18 @@ data class SftpSettings(
         const val DEFAULT_USERNAME = "earthquack"
         const val DEFAULT_MAX_CONNECTIONS = 16
         const val MAX_CONNECTIONS_LIMIT = 64
-        val VALID_PORT_RANGE = 1..65535
+
+        /**
+         * Accepted by [problems], which is also used for engine starts.
+         *
+         * 0 means "any free port": the server binds an ephemeral one and the
+         * bound port is read back from sshd. It is a legitimate request from
+         * code and from a test, and it is how a port conflict can be proven to
+         * be the cause rather than guessed at. It is *not* a legitimate thing
+         * to persist, so [SftpSettingsStore] rejects it — see its own
+         * `VALID_PORT_RANGE`.
+         */
+        val VALID_PORT_RANGE = 0..65535
 
         /**
          * Shared storage.
@@ -141,7 +155,13 @@ class SftpSettingsStore(context: Context) {
         port = prefs.getInt(KEY_PORT, SftpSettings.DEFAULT_PORT),
         rootPath = prefs.getString(KEY_ROOT, SftpSettings.DEFAULT_ROOT)
             ?: SftpSettings.DEFAULT_ROOT,
-        passwordAuth = prefs.getBoolean(KEY_PASSWORD_AUTH, true),
+        // Both off on a fresh install. The previous default enabled password
+        // auth with no password stored, which is a configuration that cannot
+        // start, so the first press of Start on a new install always failed —
+        // and the button then looked broken because the failure left an Error
+        // status. Off/off fails with "turn one on", which is the actionable
+        // message, and the switches prompt for what they need when flipped.
+        passwordAuth = prefs.getBoolean(KEY_PASSWORD_AUTH, false),
         publicKeyAuth = prefs.getBoolean(KEY_PUBKEY_AUTH, false),
         hostKeyFingerprint = prefs.getString(KEY_HOST_KEY, null),
         username = prefs.getString(KEY_USERNAME, SftpSettings.DEFAULT_USERNAME)

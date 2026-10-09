@@ -25,6 +25,7 @@ import java.nio.file.attribute.FileAttributeView
 import java.nio.file.attribute.FileStoreAttributeView
 import java.nio.file.attribute.FileTime
 import java.nio.file.attribute.GroupPrincipal
+import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFileAttributes
 import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.attribute.UserPrincipal
@@ -82,22 +83,36 @@ internal class AndroidFileSystemProvider(
         vararg attrs: FileAttribute<*>
     ): SeekableByteChannel {
         val target = pathOf(path)
+        val read = options.contains(StandardOpenOption.READ)
         val write = options.contains(StandardOpenOption.WRITE) ||
-            options.contains(StandardOpenOption.APPEND) ||
-            options.contains(StandardOpenOption.CREATE) ||
-            options.contains(StandardOpenOption.TRUNCATE_EXISTING)
+            options.contains(StandardOpenOption.APPEND)
+        val create = options.contains(StandardOpenOption.CREATE)
         val truncate = options.contains(StandardOpenOption.TRUNCATE_EXISTING)
-        val exists = backend.exists(target)
+        val exists = exists(target)
 
-        println("[PROVIDER] newByteChannel: target=$target, options=$options, write=$write, truncate=$truncate, exists=$exists")
-
-        if (!exists && !write) throw NoSuchFileException(target)
-        if (exists && !write && !backend.isDirectory(target) && options.contains(StandardOpenOption.DELETE_ON_CLOSE)) {
+        if (!write && !read) throw IllegalArgumentException("neither READ nor WRITE was requested for $target")
+        if (options.contains(StandardOpenOption.DELETE_ON_CLOSE)) {
             throw UnsupportedOperationException("DELETE_ON_CLOSE is not supported")
         }
+        // WRITE without CREATE must not bring a file into being. The backend's
+        // random-access handle opens "rw", which *does* create, so refusing
+        // here is the only place the NIO contract can be honoured.
+        if (!exists && write && !create && !options.contains(StandardOpenOption.APPEND)) {
+            throw NoSuchFileException(target)
+        }
+        if (!exists && !write) throw NoSuchFileException(target)
+        if (exists && backend.isDirectory(target)) {
+            throw java.nio.file.FileSystemException(target, null, "is a directory")
+        }
 
+        // APPEND and TRUNCATE_EXISTING are mutually exclusive by definition, so
+        // a request carrying both is ambiguous rather than additive.
         val handle: AndroidRandomAccess = try {
-            backend.openRandomAccess(target, write, truncate && !options.contains(StandardOpenOption.APPEND))
+            backend.openRandomAccess(
+                target,
+                write = write,
+                truncate = truncate && !options.contains(StandardOpenOption.APPEND)
+            )
         } catch (e: PathEscapeException) {
             throw AccessDeniedException(target, null, e.message)
         } catch (e: NoSuchFileException) {
@@ -113,7 +128,7 @@ internal class AndroidFileSystemProvider(
         filter: DirectoryStream.Filter<in java.nio.file.Path>
     ): DirectoryStream<java.nio.file.Path> {
         val target = pathOf(dir)
-        if (!backend.exists(target)) throw NoSuchFileException(target)
+        if (present(target) == null) throw NoSuchFileException(target)
         if (!backend.isDirectory(target)) throw NotDirectoryExceptionShim(target)
         val entries = backend.list(target)
         return object : DirectoryStream<java.nio.file.Path> {
@@ -161,7 +176,7 @@ internal class AndroidFileSystemProvider(
         vararg attrs: FileAttribute<*>
     ) {
         val target = pathOf(dir)
-        if (backend.exists(target)) throw FileAlreadyExistsException(target)
+        if (present(target) != null) throw FileAlreadyExistsException(target)
         try {
             backend.mkdir(target)
         } catch (e: PathEscapeException) {
@@ -173,8 +188,10 @@ internal class AndroidFileSystemProvider(
 
     override fun delete(path: java.nio.file.Path) {
         val target = pathOf(path)
-        println("[PROVIDER] delete: target=$target")
-        if (!backend.exists(target)) throw NoSuchFileException(target)
+        // backend.exists() answers false for an escaping path, which would turn
+        // "outside the root" into "no such file" — misleading, and it would let
+        // a client believe a probe of /.. found nothing rather than was refused.
+        if (present(target) == null) throw NoSuchFileException(target)
         if (backend.isDirectory(target)) {
             val entries = backend.list(target)
             // rmdir is not recursive: refuse a non-empty directory rather than
@@ -201,18 +218,31 @@ internal class AndroidFileSystemProvider(
     ) {
         val from = pathOf(source)
         val to = pathOf(target)
-        if (!backend.exists(from)) throw NoSuchFileException(from)
+        if (present(from) == null) throw NoSuchFileException(from)
         if (backend.isDirectory(from)) throw java.nio.file.FileSystemException(from, to, "is a directory")
-        if (backend.exists(to) && !options.contains(StandardCopyOption.REPLACE_EXISTING)) throw FileAlreadyExistsException(to)
-        backend.openRead(from).use { input ->
-            backend.openWrite(to, append = false).use { output ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val n = input.read(buffer)
-                    if (n < 0) break
-                    output.write(buffer, 0, n)
+        if (present(to) != null && !options.contains(StandardCopyOption.REPLACE_EXISTING)) {
+            throw FileAlreadyExistsException(to)
+        }
+        try {
+            backend.openRead(from).use { input ->
+                backend.openWrite(to, append = false).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        output.write(buffer, 0, n)
+                    }
                 }
             }
+        } catch (e: PathEscapeException) {
+            // openRead/openWrite are the only stream paths, and they reach the
+            // backend without the translation the other operations get. An
+            // escape through here would otherwise reach sshd as a raw
+            // PathEscapeException and be mapped to a generic failure instead of
+            // permission-denied.
+            throw AccessDeniedException(from, null, to)
+        } catch (e: IOException) {
+            throw translate(e, to)
         }
     }
 
@@ -228,7 +258,8 @@ internal class AndroidFileSystemProvider(
             // option is satisfied by doing the ordinary thing rather than by
             // being rejected.
         }
-        if (backend.exists(to) && options.contains(StandardCopyOption.REPLACE_EXISTING)) {
+        if (present(to) != null) {
+            if (!options.contains(StandardCopyOption.REPLACE_EXISTING)) throw FileAlreadyExistsException(to)
             backend.delete(to, recursive = true)
         }
         try {
@@ -273,7 +304,21 @@ internal class AndroidFileSystemProvider(
         path: java.nio.file.Path,
         type: Class<V>,
         vararg options: LinkOption
-    ): V? = null
+    ): V? {
+        // Returning null here made every `Files.readAttributes(path, view)`
+        // call fail with NoSuchFileException, because the JDK reports a null
+        // view as "this filesystem has no such attributes". sshd asks for a
+        // PosixFileAttributesView while building a listing, so a null here is
+        // what turned a directory listing into SSH_FX_OP_UNSUPPORTED.
+        //
+        // The view is live, not a snapshot: it re-reads on every call so it
+        // cannot report a size or mode that has since changed.
+        if (type == BasicFileAttributeView::class.java || type == PosixFileAttributeView::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            return AndroidFileAttributeView(fileSystem, path) as V
+        }
+        return null
+    }
 
     @Suppress("UNCHECKED_CAST")
     override fun <A : BasicFileAttributes?> readAttributes(
@@ -375,6 +420,26 @@ internal class AndroidFileSystemProvider(
         return path.pathString
     }
 
+    /**
+     * Existence check that reports an escape instead of answering "no".
+     *
+     * [com.example.earthquack.sftp.AndroidFileSystem.exists] swallows
+     * [com.example.earthquack.sftp.PathEscapeException] and returns false, which
+     * is the right answer for a question like "may I write here?" and the wrong
+     * answer for every operation below. `stat` resolves the same way but lets
+     * the exception through, so a path outside the root surfaces as
+     * `AccessDeniedException` — `SSH_FX_PERMISSION_DENIED` — instead of being
+     * reported as a file that does not exist.
+     */
+    private fun present(target: String): com.example.earthquack.sftp.FsEntry? = try {
+        backend.stat(target)
+    } catch (e: PathEscapeException) {
+        throw AccessDeniedException(target, null, e.message)
+    }
+
+    /** [present], as a boolean, for callers that only need existence. */
+    private fun exists(target: String): Boolean = present(target) != null
+
     /** Maps a backend failure onto the NIO exception sshd expects. */
     private fun translate(e: IOException, target: String): IOException = when (e) {
         is PathEscapeException -> AccessDeniedException(target, null, e.message)
@@ -426,6 +491,68 @@ private class AndroidFileStore(private val path: String) : FileStore() {
 
 /** `NotDirectoryException` without the name clash inside this file. */
 private fun NotDirectoryExceptionShim(path: String) = java.nio.file.NotDirectoryException(path)
+
+/**
+ * A live [PosixFileAttributeView] over the backend.
+ *
+ * Live rather than cached: `readAttributes` is called on every SFTP `STAT`
+ * request, and a snapshot taken when the view was constructed would report the
+ * size the file had before the client wrote to it.
+ *
+ * Owner and group are settable in name only — there is exactly one identity on
+ * this server (see [AndroidPrincipal]), so "set this owner" can only be honoured
+ * for that identity or refused.
+ */
+private class AndroidFileAttributeView(
+    private val fileSystem: AndroidFileSystemNio,
+    private val path: java.nio.file.Path
+) : PosixFileAttributeView {
+
+    private val backend get() = fileSystem.backend
+
+    private fun statOrThrow(): com.example.earthquack.sftp.FsEntry =
+        backend.stat(path.toString()) ?: throw NoSuchFileException(path.toString())
+
+    override fun name(): String = "posix"
+
+    override fun readAttributes(): PosixFileAttributes = AndroidFileAttributes(statOrThrow())
+
+    override fun setTimes(
+        lastModifiedTime: FileTime?,
+        lastAccessTime: FileTime?,
+        createTime: FileTime?
+    ) {
+        // Android exposes settable mtime and nothing else, so the two times it
+        // does not have are refused rather than reported as done.
+        if (lastAccessTime != null || createTime != null) {
+            throw IOException("only last-modified time can be set on this filesystem")
+        }
+        lastModifiedTime?.let { backend.setLastModified(path.toString(), it.toMillis()) }
+    }
+
+    override fun getOwner(): UserPrincipal = AndroidPrincipal
+
+    override fun setOwner(owner: UserPrincipal?) {
+        if (owner != null && owner.name != AndroidPrincipal.getName()) {
+            throw IOException("this server serves a single identity and cannot change it")
+        }
+    }
+
+    override fun setPermissions(permissions: Set<PosixFilePermission>) {
+        // Refused, not ignored. See the note in the provider's `setAttribute`:
+        // Android shared storage cannot store a mode, so reporting success here
+        // would be the fake success the task's brief explicitly rules out.
+        throw IOException("this server cannot store a permission mode, so it cannot set one")
+    }
+
+    override fun setGroup(group: GroupPrincipal?) {
+        if (group != null && group.name != AndroidPrincipal.getName()) {
+            throw IOException("this server serves a single identity and cannot change it")
+        }
+    }
+
+    override fun toString(): String = "${name()}:${path}"
+}
 
 /**
  * [SeekableByteChannel] over [AndroidRandomAccess].

@@ -166,6 +166,20 @@
     <string name="sftp_add_key">Add key</string>
     <string name="sftp_remove_key">Remove key</string>
     <string name="sftp_key_removed">Key removed</string>
+    <string name="sftp_key_added">Added key: %1$s</string>
+    <string name="sftp_key_empty">That file has no key line in it.</string>
+    <string name="sftp_key_unreadable">That does not look like an OpenSSH public key.</string>
+    <string name="sftp_key_error_title">That key could not be added</string>
+    <string name="sftp_derived_key_hint">Derived from the private key — the public half is what gets stored.</string>
+    <string name="sftp_passphrase_title">Key passphrase</string>
+    <string name="sftp_passphrase_hint">The passphrase that unlocks this key, if it has one</string>
+    <string name="sftp_imported_key_label">imported key</string>
+    <string name="sftp_no_authorized_keys_start">Public-key authentication needs a client key installed. Add one now.</string>
+    <string name="sftp_cancel">Cancel</string>
+    <string name="sftp_password_clear_title">Clear the server password?</string>
+    <string name="sftp_password_clear_no_auth">Clearing this password also turns off password authentication, and public-key authentication is off too. That would leave no way for a client to connect. Disable password authentication and stop the server, or add a public key first.</string>
+    <string name="sftp_password_clear_disable">Disable password auth</string>
+    <string name="sftp_password_clear_cancel">Keep password</string>
 
     <!-- Services hub subtitles -->
     <string name="services_sftp_running">Running on port %1$d</string>

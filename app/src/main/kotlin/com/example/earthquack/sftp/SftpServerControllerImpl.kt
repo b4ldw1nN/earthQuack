@@ -2,6 +2,9 @@ package com.example.earthquack.sftp
 
 import android.content.Context
 import com.example.earthquack.ssh.KeystoreSecretStore
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.future.await
+import kotlinx.coroutines.withTimeout
 import java.io.File
 
 /**
@@ -29,7 +32,17 @@ object SftpServerHolder {
         }
     }
 
-    /** Drops the reference, e.g. after a stop. The engine object itself is gone. */
+    /**
+     * Drops the reference, so the next [engine] call builds a new one.
+     *
+     * Only safe when nothing is listening. It is deliberately *not* called on
+     * the stop path: `SftpServerService.onDestroy` resolves the engine through
+     * this holder, so clearing it there would make a late `onDestroy` build and
+     * stop a brand-new engine while the server it was actually meant to tear
+     * down stayed bound. There is one engine per process for the life of the
+     * process, and that is the honest model.
+     */
+    @Deprecated("Dropping the engine orphans whatever it is listening on; stop it first.")
     fun clear() {
         cached = null
     }
@@ -84,34 +97,42 @@ class SftpServerControllerImpl(
         // Start the service first: it owns the foreground notification, and a
         // server that is listening but not foregrounded would be killed within
         // seconds on Android 14.
-        SftpServerService.start(appContext, settings)
-
-        // The service starts the engine asynchronously; wait for it to be
-        // listening so the status the user sees is the status that is true.
-        val engine = SftpServerHolder.engine(appContext)
-        val deadline = System.currentTimeMillis() + START_TIMEOUT_MILLIS
-        while (System.currentTimeMillis() < deadline) {
-            if (engine.isRunning()) {
-                return SftpServerStatus.Running(engine.serverPort(), engine.connectedClients())
+        //
+        // Then wait for the outcome the service actually reached, rather than
+        // polling `isRunning()`. Polling cannot tell a port change from a
+        // no-op: the old server is still running when the new request is
+        // queued, so the first poll answers "running" and returns the old port,
+        // which is the bug that made a saved port change appear to do nothing.
+        val future = SftpServerService.requestStart(appContext, settings)
+        return try {
+            withTimeout(START_TIMEOUT_MILLIS) { future.await() }
+        } catch (e: TimeoutCancellationException) {
+            // The service never reported. Ask the engine what it actually
+            // thinks rather than assuming either way.
+            val engine = SftpServerHolder.engine(appContext)
+            if (engine.matches(settings)) {
+                SftpServerStatus.Running(engine.serverPort(), engine.connectedClients())
+            } else {
+                SftpServerStatus.Error(
+                    "The server did not report as listening within " +
+                        "${START_TIMEOUT_MILLIS / 1000}s. " +
+                        "Check that port ${settings.port} is free."
+                )
             }
-            kotlinx.coroutines.delay(POLL_MILLIS)
         }
-        return SftpServerStatus.Error(
-            "The server did not report as listening within ${START_TIMEOUT_MILLIS / 1000}s. " +
-                "Check that port ${settings.port} is free."
-        )
     }
 
     override suspend fun stop(): SftpServerStatus {
-        SftpServerService.stop(appContext)
+        // Stop the listener here rather than only asking the service to, so the
+        // status returned to the caller is one that has already happened. The
+        // service's own ACTION_STOP handler is then idempotent.
         val engine = runCatching { SftpServerHolder.engine(appContext) }.getOrNull()
         engine?.stop()
-        SftpServerHolder.clear()
+        SftpServerService.stop(appContext)
         return SftpServerStatus.Stopped
     }
 
     private companion object {
-        const val START_TIMEOUT_MILLIS = 10_000L
-        const val POLL_MILLIS = 100L
+        const val START_TIMEOUT_MILLIS = 20_000L
     }
 }

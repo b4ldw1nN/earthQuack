@@ -23,7 +23,10 @@ import com.example.earthquack.sftp.SftpServerStatus
 import com.example.earthquack.sftp.SftpSettings
 import com.example.earthquack.sftp.SftpSettingsStore
 import com.example.earthquack.sftp.AuthorizedKeysStore
-import com.example.earthquack.ssh.IdentityKeyStore
+import com.example.earthquack.sftp.DerivedPublicKey
+import com.example.earthquack.sftp.derivePublicKeyFromPrivateKey
+import com.example.earthquack.sftp.looksLikeOpenSshPrivateKey
+import com.example.earthquack.sftp.parseAuthorizedKeyLine
 import com.example.earthquack.ssh.KeystoreSecretStore
 import com.example.earthquack.ssh.SecretStore
 import com.example.earthquack.state.TailnetStatus
@@ -31,6 +34,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
 /**
@@ -67,39 +71,64 @@ class SftpFragment : Fragment() {
     private lateinit var store: SftpSettingsStore
     private lateinit var secrets: SecretStore
     private lateinit var authorizedKeys: AuthorizedKeysStore
-    private lateinit var keyStore: IdentityKeyStore
 
-    /** SAF picker for a private key file. */
-    private val importKeyLauncher = registerForActivityResult(
+    /** SAF picker for a key file: a `.pub` public key, or the private key itself. */
+    private val importAuthorizedKeyLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@registerForActivityResult
-
-        // Show file selected feedback
-        val fileName = getFileName(uri) ?: "key file"
-        toast(getString(R.string.profile_key_selected_file, fileName))
-
-        // Ask for passphrase before importing
-        promptPassphrase { passphrase ->
-            lifecycleScope.launch {
-                val bytes = requireContext().contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
-                val imported = withContext(Dispatchers.IO) {
-                    keyStore.importKey(
-                        "key-" + System.currentTimeMillis(),
-                        "imported",
-                        bytes,
-                        passphrase?.toCharArray()
-                    )
-                }.getOrNull()
-                if (imported == null) {
-                    toast(R.string.profile_key_import_failed)
-                } else {
-                    refreshKeys()
-                    selectKey(imported.alias)
-                    toast(R.string.profile_key_imported)
-                }
+        val label = getFileName(uri) ?: getString(R.string.sftp_imported_key_label)
+        val text = runCatching {
+            requireContext().contentResolver.openInputStream(uri)?.use {
+                it.readBytes().toString(Charset.forName("UTF-8"))
             }
+        }.getOrNull()
+        if (text == null) {
+            toast(R.string.sftp_key_unreadable)
+            return@registerForActivityResult
         }
+
+        if (looksLikeOpenSshPrivateKey(text)) {
+            // The user has the private key and no `.pub` file — which is the
+            // common case, and one this app can now serve on its own. The public
+            // half is derived from the private key; no private bytes are kept.
+            promptPassphrase { passphrase ->
+                val chars = passphrase?.toCharArray()
+                val derived = derivePublicKeyFromPrivateKey(text, chars)
+                derived.onSuccess { installDerivedKey(it, label) }
+                    .onFailure {
+                        showKeyError(it.message ?: getString(R.string.sftp_key_unreadable))
+                    }
+            }
+            return@registerForActivityResult
+        }
+
+        val line = parseAuthorizedKeyLine(text).getOrElse {
+            showKeyError(it.message ?: getString(R.string.sftp_key_unreadable))
+            return@registerForActivityResult
+        }
+        installDerivedKey(
+            DerivedPublicKey(line.type, line.key, line.label),
+            label.ifBlank { line.label }
+        )
+    }
+
+    /** Stores a derived-or-parsed key and reports it, with a persistent message. */
+    private fun installDerivedKey(key: DerivedPublicKey, fallbackLabel: String) {
+        val label = key.label.ifBlank { fallbackLabel }
+        val line = key.toAuthorizedKeyText()
+        authorizedKeys.add(label, line)
+        render()
+        toast(getString(R.string.sftp_key_added, label))
+    }
+
+    /** A key could not be used; say why, in a form the user will actually see. */
+    private fun showKeyError(message: String) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.sftp_key_error_title)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     /**
@@ -141,21 +170,39 @@ class SftpFragment : Fragment() {
         secrets = KeystoreSecretStore(requireContext().filesDir)
         authorizedKeys = AuthorizedKeysStore(requireContext())
 
-        binding.rowPortEdit.setOnClickListener { promptPort() }
-        binding.rowRootEdit.setOnClickListener { promptRoot() }
-        binding.rowPasswordSet.setOnClickListener { promptPassword() }
-        binding.rowAuthorizedKeys.setOnClickListener { showKeysDialog() }
+        binding.rowPortEdit.setOnClickListener {
+            promptPort()
+        }
+        binding.rowRootEdit.setOnClickListener {
+            promptRoot()
+        }
+        binding.rowPasswordSet.setOnClickListener {
+            promptPassword()
+        }
+        binding.rowAuthorizedKeys.setOnClickListener {
+            showKeysDialog()
+        }
 
         // Persist immediately on toggle. A settings screen where a switch needs
         // a separate Save button is a settings screen where people forget to
         // press it.
         binding.switchPasswordAuth.setOnCheckedChangeListener { _, checked ->
             if (checked && !secrets.has(PASSWORD_ALIAS)) {
-                // If enabling password auth but no password is set, prompt for one
-                promptPassword { success ->
-                    if (!success) {
-                        // User cancelled or failed to set password, revert the switch
-                        binding.switchPasswordAuth.isChecked = false
+                // Enabling password auth with no stored password would produce a
+                // configuration that cannot start. Ask for the password *now*,
+                // before the setting is committed, and only turn the flag on if
+                // that succeeded. The old code prompted but left the flag off
+                // on success too, so password auth silently stayed disabled.
+                promptNewPassword { success ->
+                    if (success) {
+                        render()
+                        toast(R.string.sftp_password_set_sub)
+                        // Ask again for the server restart now that a password
+                        // exists, so the enabled state is usable immediately.
+                        update { it.copy(passwordAuth = true) }
+                    } else {
+                        update { it.copy(passwordAuth = false) }
+                        render()
                     }
                 }
             } else {
@@ -163,7 +210,23 @@ class SftpFragment : Fragment() {
             }
         }
         binding.switchPubkeyAuth.setOnCheckedChangeListener { _, checked ->
-            update { it.copy(publicKeyAuth = checked) }
+            // Enabling public-key auth with no installed key cannot start
+            // either, and the failure would otherwise surface only when the
+            // user presses Start.
+            val keys = authorizedKeys.list()
+            if (checked && keys.isEmpty()) {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.sftp_authorized_keys)
+                    .setMessage(R.string.sftp_no_authorized_keys_start)
+                    .setPositiveButton(R.string.sftp_add_key) { _, _ -> importPublicKey() }
+                    .setNegativeButton(R.string.sftp_cancel) { _, _ ->
+                        binding.switchPubkeyAuth.isChecked = false
+                    }
+                    .setOnCancelListener { binding.switchPubkeyAuth.isChecked = false }
+                    .show()
+            } else {
+                update { it.copy(publicKeyAuth = checked) }
+            }
         }
     }
 
@@ -305,42 +368,36 @@ class SftpFragment : Fragment() {
 
     /**
      * Shows the authorized keys management dialog.
+     *
+     * "Add key" opens the system file picker. It used to toast "Key import not
+     * yet implemented" when the list was empty, so the button existed and did
+     * nothing — which left a client with no way to install a key at all.
      */
     private fun showKeysDialog() {
         val keys = authorizedKeys.list()
-        if (keys.isEmpty()) {
-            MaterialAlertDialogBuilder(requireContext())
-                .setTitle(R.string.sftp_authorized_keys)
-                .setMessage(R.string.sftp_no_authorized_keys)
-                .setPositiveButton(R.string.sftp_add_key) { _, _ ->
-                    // TODO: Implement key import from file
-                    toast("Key import not yet implemented")
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-        } else {
-            val items = keys.map { it.label }.toTypedArray()
-            MaterialAlertDialogBuilder(requireContext())
-                .setTitle(R.string.sftp_authorized_keys)
-                .setItems(items) { _, which ->
-                    val entry = keys[which]
-                    MaterialAlertDialogBuilder(requireContext())
-                        .setTitle(entry.label)
-                        .setMessage(entry.publicKey)
-                        .setPositiveButton(R.string.sftp_remove_key) { _, _ ->
-                            authorizedKeys.remove(entry.publicKey)
-                            render()
-                            toast(R.string.sftp_key_removed)
-                        }
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show()
-                }
-                .setPositiveButton(R.string.sftp_add_key) { _, _ ->
-                    importKeyLauncher.launch(arrayOf("*/*"))
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.sftp_authorized_keys)
+            .setItems(keys.map { it.label }.toTypedArray()) { _, which ->
+                val entry = keys[which]
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(entry.label)
+                    .setMessage(entry.publicKey)
+                    .setPositiveButton(R.string.sftp_remove_key) { _, _ ->
+                        authorizedKeys.remove(entry.publicKey)
+                        render()
+                        toast(R.string.sftp_key_removed)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+            .setPositiveButton(R.string.sftp_add_key) { _, _ -> importPublicKey() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Opens the system picker for an OpenSSH public key file. */
+    private fun importPublicKey() {
+        importAuthorizedKeyLauncher.launch(arrayOf("text/plain", "*/*"))
     }
 
     /**
@@ -399,15 +456,44 @@ class SftpFragment : Fragment() {
             .show()
     }
 
+    /**
+     * Clears the stored server password.
+     *
+     * Password authentication cannot remain enabled without a password — that
+     * state can never start a server. But disabling it must not leave the server
+     * with *no* authentication method either, so the two flags are checked before
+     * the secret is deleted and the user is asked to choose. Deleting first and
+     * repairing afterwards, which is what this did, meant the user could end up
+     * with an unusable server and no idea which flag did it.
+     */
     private fun clearPassword(onComplete: ((Boolean) -> Unit)? = null) {
-        secrets.delete(PASSWORD_ALIAS)
-        // If password auth is enabled but we cleared the password, disable it
         val settings = store.load()
+        val wouldLeaveNoAuth = !settings.publicKeyAuth
+
+        if (wouldLeaveNoAuth) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.sftp_password_clear_title)
+                .setMessage(R.string.sftp_password_clear_no_auth)
+                .setPositiveButton(R.string.sftp_password_clear_disable) { _, _ ->
+                    secrets.delete(PASSWORD_ALIAS)
+                    update { it.copy(passwordAuth = false) }
+                    render()
+                    onComplete?.invoke(true)
+                }
+                .setNegativeButton(R.string.sftp_password_clear_cancel) { _, _ -> onComplete?.invoke(false) }
+                .show()
+            return
+        }
+
+        secrets.delete(PASSWORD_ALIAS)
         if (settings.passwordAuth) {
             update { it.copy(passwordAuth = false) }
         } else {
             render()
         }
+        // Report success only now: the earlier version signalled success before
+        // the restart had even been attempted, so a failed restart looked like a
+        // completed one.
         onComplete?.invoke(true)
     }
 
@@ -448,17 +534,45 @@ class SftpFragment : Fragment() {
         }
     }
 
+    // ── server control ───────────────────────────────────────────────────────
+
+    /**
+     * Starts or stops the server, based on what it is actually doing.
+     *
+     * Branches on "is it running", not on "is the status exactly Stopped". The
+     * previous code compared `status == SftpServerStatus.Stopped`, which is a
+     * different object from `Error` — so a server that had failed to start once
+     * was treated as *running*: pressing Start called `stop()`, the status went
+     * back to Stopped, and pressing Start again failed the same way forever. The
+     * button moved, and nothing it offered ever started a server.
+     */
     private fun toggleServer(status: SftpServerStatus) {
         viewLifecycleOwner.lifecycleScope.launch {
+            val running = status is SftpServerStatus.Running
             val settings = store.load()
-            val next = if (status == SftpServerStatus.Stopped) {
-                controller.start(settings)
-            } else {
-                controller.stop()
+
+            // The reason the last start failed is what tells the user what to
+            // change, so it is shown verbatim rather than replaced by a generic
+            // "could not start".
+            if (!running && status is SftpServerStatus.Error) {
+                viewModelScopeMessage(status.message)
             }
+
+            val next = if (running) controller.stop() else controller.start(settings)
             render()
-            if (next is SftpServerStatus.Error) toast(R.string.sftp_start_failed)
+            when (next) {
+                is SftpServerStatus.Error -> toast(next.message)
+                is SftpServerStatus.Running -> {
+                    if (!running) toast("SFTP server started on port ${next.port}")
+                }
+                else -> Unit
+            }
         }
+    }
+
+    /** Shows a message without assuming the fragment is attached. */
+    private fun viewModelScopeMessage(message: String) {
+        if (view != null) toast(message)
     }
 
     private fun toast(res: Int) =

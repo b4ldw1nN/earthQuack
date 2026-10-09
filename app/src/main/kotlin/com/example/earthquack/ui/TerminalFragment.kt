@@ -21,6 +21,8 @@ import com.example.earthquack.databinding.FragmentTerminalBinding
 import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ssh.SshConnection
 import com.example.earthquack.ssh.SshServices
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,6 +98,12 @@ class TerminalFragment : Fragment() {
             if (text.isNotEmpty()) {
                 writeToShell(text + "\n")
                 binding.inputField.text.clear()
+                // Dismiss the keyboard: leaving it up covers most of the log,
+                // and a terminal is watched while it works rather than typed
+                // into exclusively.
+                val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
             }
         }
 
@@ -140,22 +148,37 @@ class TerminalFragment : Fragment() {
     private fun openShell() {
         val conn = connection ?: return
         lifecycleScope.launch {
+            var ch: SshConnection.ShellChannel? = null
             try {
-                // Open shell with PTY
-                val ch = conn.openShell(
-                    onData = { data, offset, len ->
-                        val text = vtParser.feed(data, offset, len)
-                        requireActivity().runOnUiThread {
-                            appendToLog(text)
-                        }
-                    },
-                    rows = 24,
-                    cols = 80
-                )
+                // Opening a channel is blocking I/O: it waits for the server to
+                // answer the open request. Doing that on the main thread throws
+                // NetworkOnMainThreadException, which sshd's NIO2 write handler
+                // surfaces as a write-cycle failure, which closes the session —
+                // so the shell dies before it opens and the user sees "the server
+                // refused" for a server that would have said yes. This is the
+                // only reason the terminal ever failed: TCP, key exchange,
+                // authentication and host-key verification all succeeded first.
+                ch = withContext(Dispatchers.IO) {
+                    conn.openShell(
+                        onData = { data, offset, len ->
+                            val text = vtParser.feed(data, offset, len)
+                            // Posted to the TextView, not to the activity: the
+                            // callback runs on an sshd I/O thread that outlives
+                            // the screen, and requireActivity() throws once the
+                            // fragment is detached.
+                            _binding?.terminalLog?.post {
+                                if (_binding != null) appendToLog(text)
+                            }
+                        },
+                        rows = 24,
+                        cols = 80
+                    )
+                }
                 shell = ch
                 isConnected = true
 
                 requireActivity().runOnUiThread {
+                    if (view == null) return@runOnUiThread
                     binding.statusText.text = "Connected"
                     binding.btnConnect.isEnabled = false
                     binding.btnDisconnect.isEnabled = true
@@ -169,20 +192,20 @@ class TerminalFragment : Fragment() {
                         ch.stdin.offer(bytes, 0, bytes.size)
                     }
                 }
+            } catch (e: CancellationException) {
+                // The screen went away while the channel was opening: nothing to
+                // report, and a half-open channel must not be left behind.
+                ch?.close()
+                throw e
             } catch (e: Throwable) {
                 Log.e("TerminalFragment", "Failed to open shell", e)
-                val msg = when {
-                    e.message?.contains("Closed", ignoreCase = true) == true ->
-                        "Shell channel closed by server. The SSH server may be configured to deny shell access (e.g., ForceCommand internal-sftp, PermitTTY no, or user shell set to nologin). Check server's sshd_config and user shell."
-                    e.message?.contains("timeout", ignoreCase = true) == true ->
-                        "Connection timed out opening shell channel"
-                    e.message?.contains("auth", ignoreCase = true) == true ->
-                        "Authentication failed"
-                    else ->
-                        "Terminal error: ${e.message}"
-                }
+                // The reason comes from SshConnection, which knows what actually
+                // happened. Guessing again here from keywords produced "the server
+                // refused the shell" for what was really a client-side bug.
+                val detail = e.cause?.message?.takeIf { it.isNotBlank() } ?: e.message
                 requireActivity().runOnUiThread {
-                    showError(msg)
+                    if (view == null) return@runOnUiThread
+                    showError(detail ?: "The terminal could not be opened.")
                 }
             }
         }
@@ -207,10 +230,19 @@ class TerminalFragment : Fragment() {
         }
     }
 
-    private fun appendToLog(spanned: android.text.Spanned) {
-        val current = binding.terminalLog.text as SpannableStringBuilder
+    private fun appendToLog(spanned: CharSequence) {
+        val log = binding.terminalLog
+        // The TextView's text is not necessarily a SpannableStringBuilder:
+        // `setTextIsSelectable(true)` makes it a SpannableString, so casting
+        // straight to the builder threw ClassCastException on the first byte of
+        // output — which killed the app the moment a shell finally opened.
+        // Append onto a builder that is built from whatever is there.
+        val current = when (val existing = log.text) {
+            is SpannableStringBuilder -> existing
+            else -> SpannableStringBuilder(existing)
+        }
         current.append(spanned)
-        binding.terminalLog.text = current
+        log.text = current
         binding.terminalScroll.fullScroll(View.FOCUS_DOWN)
     }
 
@@ -257,9 +289,17 @@ class VT100Parser {
 
     /**
      * Feeds raw bytes, returns styled text ready to append.
+     *
+     * The result is the slice of the parser's own accumulator that this call
+     * produced, from [pendingStart] to its new length — never a fresh empty
+     * builder. The previous version returned a `local` buffer that nothing ever
+     * wrote to, while every helper appended to `output`, so the terminal
+     * parsed and stored all of a shell's output and then displayed none of it.
+     * The connection stayed established and the screen stayed blank, which is
+     * exactly what was observed.
      */
     fun feed(data: ByteArray, offset: Int, len: Int): android.text.Spanned {
-        val local = SpannableStringBuilder()
+        val pendingStart = output.length
         var i = offset
         val end = offset + len
         while (i < end) {
@@ -310,7 +350,14 @@ class VT100Parser {
                 }
             }
         }
-        return local
+        // Return only what this call produced. A substring of `output` carries the
+        // spans set while those bytes were parsed, because the spans are
+        // recorded over exactly these positions.
+        return if (output.length > pendingStart) {
+            SpannableStringBuilder(output, pendingStart, output.length)
+        } else {
+            SpannableStringBuilder()
+        }
     }
 
     private fun handleCSI(finalChar: Char) {

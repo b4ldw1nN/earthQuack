@@ -10,7 +10,6 @@ import org.apache.sshd.client.channel.ClientChannelEvent
 import org.apache.sshd.client.session.ClientSession
 import org.apache.sshd.client.keyverifier.ServerKeyVerifier
 import org.apache.sshd.common.SshException
-import org.apache.sshd.common.util.io.PathUtils
 import org.apache.sshd.sftp.client.SftpClientFactory
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -22,7 +21,6 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 
 /**
@@ -64,9 +62,11 @@ data class SshTimeouts(
  * sshd's own message.
  */
 class SshConnectionFactory(
-    private val identityKeys: IdentityKeyStore,
+    /** Key material. See [ClientIdentityProvider]. */
+    private val identityKeys: ClientIdentityProvider,
     private val secrets: SecretStore,
-    private val knownHosts: KnownHostsStore,
+    /** Host-key trust. See [HostKeyTrust]. */
+    private val knownHosts: HostKeyTrust,
     private val filesDir: java.io.File,
     private val timeouts: SshTimeouts = SshTimeouts()
 ) {
@@ -74,11 +74,21 @@ class SshConnectionFactory(
     private companion object {
         const val TAG = "EarthQuackSsh"
 
-        init {
-            // On Android, sshd needs a user home folder resolver since there's no
-            // traditional $HOME. Must be set before any sshd classes are loaded.
-            PathUtils.setUserHomeFolderResolver { Paths.get(System.getProperty("user.dir")) }
-        }
+        /**
+         * How far to walk a cause chain.
+         *
+         * Bounded because a cycle in `cause` would otherwise hang the connect
+         * path; sshd's real chains are three or four deep.
+         */
+        const val MAX_CAUSE_DEPTH = 12
+    }
+
+    init {
+        // sshd needs a user-home resolver on Android, which has no $HOME. It is
+        // process-global, so it is installed once, centrally — see
+        // [SshdEnvironment] for why neither this class nor the SFTP server may
+        // set it for itself.
+        SshdEnvironment.ensureUserHome(filesDir)
     }
 
     /**
@@ -174,6 +184,16 @@ class SshConnectionFactory(
         try {
             session.auth().verify(timeouts.authMillis, TimeUnit.MILLISECONDS)
         } catch (e: SshException) {
+            // A host-key verdict is delivered through the auth future, because
+            // sshd asks the ServerKeyVerifier during key exchange, which auth
+            // awaits. Wrapping it here as "authentication failed" lost that
+            // distinction entirely: a changed host key was reported as bad
+            // credentials, which is precisely the wrong place to send someone.
+            // The structured failure is rethrown so the host-key error survives.
+            val structured = rootCause<SshFailureException>(e)
+            if (structured != null) {
+                throw structured
+            }
             throw SshFailureException(
                 SshFailure.AuthFailed(
                     profile.authMethod,
@@ -181,19 +201,20 @@ class SshConnectionFactory(
                 )
             )
         }
+        // Nothing else here, and deliberately so. See the comment in connect().
+    }
 
-        // Test if session stays alive by executing a simple command
-        // This helps diagnose if the session is being closed by the server immediately after auth
-        try {
-            val testChannel: ChannelExec = session.createExecChannel("echo 'test'")
-            testChannel.setOut(CallbackOutputStream { _, _, _ -> })
-            testChannel.setErr(CallbackOutputStream { _, _, _ -> })
-            testChannel.open().verify(5000, TimeUnit.MILLISECONDS)
-            Log.i("EarthQuackSsh", "Test exec command succeeded, session is alive")
-            testChannel.close()
-        } catch (e: Throwable) {
-            Log.w("EarthQuackSsh", "Test exec command failed: ${e.message}", e)
+    /** The first [T] in [e]'s cause chain, or null. */
+    private inline fun <reified T : Throwable> rootCause(e: Throwable): T? {
+        var current: Throwable? = e
+        repeat(MAX_CAUSE_DEPTH) {
+            when (current) {
+                is T -> return current
+                null -> return null
+                else -> current = current.cause
+            }
         }
+        return null
     }
 
     /**
@@ -201,24 +222,71 @@ class SshConnectionFactory(
      *
      * Ordering matters: a timeout and a refused connection are both IO
      * exceptions and the difference between them is the entire message.
+     *
+     * The whole cause chain is walked, because sshd buries the interesting
+     * exception: a rejected host key arrives as an `SshException` wrapping a
+     * `UserAuthException` wrapping the real cause, and classifying only the
+     * outer type turns "the host key changed" into "unexpected error". Every
+     * chain is also logged in full so a report from a device shows what
+     * actually happened rather than the outermost wrapper.
      */
-    private fun classify(e: Throwable): SshFailure = when (e) {
-        is SshFailureException -> e.failure
-        is SocketTimeoutException -> SshFailure.Timeout
-        // sshd has no dedicated timeout exception in this line; a failed
-        // verify() surfaces as a plain IOException whose message says so.
-        is IOException -> if (e.message?.contains("imeout", ignoreCase = true) == true) {
-            SshFailure.Timeout
-        } else {
-            SshFailure.Unexpected(e.message ?: e.javaClass.simpleName)
+    private fun classify(e: Throwable): SshFailure {
+        val chain = generateSequence(e) { it.cause }.take(MAX_CAUSE_DEPTH).toList()
+        Log.w(TAG, "connect failed: ${chain.joinToString(" <- ") { "${it.javaClass.simpleName}: ${it.message}" }}")
+
+        // Innermost first: the root cause describes the failure better than the
+        // wrapper, so `timeout` must be recognised under `SshException` too.
+        val leafFirst = chain.asReversed()
+        for (candidate in leafFirst) {
+            // A structured failure already decided the reason; it must win over
+            // any wrapper the SSH layer added on the way out.
+            if (candidate is SshFailureException) return candidate.failure
         }
-        is java.util.concurrent.TimeoutException -> SshFailure.Timeout
-        is UnknownHostException -> SshFailure.Network("no such host")
-        is ConnectException ->
-            SshFailure.Network("connection refused — is the host up and sshd listening?")
-        is SocketException -> SshFailure.Network(e.message ?: "socket error")
-        is SshException -> SshFailure.Unexpected(e.message ?: "ssh error")
-        else -> SshFailure.Unexpected(e.message ?: e.javaClass.simpleName)
+        for (candidate in leafFirst) {
+            when (candidate) {
+                is SocketTimeoutException -> return SshFailure.Timeout
+                is java.util.concurrent.TimeoutException -> return SshFailure.Timeout
+                is UnknownHostException -> return SshFailure.Network("no such host")
+                is ConnectException -> return SshFailure.Network(
+                    "connection refused — is the host up and sshd listening?"
+                )
+                is java.net.PortUnreachableException -> return SshFailure.Network(
+                    "no route to that port"
+                )
+                is SshException -> return classifySsh(candidate, chain)
+                is SocketException -> return SshFailure.Network(candidate.message ?: "socket error")
+            }
+        }
+        // An IOException whose message says timeout: sshd has no dedicated
+        // timeout exception in this line, so a failed verify() surfaces as one.
+        chain.firstOrNull { it.message?.contains("imeout", ignoreCase = true) == true }
+            ?.let { return SshFailure.Timeout }
+
+        val root = leafFirst.firstOrNull()
+        return SshFailure.Unexpected(
+            buildString {
+                append(root?.message ?: root?.javaClass?.simpleName ?: "unknown")
+                // The outer wrappers add nothing for a user but everything for a
+                // bug report, so they are appended rather than discarded.
+                chain.drop(1).forEach { append(" (caused by ${it.javaClass.simpleName}: ${it.message})") }
+            }
+        )
+    }
+
+    /** Distinguishes the sshd exceptions the UI can say something useful about. */
+    private fun classifySsh(e: SshException, chain: List<Throwable>): SshFailure {
+        val text = chain.joinToString(" ") { it.message ?: "" }
+        return when {
+            // Host-key rejection arrives as a plain SshException from
+            // ServerKeyVerifier; the marker is the verifier's own message.
+            text.contains("key", ignoreCase = true) &&
+                (text.contains("host", ignoreCase = true) || text.contains("verify", ignoreCase = true)) ->
+                SshFailure.Unexpected("the server's host key was rejected: ${e.message}")
+            text.contains("auth", ignoreCase = true) ->
+                SshFailure.Unexpected("the server refused the session: ${e.message}")
+            text.contains("imeout", ignoreCase = true) -> SshFailure.Timeout
+            else -> SshFailure.Unexpected(e.message ?: "ssh error")
+        }
     }
 }
 
@@ -261,17 +329,9 @@ class SshConnection(
      * @param onData receives everything the server writes — stdout and stderr
      *   together. A terminal has one pane, and hiding errors in a second
      *   channel that is never displayed is worse than interleaving them.
-     */
-    /**
-     * Opens an interactive shell with a PTY.
      *
-     * [rows] and [cols] are the geometry the remote side should assume; they
-     * must be kept current with [ShellChannel.resize] or full-screen programs
-     * (vim, less, htop) will draw for the wrong size.
-     *
-     * @param onData receives everything the server writes — stdout and stderr
-     *   together. A terminal has one pane, and hiding errors in a second
-     *   channel that is never displayed is worse than interleaving them.
+     * @throws IOException when the server declines the channel. The session is
+     *   still authenticated at that point; only this channel is unavailable.
      */
     fun openShell(
         onData: (ByteArray, Int, Int) -> Unit,
@@ -291,15 +351,15 @@ class SshConnection(
         channel.setOut(CallbackOutputStream(onData))
         channel.setErr(CallbackOutputStream(onData))
         try {
-            Log.i("EarthQuackSsh", "Opening shell channel...")
             val future = channel.open()
-            Log.i("EarthQuackSsh", "Channel open future created, verifying...")
             future.verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            Log.i("EarthQuackSsh", "Shell channel opened successfully")
         } catch (e: Throwable) {
-            Log.e("EarthQuackSsh", "Failed to open shell channel, trying exec fallback", e)
-            // Fallback: try exec channel with explicit shell command
-            return openShellFallback(onData, term, rows, cols, e)
+            // Close the half-open channel before reporting. Leaving it to the
+            // finaliser keeps a window descriptor (a PTY on most servers) alive
+            // for an unknown time after the screen is gone.
+            runCatching { channel.close() }
+            runCatching { stdin.close() }
+            throw IOException(shellUnavailableReason(e), e)
         }
 
         return ShellChannel(channel, stdin)
@@ -322,68 +382,6 @@ class SshConnection(
         channel.setPtyModes(ptyModes)
     }
 
-    /**
-     * Fallback: opens an exec channel with an explicit shell command.
-     * Used when the shell channel fails (e.g., server closes shell channel).
-     */
-    private fun openShellFallback(
-        onData: (ByteArray, Int, Int) -> Unit,
-        term: String,
-        rows: Int,
-        cols: Int,
-        originalError: Throwable
-    ): ShellChannel {
-        Log.w("EarthQuackSsh", "Attempting fallback: exec channel with explicit shell", originalError)
-
-        // Try common shells in order of preference
-        val shells = listOf("bash -l", "sh -l", "bash", "sh")
-        var lastError: Throwable? = originalError
-
-        for (shellCmd in shells) {
-            try {
-                Log.i("EarthQuackSsh", "Trying fallback shell: $shellCmd")
-                val execChannel: ChannelExec = session.createExecChannel(shellCmd)
-                execChannel.setPtyType(term)
-                execChannel.setPtyHeight(rows)
-                execChannel.setPtyWidth(cols)
-                execChannel.setUsePty(true)
-
-                val ptyModes = mutableMapOf<org.apache.sshd.common.channel.PtyMode, Int>()
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ECHO] = 1
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ECHOCTL] = 1
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ICRNL] = 1
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ONLCR] = 1
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ISIG] = 1
-                ptyModes[org.apache.sshd.common.channel.PtyMode.ICANON] = 1
-                execChannel.setPtyModes(ptyModes)
-
-                val stdin = QueueInputStream()
-                execChannel.setIn(stdin)
-                execChannel.setOut(CallbackOutputStream(onData))
-                execChannel.setErr(CallbackOutputStream(onData))
-                execChannel.open().verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                Log.i("EarthQuackSsh", "Fallback exec channel opened successfully with: $shellCmd")
-                return ShellChannel(execChannel, stdin)
-            } catch (e: Throwable) {
-                Log.w("EarthQuackSsh", "Fallback shell '$shellCmd' failed", e)
-                lastError = e
-            }
-        }
-
-        // All fallbacks failed
-        val msg = when {
-            lastError?.message?.contains("Closed", ignoreCase = true) == true ->
-                "All shell attempts failed. The SSH server may be configured to deny shell access (e.g., ForceCommand internal-sftp, PermitTTY no, or user shell set to nologin). Check server's sshd_config and user shell."
-            lastError?.message?.contains("timeout", ignoreCase = true) == true ->
-                "Connection timed out opening shell channel"
-            lastError?.message?.contains("auth", ignoreCase = true) == true ->
-                "Authentication failed"
-            else ->
-                "Terminal error: ${lastError?.message ?: "Unknown error"}"
-        }
-        Log.e("EarthQuackSsh", "All shell attempts failed: $msg", lastError)
-        throw IOException("Failed to open shell channel: $msg", lastError!!)
-    }
 
     /** Opens the SFTP subsystem on this session. The caller closes it. */
     fun openSftp(): SftpSession = SftpSession(SftpClientFactory.instance().createSftpClient(session))
@@ -410,10 +408,24 @@ class SshConnection(
         channel.setIn(QueueInputStream())
         channel.setOut(stdout)
         channel.setErr(stderr)
-        channel.open()
 
+        // The future is verified, not discarded.
+        //
+        // A discarded `channel.open()` is where a refused exec used to vanish: the
+        // server answers with a channel-open failure, delivered through that
+        // future, and with it dropped `waitFor` returns normally and `exitStatus`
+        // is null — so "the server would not run this" was reported as a command
+        // that ran and produced no output. Verifying it makes that a failure.
+        channel.open().verify(CHANNEL_OPEN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+        // The open has already succeeded, so this is only the wait for the
+        // command to finish.
         channel.waitFor(WAIT_FOR_CHANNEL_EVENTS, timeoutMillis)
         val status = channel.exitStatus
+            ?: throw IOException(
+                "the command did not report an exit status within ${timeoutMillis}ms; " +
+                    "it may still be running"
+            )
 
         SshCommandResult(
             exitStatus = status,
@@ -466,6 +478,43 @@ class ShellChannel internal constructor(
             ClientChannelEvent.EXIT_STATUS,
             ClientChannelEvent.EOF
         )
+
+        /**
+         * Explains a failed shell channel in terms the user can act on.
+         *
+         * A denied shell is not an authentication failure and not a broken
+         * connection: the session is authenticated and open, the server simply
+         * declines this one channel type. Saying so is the whole point — the
+         * same session may still serve SFTP perfectly.
+         *
+         * There is deliberately no exec fallback here. Running `bash -l` when
+         * the shell request was refused ignores the account's configured shell,
+         * ignores `ForceCommand`, and for an `internal-sftp` account it either
+         * hangs or hands the user a shell the administrator withheld.
+         */
+        fun shellUnavailableReason(e: Throwable): String {
+            val chain = generateSequence(e) { it.cause }.take(8)
+                .joinToString(" ") { it.message ?: "" }
+            return when {
+                chain.contains("admin", ignoreCase = true) ||
+                    chain.contains("prohibited", ignoreCase = true) ||
+                    chain.contains("closed", ignoreCase = true) ->
+                    "The server refused to open a shell for this account. " +
+                        "That is normal for an SFTP-only account (ForceCommand " +
+                        "internal-sftp, or a shell of nologin); use the file browser " +
+                        "instead of the terminal."
+                chain.contains("pty", ignoreCase = true) ||
+                    chain.contains("pseudo-terminal", ignoreCase = true) ->
+                    "The server refused the pseudo-terminal, so it cannot host an " +
+                        "interactive session. Check PermitTTY in sshd_config."
+                chain.contains("timeout", ignoreCase = true) ||
+                    e is java.util.concurrent.TimeoutException ->
+                    "The server did not answer the shell request within " +
+                        "${CHANNEL_OPEN_TIMEOUT_MS / 1000}s."
+                else -> "Could not open a shell on this session: " +
+                    (chain.ifBlank { e.javaClass.simpleName })
+            }
+        }
     }
 }
 
@@ -609,7 +658,7 @@ private class RetainingOutputStream(
  */
 internal class HostKeyVerifier(
     private val profile: ConnectionProfile,
-    private val knownHosts: KnownHostsStore
+    private val knownHosts: HostKeyTrust
 ) : ServerKeyVerifier {
 
     override fun verifyServerKey(

@@ -37,6 +37,24 @@ sealed class HostKeyVerdict {
 }
 
 /**
+ * The client's host-key trust decision, in one contract.
+ *
+ * Exists so the verification policy can be exercised without a Context, and
+ * without a live socket. [KnownHostsStore] is the Android implementation;
+ * [SshConnectionFactory] depends only on this.
+ */
+interface HostKeyTrust {
+
+    /** Compares a presented key against what was recorded for [profileId]. */
+    fun verify(profileId: String, publicKey: PublicKey): HostKeyVerdict
+
+    /** Records (or replaces) the key for [profileId]. */
+    fun record(profileId: String, publicKey: PublicKey)
+
+    fun forget(profileId: String)
+}
+
+/**
  * Remembers the host key of every connection profile.
  *
  * ## Trust model
@@ -52,7 +70,7 @@ sealed class HostKeyVerdict {
  * user who suspects a compromised host should be able to reset trust without
  * losing their connections.
  */
-class KnownHostsStore(context: Context) {
+class KnownHostsStore(context: Context) : HostKeyTrust {
 
     private companion object {
         const val PREFS = "earthquack_known_hosts"
@@ -74,7 +92,7 @@ class KnownHostsStore(context: Context) {
     fun forProfile(profileId: String): KnownHostKey? = all().firstOrNull { it.profileId == profileId }
 
     /** Records (or replaces) the key for [profileId]. */
-    fun record(profileId: String, publicKey: PublicKey) {
+    override fun record(profileId: String, publicKey: PublicKey) {
         val entry = KnownHostKey(
             profileId = profileId,
             keyType = publicKey.algorithm,
@@ -84,10 +102,10 @@ class KnownHostsStore(context: Context) {
         write(updated)
     }
 
-    fun forget(profileId: String) = write(all().filterNot { it.profileId == profileId })
+    override fun forget(profileId: String) = write(all().filterNot { it.profileId == profileId })
 
     /** Compares a presented key against what was recorded. */
-    fun verify(profileId: String, publicKey: PublicKey): HostKeyVerdict {
+    override fun verify(profileId: String, publicKey: PublicKey): HostKeyVerdict {
         val known = forProfile(profileId)
         val fingerprint = KeyUtils.getFingerPrint(publicKey)
         return when {

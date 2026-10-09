@@ -109,8 +109,9 @@
                 android:textAppearance="@style/TextAppearance.Eq.RowTitle"
                 android:textColor="@color/eq_text_primary"
                 android:hint="@string/terminal_input_hint"
-                android:inputType="text"
-                android:imeOptions="actionSend"
+                android:inputType="text|textNoSuggestions|textVisiblePassword"
+                android:imeOptions="actionSend|flagNoExtractUi"
+                android:privateImeOptions="nm"
                 android:maxLines="1"
                 android:singleLine="true"
                 android:enabled="false" />

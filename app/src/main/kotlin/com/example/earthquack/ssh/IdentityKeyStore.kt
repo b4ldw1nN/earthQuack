@@ -24,6 +24,25 @@ import java.util.UUID
  * is safe in preferences and safe to show in the UI — that is exactly what the
  * user needs to install it on the other machine.
  */
+/**
+ * Where an authenticated connection obtains its private key material.
+ *
+ * The seam that lets the real [SshConnectionFactory] be driven end-to-end in a
+ * JVM test: the Android implementation needs a Context and a hardware Keystore,
+ * while a test needs only a [KeyPair].
+ */
+interface ClientIdentityProvider {
+
+    /**
+     * The decrypted key pair for [alias], or null when it is gone.
+     *
+     * Null must mean "this key is not on the device", never "this key failed" —
+     * the caller turns it into an actionable message rather than into an
+     * authentication failure against the server.
+     */
+    fun loadKeyPair(alias: String): KeyPair?
+}
+
 data class IdentityKeyInfo(
     val alias: String,
     val label: String,
@@ -54,7 +73,7 @@ data class IdentityKeyInfo(
 class IdentityKeyStore(
     context: Context,
     private val secrets: SecretStore
-) {
+) : ClientIdentityProvider {
 
     private companion object {
         const val PREFS = "earthquack_identity_keys"
@@ -145,7 +164,7 @@ class IdentityKeyStore(
      * turns that into "this profile's key is missing", which is actionable,
      * rather than an authentication failure against the server, which is not.
      */
-    fun loadKeyPair(alias: String): KeyPair? {
+    override fun loadKeyPair(alias: String): KeyPair? {
         val pem = secrets.get(alias + SUFFIX_KEY) ?: return null
         val passphrase = secrets.get(alias + SUFFIX_PASS)?.let {
             runCatching { String(it, Charsets.UTF_8) }.getOrNull()?.toCharArray()
