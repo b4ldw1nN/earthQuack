@@ -1,0 +1,48 @@
+<resources>
+    <string name="files_downloading">Downloading %1$s…</string>
+    <string name="files_download_running">A download is already in progress</string>
+    <string name="files_download_cancel">Stop download</string>
+    <string name="files_download_cancelled">Download cancelled</string>
+    <string name="files_download_failed">That file could not be downloaded</string>
+    <string name="files_download_no_viewer">Downloaded, but no app on this device can open %1$s files</string>
+    <string name="files_open_failed">That file could not be opened</string>
+
+    <!-- Chooser titles: the user is choosing an app *for a file*, named. -->
+    <string name="files_open_with">Open %1$s with</string>
+    <string name="files_open_with_action">Open with another app</string>
+    <string name="files_share_title">Share %1$s</string>
+
+    <!-- Per-row actions. -->
+    <string name="files_open">Open</string>
+    <string name="files_share">Share</string>
+    <string name="files_copy_path">Copy path</string>
+    <string name="files_delete">Delete</string>
+    <string name="files_delete_confirm">Delete “%1$s”? This cannot be undone.</string>
+    <string name="files_delete_confirm_dir">Delete “%1$s” and everything inside it? This cannot be undone.</string>
+    <string name="files_deleted">Deleted</string>
+    <string name="files_delete_failed">Could not delete %1$s</string>
+    <string name="files_share_failed">Could not share %1$s</string>
+    <string name="files_copied_path">Path copied</string>
+
+    <!-- Saving to the device Downloads folder, via the system's own picker. -->
+    <string name="files_save_to_device">Save to Downloads</string>
+    <string name="files_saving">Saving %1$s…</string>
+    <string name="files_saved">Saved to Downloads</string>
+    <string name="files_save_failed">Could not save %1$s</string>
+    <string name="files_save_cancelled">Save cancelled</string>
+
+    <!-- Cache freshness line and retention menu. -->
+    <string name="files_cache_fresh">Listed from cache</string>
+    <string name="files_cache_choice_off">Off</string>
+    <string name="files_cache_choice_day">1 day</string>
+    <string name="files_cache_choice_days">%1$d days</string>
+    <string name="files_cache_menu_title">Keep listings for</string>
+    <string name="files_cache_pruned">Stale cached listings removed</string>
+
+    <string name="action_dismiss">Dismiss</string>
+
+    <!-- File preview screen: the file is here and could not be shown. -->
+    <string name="files_preview_title">Preview</string>
+    <string name="files_preview_image">Photo</string>
+    <string name="files_preview_failed">This file could not be shown here. Try opening it with another app.</string>
+</resources>

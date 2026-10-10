@@ -1,6 +1,7 @@
 package com.example.earthquack
 
 import android.content.ClipData
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -18,29 +19,45 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
 import androidx.core.view.isVisible
 import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.ActivityFileBrowserBinding
+import com.example.earthquack.storage.DirectoryListingCache
+import com.example.earthquack.storage.DownloadTracker
 import com.example.earthquack.storage.RcloneConfigManager
+import com.example.earthquack.storage.RcloneDownloadPlanner
+import com.example.earthquack.storage.RcloneDownloadRequest
+import com.example.earthquack.storage.RcloneDownloadResult
 import com.example.earthquack.storage.RcloneEngine
 import com.example.earthquack.storage.RcloneException
+import com.example.earthquack.storage.RcloneFileTransfer
 import com.example.earthquack.storage.RcloneRemoteManager
 import com.example.earthquack.ui.FileEntry
 import com.example.earthquack.ui.FileEntryAdapter
+import com.example.earthquack.ui.FileOpener
+import com.example.earthquack.ui.FilePreviewActivity
+import com.example.earthquack.ui.OpenTarget
 import com.example.earthquack.ui.formatModified
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.io.File
+import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
-import java.util.Locale
 
 /**
  * A file browser backed by the embedded rclone.
@@ -66,11 +83,9 @@ import java.util.Locale
  *
  * ## What this screen does not do
  *
- * It does not write. The per-row "Download" is disabled, because
- * `FileTransferService` downloads by *desktop file id* — the identifier the
- * desktop's HTTP file server assigns — and an rclone path is not one. Guessing
- * a URL from a path would produce a download that fails after the user waits
- * for it.
+ * It does not write. It does read one file — [openFile] copies a tapped file
+ * into a cache directory and hands it to an installed viewer through a
+ * FileProvider — but there is no in-app viewer, no upload, and no editing.
  */
 class FileBrowserActivity : AppCompatActivity() {
 
@@ -91,6 +106,92 @@ class FileBrowserActivity : AppCompatActivity() {
 
     private var query: String = ""
 
+    /**
+     * The listing cache, rooted in the app's cache dir so the OS prunes it under
+     * storage pressure.
+     *
+     * Lazy because [getCacheDir] is a Context call, and a property initialiser
+     * runs before the activity is attached to one. Making this a plain
+     * `val = DirectoryListingCache(rootFor(cacheDir))` crashes during
+     * construction with a NullPointerException on the Context's base — which
+     * is what "clicking a drive closes the app" turned out to be.
+     */
+    private val listingCache: DirectoryListingCache by lazy {
+        DirectoryListingCache(DirectoryListingCache.rootFor(cacheDir))
+    }
+
+    /** When the visible listing was fetched, for the freshness line. */
+    private var lastRefreshAt: Long? = null
+
+    /** Guards against a slow reply arriving after the user navigated on. */
+    private var listFsAtRequest: String = ""
+    private var listPathAtRequest: String = ""
+
+    /** In-flight downloads, so a second tap of the same file is not queued twice. */
+    private val downloads = DownloadTracker()
+
+    /** The entry currently being downloaded, for the progress line. */
+    private var transferring: FileEntry? = null
+
+    /**
+     * Opener for whatever we just downloaded.
+     *
+     * Lazy, and constructed with the application context: it outlives this
+     * activity (the preview screen and the chooser both hold one), so an
+     * activity reference here would keep a finished screen alive.
+     */
+    private val opener: FileOpener by lazy { FileOpener(applicationContext) }
+
+    /** Coroutine job for the current download, cancellable. */
+    private var downloadJob: Job? = null
+
+    /** True when the user pressed stop; the result is discarded when it lands. */
+    private var cancelled = false
+
+    /** Set when the tap asked for a share instead of a plain open. */
+    private var sharePending: FileEntry? = null
+
+    /** Set when the tap asked to save the file out of the app's cache. */
+    private var savePending: FileEntry? = null
+
+    /** Where the picked save URI lands while [saveLauncher] runs. */
+    private var pendingSavePath: String? = null
+
+    /**
+     * Picks where a downloaded file is saved.
+     *
+     * Registered in `onCreate` rather than built per use, because the activity
+     * result API needs one registration per request kind and this screen makes
+     * exactly one: "save this". A `startActivityForResult` would race the
+     * result against the coroutine that produced the file.
+     */
+    private val saveLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val source = pendingSavePath?.let { File(it) }
+        val target = result.data?.data
+        if (result.resultCode != RESULT_OK || target == null || source == null) {
+            pendingSavePath = null
+            toast(getString(R.string.files_save_cancelled))
+            return@registerForActivityResult
+        }
+        pendingSavePath = null
+        lifecycleScope.launch {
+            binding.progress.isVisible = true
+            try {
+                withContext(Dispatchers.IO) { copyTo(source, target) }
+                toast(getString(R.string.files_saved))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "save failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_save_failed, source.name))
+            } finally {
+                binding.progress.isVisible = false
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityFileBrowserBinding.inflate(layoutInflater)
@@ -103,7 +204,7 @@ class FileBrowserActivity : AppCompatActivity() {
         fs = intent.getStringExtra(EXTRA_FS)?.takeIf { it.isNotBlank() } ?: localRoot()
 
         adapter = FileEntryAdapter(
-            onOpen = { entry -> if (entry.isDir) openFolder(entry) },
+            onOpen = { entry -> if (entry.isDir) openFolder(entry) else openFile(entry) },
             onOverflow = { entry, anchor -> showEntryMenu(entry, anchor) }
         )
         binding.list.layoutManager = LinearLayoutManager(this)
@@ -114,6 +215,27 @@ class FileBrowserActivity : AppCompatActivity() {
         wireBack()
 
         if (startEngine()) load()
+
+        // Entries whose directory is never revisited still go away, so the
+        // cache cannot grow while the user explores. Cheap, and off the main
+        // thread; nothing here depends on its result.
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                listingCache.prune(ServerConfig.getCacheRetentionDays(this@FileBrowserActivity))
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        // A download in flight is abandoned, not left running: the native
+        // RPC cannot be interrupted, so the job is cancelled and the next
+        // attempt's planner deletes the partial file before copying over it.
+        // lifecycleScope is already cancelled by this point; this only stops
+        // anything the activity still owns.
+        downloadJob?.cancel()
+        downloadJob = null
+        transferring = null
+        super.onDestroy()
     }
 
     // ── Wiring ────────────────────────────────────────────────────────────────
@@ -133,6 +255,7 @@ class FileBrowserActivity : AppCompatActivity() {
 
         binding.btnOverflow.setOnClickListener { showLocationMenu(it) }
         binding.btnRetry.setOnClickListener { load() }
+        binding.btnCancel.setOnClickListener { cancelDownload() }
         binding.fab.setOnClickListener { load() }
     }
 
@@ -185,6 +308,300 @@ class FileBrowserActivity : AppCompatActivity() {
         )
     }
 
+    // ── Download and open ────────────────────────────────────────────────────
+
+    /**
+     * Taps on a file come here: fetch it to cache, then hand it to an app that
+     * can display it. There is no in-app viewer, and none is planned — Android
+     * already ships better ones for every one of these types.
+     *
+     * The whole transfer runs in one [lifecycleScope] coroutine, so leaving the
+     * screen cancels it (and the partial file with it) rather than leaving a
+     * native RPC running against a finished activity.
+     */
+    private fun openFile(entry: FileEntry) {
+        val rpc = engine
+        if (rpc == null) {
+            toast(getString(R.string.state_unavailable))
+            return
+        }
+
+        val planner = RcloneDownloadPlanner(cacheDir.absolutePath)
+        val token = UUID.randomUUID().toString()
+        val request = planner.request(
+            srcFs = fs,
+            srcRemote = entry.path,
+            fileName = entry.name.ifBlank { entry.path.substringAfterLast('/') },
+            token = token
+        )
+
+        // Second tap of the same row: the first download is either running or
+        // already finished, and starting another would race for the same name.
+        if (!downloads.tryStart(request.localFile)) {
+            toast(getString(R.string.files_download_running))
+            return
+        }
+        if (transferring != null) {
+            // One transfer at a time. Two at once would interleave progress
+            // reporting on one progress bar, which reads as a bug.
+            downloads.finish(request.localFile)
+            toast(getString(R.string.files_download_running))
+            return
+        }
+
+        cancelled = false
+        transferring = entry
+        showTransferProgress(entry)
+        binding.btnCancel.isVisible = true
+
+        downloadJob = lifecycleScope.launch {
+            try {
+                val transfer = RcloneFileTransfer(rpc)
+                val result = transfer.download(
+                    request,
+                    entry.size,
+                    onProgress = { copied ->
+                        // The poller runs on IO; the progress bar does not.
+                        withContext(Dispatchers.Main) {
+                            showTransferProgress(transferring ?: entry, copied)
+                        }
+                    }
+                )
+
+                if (cancelled) {
+                    // The user stopped it. The bytes were already written before
+                    // the cancellation could land, so a full file is sitting at
+                    // the destination of a download nobody wants; delete it
+                    // rather than leaving nothing for the OS to prune.
+                    val path = (result as? RcloneDownloadResult.Success)?.localPath
+                        ?: request.localFile
+                    File(path).delete()
+                    throw CancellationException()
+                }
+
+                when (result) {
+                    is RcloneDownloadResult.Success ->
+                        openDownloaded(request, result, entry)
+                    is RcloneDownloadResult.Failure -> toast(result.detail)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Covers the unwritable-cache and unexpected-native cases; the
+                // transfer maps rclone's own errors onto Failure itself.
+                Log.w(TAG, "download failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_download_failed))
+            } finally {
+                downloads.finish(request.localFile)
+                transferComplete()
+            }
+        }
+    }
+
+    /**
+     * After a successful copy: resolve the type, find a viewer, open.
+     *
+     * The failure modes here are about the *receiving* half, so they are
+     * reported separately from a failed download: a file that downloaded fine
+     * and then found no viewer is a different problem from one that failed.
+     */
+    private fun openDownloaded(
+        request: RcloneDownloadRequest,
+        result: RcloneDownloadResult.Success,
+        entry: FileEntry
+    ) {
+        val file = File(result.localPath)
+
+        // An empty or unreadable file must never reach a viewer: some apps
+        // crash on it, and the user would blame Android, not EarthQuack.
+        if (!file.isFile || file.length() <= 0L) {
+            file.delete()
+            toast(getString(R.string.files_download_failed))
+            return
+        }
+
+        // A tap that asked for something other than a plain open gets that,
+        // now that the bytes are here.
+        sharePending?.let { requested ->
+            sharePending = null
+            shareDownloaded(requested, file)
+            return
+        }
+        savePending?.let { requested ->
+            savePending = null
+            saveToDownloads(requested, result.localPath)
+            return
+        }
+
+        when (val target = opener.target(file.name, entry.mimeType)) {
+            is OpenTarget.Preview -> {
+                // Image, video or audio: shown by us rather than handed to
+                // another app, because a viewer has to be installed and this
+                // one is always present.
+                FilePreviewActivity.start(
+                    this@FileBrowserActivity,
+                    result.localPath,
+                    target.kind,
+                    file.name
+                )
+                Log.i(TAG, "previewing ${target.kind} ${file.name}")
+            }
+            is OpenTarget.External -> openExternally(file, target.mime, file.name)
+        }
+    }
+
+    /**
+     * Puts a downloaded file on the share sheet.
+     *
+     * A separate stream from [openExternally] because ACTION_SEND takes a
+     * `content://` URI in `EXTRA_STREAM`, not a view target, and the type is
+     * read off the file rather than assumed. Videos are shared as files even
+     * though this app can preview them, because "share" almost always means
+     * "send the original", and the receiving app decides what it can do.
+     */
+    private fun shareDownloaded(entry: FileEntry, file: File) {
+        val uri = try {
+            FileProvider.getUriForFile(this, FileOpener.authorityFor(this), file)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "no provider root for ${file.path}")
+            toast(getString(R.string.files_share_failed, entry.name))
+            return
+        }
+
+        val mime = opener.mimeType(entry.name, entry.mimeType)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TITLE, entry.name)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(
+            send,
+            getString(R.string.files_share_title, entry.name)
+        )
+        // Reported if the destination app is not running — the file stays in
+        // the cache, so a retry costs nothing.
+        try {
+            startActivity(chooser)
+        } catch (e: android.content.ActivityNotFoundException) {
+            toast(getString(R.string.files_share_failed, entry.name))
+        } catch (e: SecurityException) {
+            Log.w(TAG, "share refused the grant", e)
+            toast(getString(R.string.files_share_failed, entry.name))
+        }
+    }
+
+    /**
+     * Hands [file] to another app through the system chooser.
+     *
+     * [Intent.createChooser] rather than a bare ACTION_VIEW for one reason: the
+     * chooser is the only way the user sees *every* app that can open a type.
+     * A resolved intent jumps straight to whichever app Android ranked first,
+     * and the only way to reach a different one is to clear the default. The
+     * title names the file, which is the thing the user is choosing an app
+     * *for*.
+     *
+     * When only one app can handle the type, Android skips the chooser and
+     * opens it directly — the sheet only appears when there is a choice, so
+     * showing one unconditionally is not possible.
+     */
+    private fun openExternally(file: File, mime: String, displayName: String) {
+        val uri = try {
+            FileProvider.getUriForFile(this, FileOpener.authorityFor(this), file)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "no provider root for ${file.path}")
+            toast(getString(R.string.files_open_failed))
+            return
+        }
+
+        val view = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        // A chooser is itself an activity started with this app's identity, so
+        // the grant reaches the target the user picks without any extra flags.
+        val chooser = Intent.createChooser(
+            view,
+            getString(R.string.files_open_with, displayName)
+        )
+        try {
+            startActivity(chooser)
+        } catch (e: ActivityNotFoundException) {
+            // No app for this type anywhere on the device.
+            dialog(getString(R.string.files_download_no_viewer, mime))
+        } catch (e: SecurityException) {
+            Log.w(TAG, "chooser refused the grant", e)
+            toast(getString(R.string.files_open_failed))
+        }
+    }
+
+    /** Shows the existing indeterminate progress line, or a determinate one. */
+    private fun showTransferProgress(entry: FileEntry?, copied: Long = -1L) {
+        binding.progress.isVisible = true
+        val expected = entry?.size
+        val determinate = expected != null && expected > 0L && copied >= 0L
+        binding.progress.isIndeterminate = !determinate
+        if (determinate) {
+            val percent = (((copied * 100) / expected).toInt()).coerceIn(0, 100)
+            binding.progress.setProgressCompat(percent, false)
+        }
+        binding.appbar.subtitle.text = getString(
+            R.string.files_downloading,
+            entry?.name ?: ""
+        )
+    }
+
+    /**
+     * Restores the screen after a transfer, successful or not.
+     *
+     * Reached from the download coroutine's `finally`, so it must be safe to
+     * call while the activity is finishing; touching the binding at that point
+     * is fine because the views are still the ones the coroutine created.
+     */
+    private fun transferComplete() {
+        transferring = null
+        binding.progress.isVisible = false
+        binding.progress.isIndeterminate = true
+        binding.btnCancel.isVisible = false
+        binding.appbar.subtitle.text = fullPath()
+    }
+
+    /**
+     * The stop button. Cancels the coroutine; the native copy cannot be
+     * interrupted, so the transfer finishes writing and then throws away the
+     * result and deletes the partial file. What the user sees is an immediate
+     * stop of the indicator, and no file is opened.
+     */
+    private fun cancelDownload() {
+        val job = downloadJob ?: return
+        // Nothing to stop if the transfer already finished; the button is
+        // hidden by then, but a queued click could still arrive.
+        if (job.isCompleted || !job.isActive) return
+        cancelled = true
+        job.cancel()
+        toast(getString(R.string.files_download_cancelled))
+    }
+
+    /**
+     * A short message. Toasts rather than a dialog for the failure cases, since
+     * the user's next action is obvious: try another file, or retry by tapping
+     * the row again.
+     */
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * A blocking message for the one state the user has to act on: there is no
+     * app installed for this type, so nothing will happen if they retry.
+     */
+    private fun dialog(message: String) {
+        MaterialAlertDialogBuilder(this)
+            .setMessage(message)
+            .setPositiveButton(R.string.action_dismiss, null)
+            .show()
+    }
+
     // ── rclone ────────────────────────────────────────────────────────────────
 
     /** @return false when rclone could not be initialised at all. */
@@ -194,8 +611,7 @@ class FileBrowserActivity : AppCompatActivity() {
             config.ensureReady()
             engine = RcloneEngine().also { it.initialize(config.configPath) }
             true
-        } catch (e: Exception) {
-            // UnsatisfiedLinkError on a device we do not ship the .so for is the
+        } catch (e: Exception) {            // UnsatisfiedLinkError on a device we do not ship the .so for is the
             // likely case. The path is not logged: these are app-private
             // directories and the message says nothing useful about the cause.
             Log.w(TAG, "rclone could not be initialised: ${e.javaClass.simpleName}")
@@ -211,18 +627,24 @@ class FileBrowserActivity : AppCompatActivity() {
     /**
      * Lists the current directory and renders it.
      *
-     * The RPC and the JSON parse both run on IO. `engine.call` is already a
-     * suspend function on IO, but the parse would otherwise land back on the
-     * main thread, and a listing of a few thousand entries is not something to
-     * parse while drawing.
+     * ## Cache first, then the network
+     *
+     * A listing is the round trip the user waits on, and the same directory gets
+     * revisited constantly. So the RPC and the JSON parse both run on IO — the
+     * parse would otherwise land back on the main thread, and a listing of a few
+     * thousand entries is not something to parse while drawing — and a usable
+     * cached reply is rendered before the RPC is even issued. The network then
+     * runs silently in the background and the list is updated when it lands.
+     *
+     * The effect is that a directory that has been seen within its retention
+     * window appears immediately, and one that has not costs the same wait as
+     * before. See [DirectoryListingCache].
      */
     private fun load() {
         val rpc = engine ?: return
-        binding.progress.isVisible = true
-        binding.stateGroup.isVisible = false
-
-        val root = fs
         val relative = path.joinToString("/")
+        val retention = ServerConfig.getCacheRetentionDays(this)
+        val cached = listingCache.load(fs, relative, retention)
 
         // Before the RPC, not after it: the caller has already changed [path],
         // so the trail has to follow the navigation even when the listing then
@@ -230,27 +652,53 @@ class FileBrowserActivity : AppCompatActivity() {
         // worse than an error message on its own.
         renderCrumbs()
 
+        if (cached != null) {
+            // A cached listing is drawn from the same reply object a fresh one
+            // is, so the two cannot render differently.
+            entries = parse(JSONObject(cached.reply))
+            lastRefreshAt = cached.cachedAt
+            render()
+        } else {
+            binding.progress.isVisible = true
+            binding.stateGroup.isVisible = false
+            lastRefreshAt = null
+        }
+
         lifecycleScope.launch {
             try {
+                listFsAtRequest = fs
+                listPathAtRequest = relative
                 val reply = withContext(Dispatchers.IO) {
-                    rpc.call(
-                        METHOD_LIST,
-                        JSONObject().put("fs", root).put("remote", relative)
-                    )
+                    rpc.call(METHOD_LIST, JSONObject().put("fs", fs).put("remote", relative))
                 }
                 val listed = withContext(Dispatchers.IO) { parse(reply) }
+                // The user has navigated on while this was in flight: the reply
+                // describes a directory that is no longer on screen.
+                if (fs != listFsAtRequest || relative != listPathAtRequest) return@launch
                 entries = listed
+                lastRefreshAt = System.currentTimeMillis()
+                listingCache.store(fs, relative, reply.toString())
                 render()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RcloneException) {
-                entries = emptyList()
-                adapter.submitList(emptyList())
-                showFailure(describe(e))
+                // A stale listing is better than an error page: it is what the
+                // directory looked like a moment ago, and it says so.
+                if (cached != null) {
+                    toast(describe(e))
+                } else {
+                    entries = emptyList()
+                    adapter.submitList(emptyList())
+                    showFailure(describe(e))
+                }
             } catch (e: Exception) {
-                entries = emptyList()
-                adapter.submitList(emptyList())
-                showFailure(getString(R.string.state_unavailable))
+                if (cached != null) {
+                    toast(getString(R.string.state_unavailable))
+                } else {
+                    entries = emptyList()
+                    adapter.submitList(emptyList())
+                    showFailure(getString(R.string.state_unavailable))
+                }
             } finally {
                 binding.progress.isVisible = false
             }
@@ -348,8 +796,7 @@ class FileBrowserActivity : AppCompatActivity() {
         load()
     }
 
-    private fun switchTo(target: String) {
-        fs = target
+    private fun switchTo(target: String) {        fs = target
         path.clear()
         if (binding.searchRow.isVisible) closeSearch()
         load()
@@ -560,32 +1007,172 @@ class FileBrowserActivity : AppCompatActivity() {
     /**
      * Per-row overflow.
      *
-     * Download is present and disabled rather than absent, with the reason on
-     * screen: [com.example.earthquack.FileTransferService] fetches
-     * `{fileBaseUrl}/download/{id}`, where the id belongs to the desktop's own
-     * HTTP file server. There is no mapping from an rclone path to that id, so
-     * the honest state is "not available here".
+     * Six actions, and the order is the one a file browser's menu is expected to
+     * have: Open first because it is what the row itself does, then the two
+     * destructive-ish ones (share, save) a user looks for before deletion, then
+     * Copy path, then Delete — which is last and apart because it is the only
+     * action here that cannot be undone.
+     *
+     * Both file actions (Open and Share) are disabled while a transfer runs, so
+     * the menu can never offer something the row would refuse.
      */
     private fun showEntryMenu(entry: FileEntry, anchor: View) {
         val menu = PopupMenu(this, anchor)
+        val busy = transferring != null
 
-        val download = menu.menu.add(Menu.NONE, MENU_DOWNLOAD, 0, LABEL_DOWNLOAD)
-        download.isEnabled = false
-        val note = menu.menu.add(Menu.NONE, MENU_DOWNLOAD_NOTE, 1, LABEL_DOWNLOAD_NOTE)
-        note.isEnabled = false
-
-        menu.menu.add(Menu.NONE, MENU_COPY_PATH, 2, LABEL_COPY_PATH)
+        var order = 0
+        menu.menu.add(Menu.NONE, MENU_OPEN, order++, getString(R.string.files_open))
+            .isEnabled = !busy
+        menu.menu.add(Menu.NONE, MENU_SHARE, order++, getString(R.string.files_share))
+            .isEnabled = !busy
+        menu.menu.add(Menu.NONE, MENU_SAVE, order++, getString(R.string.files_save_to_device))
+            .isEnabled = !busy
+        menu.menu.add(Menu.NONE, MENU_COPY_PATH, order++, getString(R.string.files_copy_path))
+        menu.menu.add(Menu.NONE, MENU_DELETE, order++, getString(R.string.files_delete))
 
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                MENU_OPEN -> {
+                    if (transferring == null) openFile(entry)
+                    true
+                }
+                MENU_SHARE -> {
+                    if (transferring == null) shareFile(entry)
+                    true
+                }
+                MENU_SAVE -> {
+                    if (transferring == null) saveFileToDownloads(entry)
+                    true
+                }
                 MENU_COPY_PATH -> {
                     copyToClipboard(fullPath() + "/" + entry.path)
+                    true
+                }
+                MENU_DELETE -> {
+                    confirmDelete(entry)
                     true
                 }
                 else -> false
             }
         }
         menu.show()
+    }
+
+    /**
+     * Share the file with another app, through the system's share sheet.
+     *
+     * The file is downloaded first if it is not cached: sharing a copy that is
+     * only in the cache is the same download-and-open path, so it reuses
+     * [openFile]'s transfer and only differs in what happens at the end. That
+     * is why [sharePending] is a field rather than a parameter — the decision
+     * of what to do with a finished file is made at tap time and honoured when
+     * the transfer completes.
+     */
+    private fun shareFile(entry: FileEntry) {
+        sharePending = entry
+        openFile(entry)
+    }
+
+    /** Saves the file into Downloads using the system document picker. */
+    private fun saveFileToDownloads(entry: FileEntry) {
+        savePending = entry
+        openFile(entry)
+    }
+
+    /**
+     * Deletes [entry] on the remote, after asking.
+     *
+     * The confirmation is not decoration: `operations/deletefile` removes the
+     * object from the remote, and a remote is often a backup. A single tap that
+     * sends a 200 MB document to the trash, with the OS's own back gesture one
+     * second away from a completed download, is the wrong default.
+     *
+     * Directories are refused outright rather than recursed: rclone's
+     * `operations/purge` would remove a whole subtree, and the browser screen
+     * has no reason to be the place that happens. `operations/rmdir` on a
+     * non-empty directory fails, which rclone reports as an error and the user
+     * sees as a message.
+     */
+    private fun confirmDelete(entry: FileEntry) {
+        val rpc = engine ?: return
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.files_delete))
+            .setMessage(
+                getString(
+                    if (entry.isDir) R.string.files_delete_confirm_dir
+                    else R.string.files_delete_confirm,
+                    entry.name
+                )
+            )
+            .setNegativeButton(R.string.action_dismiss, null)
+            .setPositiveButton(R.string.files_delete) { _, _ ->
+                lifecycleScope.launch {
+                    binding.progress.isVisible = true
+                    try {
+                        withContext(Dispatchers.IO) {
+                            rpc.call(
+                                METHOD_DELETE,
+                                JSONObject().put("fs", fs).put("remote", entry.path)
+                            )
+                        }
+                        // The row leaves the list without a re-list, and the
+                        // cached listing goes with it so a deleted file cannot
+                        // reappear on the next visit.
+                        listingCache.invalidate(fs, path.joinToString("/"))
+                        entries = entries.filterNot { it.path == entry.path }
+                        render()
+                        toast(getString(R.string.files_deleted))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "delete failed: ${e.javaClass.simpleName}")
+                        toast(getString(R.string.files_delete_failed, entry.name))
+                    } finally {
+                        binding.progress.isVisible = false
+                    }
+                }
+            }
+            .show()
+    }
+
+    /**
+     * Writes a downloaded file into the place the user picks.
+     *
+     * Saved through `ACTION_CREATE_DOCUMENT` rather than into a fixed Downloads
+     * folder: writing to the public Downloads collection needs the MediaStore
+     * API, and before API 29 that needs a permission this screen has no
+     * business asking for. The picker is one tap for the user, zero permissions
+     * for us -- and it lets them rename the file, which a silently chosen name
+     * never can.
+     *
+     * The picker is launched here rather than the copy, because the copy needs
+     * the URI the picker hands back; [saveLauncher] finishes the job.
+     */
+    private fun saveToDownloads(entry: FileEntry, localPath: String) {
+        pendingSavePath = localPath
+        saveLauncher.launch(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = opener.mimeType(entry.name, entry.mimeType)
+                putExtra(Intent.EXTRA_TITLE, entry.name)
+            }
+        )
+    }
+
+    /**
+     * Copies a downloaded file into the picked URI in fixed-size chunks.
+     *
+     * A stream copy, never a ByteArray: the file may be a 1.6 GB video, which
+     * does not fit in memory and which the download path already streamed.
+     */
+    private fun copyTo(source: File, target: android.net.Uri) {
+        contentResolver.openOutputStream(target)?.use { out ->
+            source.inputStream().use { input ->
+                input.copyTo(out, DEFAULT_COPY_BUFFER)
+            }
+            out.flush()
+        } ?: throw IllegalStateException("no output stream for $target")
     }
 
     /**
@@ -596,6 +1183,12 @@ class FileBrowserActivity : AppCompatActivity() {
      * reach a configured remote three taps deep with no visual cue that one
      * existed. Every location is now one row, in a menu anchored to whatever
      * opened it.
+     *
+     * The cache section is here rather than in Settings because it belongs to
+     * this screen: it changes what this screen shows, and a preference that can
+     * only be reached from a Settings screen three taps away might as well not
+     * exist. It is last, so a location -- the reason the menu was opened --
+     * is still where the finger lands.
      */
     private fun showLocationMenu(anchor: View) {
         lifecycleScope.launch {
@@ -633,12 +1226,44 @@ class FileBrowserActivity : AppCompatActivity() {
             }
             currentId?.let { menu.menu.findItem(it)?.isChecked = true }
 
+            // Listed from the same constants the menu that wrote them used, so
+            // the two cannot drift apart as options are added.
+            val retention = ServerConfig.getCacheRetentionDays(this@FileBrowserActivity)
+            ServerConfig.CACHE_RETENTION_CHOICES.forEachIndexed { index, days ->
+                menu.menu.add(
+                    Menu.NONE,
+                    MENU_CACHE_BASE + index,
+                    30 + index,
+                    if (days == 0) {
+                        getString(R.string.files_cache_choice_off)
+                    } else if (days == 1) {
+                        getString(R.string.files_cache_choice_day)
+                    } else {
+                        getString(R.string.files_cache_choice_days, days)
+                    }
+                ).isCheckable = true
+            }
+            ServerConfig.CACHE_RETENTION_CHOICES
+                .indexOfFirst { it == retention }
+                .takeIf { it >= 0 }
+                ?.let { menu.menu.findItem(MENU_CACHE_BASE + it)?.isChecked = true }
+
             menu.setOnMenuItemClickListener { item ->
                 when {
                     item.itemId == MENU_INTERNAL -> { openLocation(localRoot()); true }
                     item.itemId == MENU_SHARED -> { openLocation(sharedRoot()); true }
                     item.itemId == MENU_NO_REMOTES -> true
                     item.itemId == MENU_NO_REMOTES_NOTE -> true
+                    item.itemId >= MENU_CACHE_BASE -> {
+                        val idx = item.itemId - MENU_CACHE_BASE
+                        val days = ServerConfig.CACHE_RETENTION_CHOICES.getOrNull(idx)
+                        if (days != null) {
+                            setRetentionDays(days)
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     item.itemId >= MENU_REMOTE_BASE -> {
                         val idx = item.itemId - MENU_REMOTE_BASE
                         val name = names.getOrNull(idx)
@@ -653,6 +1278,34 @@ class FileBrowserActivity : AppCompatActivity() {
                 }
             }
             menu.show()
+        }
+    }
+
+    /**
+     * Stores the retention choice and immediately prunes by its new rule.
+     *
+     * Pruned here rather than at the next load, because "keep listings for 7
+     * days" that keeps thirty-day-old entries until something asks for them is
+     * not what the setting says. The removal is cheap — one pass over the
+     * cache directory on IO — and the count is reported so the user can see the
+     * setting did something.
+     */
+    private fun setRetentionDays(days: Int) {
+        ServerConfig.setCacheRetentionDays(this, days)
+        lifecycleScope.launch {
+            val removed = withContext(Dispatchers.IO) {
+                listingCache.prune(ServerConfig.getCacheRetentionDays(this@FileBrowserActivity))
+            }
+            // A changed rule invalidates what is on screen only in the sense
+            // that its freshness line now disagrees; relisting keeps the two
+            // in step and shows the new rule working on the current directory.
+            toast(
+                if (removed > 0) {
+                    getString(R.string.files_cache_pruned) + " ($removed)"
+                } else {
+                    getString(R.string.files_cache_pruned)
+                }
+            )
         }
     }
 
@@ -702,6 +1355,12 @@ class FileBrowserActivity : AppCompatActivity() {
         private const val TAG = "FileBrowserActivity"
 
         private const val METHOD_LIST = "operations/list"
+
+        /** Removes one file from a remote. Also refuses directories, on its own. */
+        private const val METHOD_DELETE = "operations/deletefile"
+
+        /** Chunk size for saving a file out of the app's cache. */
+        private const val DEFAULT_COPY_BUFFER = 64 * 1024
         private const val KEY_LIST = "list"
 
         /** rclone's error text is not bounded; a state row is not a log file. */
@@ -711,16 +1370,14 @@ class FileBrowserActivity : AppCompatActivity() {
         // resources: strings.xml belongs to a different change and is out of
         // scope here. Everything that does have a resource uses it.
         private const val NO_MATCH = "Nothing here matches \"%1\$s\""
-        private const val LABEL_DOWNLOAD = "Download"
-        private const val LABEL_DOWNLOAD_NOTE = "Not available: needs a desktop file id"
-        private const val LABEL_COPY_PATH = "Copy path"
-        private const val LABEL_OPEN = "Open"
         private const val LABEL_NO_REMOTES = "No remotes configured"
         private const val LABEL_NO_REMOTES_NOTE = "Add one on the Storage screen"
 
-        private const val MENU_DOWNLOAD = 1
-        private const val MENU_DOWNLOAD_NOTE = 2
+        private const val MENU_OPEN = 1
+        private const val MENU_SHARE = 2
+        private const val MENU_SAVE = 9
         private const val MENU_COPY_PATH = 3
+        private const val MENU_DELETE = 10
         private const val MENU_LOCATION = 4
         private const val MENU_SHARED = 8
         private const val MENU_INTERNAL = 5
@@ -728,7 +1385,11 @@ class FileBrowserActivity : AppCompatActivity() {
         private const val MENU_NO_REMOTES_NOTE = 7
 
         /** Remote names are ids from here up; index is id minus this. */
+        /** Remote names are ids from here up; index is id minus this. */
         private const val MENU_REMOTE_BASE = 100
+
+        /** Retention options, menu ids from [MENU_CACHE_BASE] upward. */
+        private const val MENU_CACHE_BASE = 200
 
         const val EXTRA_FS = "fs"
 

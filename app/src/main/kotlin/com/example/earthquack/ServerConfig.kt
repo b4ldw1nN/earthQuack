@@ -21,6 +21,7 @@ object ServerConfig {
     private const val KEY_AES_ENABLED = "aes_enabled"
     private const val KEY_AES_KEY = "aes_key_b64"
     private const val KEY_AUTH_TOKEN = "auth_token"
+    private const val KEY_CACHE_RETENTION_DAYS = "files_cache_retention_days"
 
     // Fallback default — the IP that was previously hardcoded
     const val DEFAULT_HOST = "YOUR_TAILSCALE_IP"
@@ -117,4 +118,35 @@ object ServerConfig {
     fun setAuthToken(context: Context, token: String) {
         prefs(context).edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
     }
+
+    // ── Files screen: directory listing cache ─────────────────────────────────
+    // A listing is the round trip the user waits on, and the same directory is
+    // revisited constantly. Caching it is only useful if the user can choose how
+    // long a cached listing stays believable, so the number of days is a
+    // setting rather than a constant. Zero means "do not cache".
+
+    fun getCacheRetentionDays(context: Context): Int =
+        prefs(context).getInt(KEY_CACHE_RETENTION_DAYS, DEFAULT_CACHE_RETENTION_DAYS)
+
+    fun setCacheRetentionDays(context: Context, days: Int) {
+        prefs(context).edit().putInt(
+            KEY_CACHE_RETENTION_DAYS,
+            days.coerceIn(0, MAX_CACHE_RETENTION_DAYS)
+        ).apply()
+    }
+
+    /**
+     * Days a cached listing stays usable.
+     *
+     * Seven by default: long enough that hopping between two directories does
+     * not re-list, short enough that a file uploaded from a phone between
+     * visits shows up on the next one. "Off" is zero, and anything above
+     * [MAX_CACHE_RETENTION_DAYS] is clamped rather than trusted, because an
+     * arbitrary int in a preference file is not a promise.
+     */
+    const val DEFAULT_CACHE_RETENTION_DAYS = 7
+    const val MAX_CACHE_RETENTION_DAYS = 365
+
+    /** The day counts offered by the Files screen, "off" first. */
+    val CACHE_RETENTION_CHOICES = listOf(0, 1, 7, 30, 90)
 }

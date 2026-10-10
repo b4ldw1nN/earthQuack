@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the Files screen is allowed to share.
+
+    Narrow on purpose: only the subdirectory that downloads are written into is
+    reachable. Not the whole of cacheDir, and none of filesDir — a URI handed to
+    a viewer must never be able to stand in for rclone.conf, a stored credential
+    or another app's private data, all of which live in those trees.
+
+    cache-path maps to context.getCacheDir(), so the local filesystem root of a
+    download (`:local:<cacheDir>/opened/<token>`) resolves inside this path and
+    the copy destination always lands somewhere the provider can serve.
+-->
+<paths>
+    <cache-path
+        name="opened"
+        path="opened/" />
+</paths>

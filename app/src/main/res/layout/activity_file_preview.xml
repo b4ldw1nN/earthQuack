@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+    Shows one downloaded file: a photo, a clip or a track.
+
+    Three children of one FrameLayout rather than three screens, because they
+    are never visible at the same time and the switching logic is "which widget
+    does this type need" — one extra state per layout would be three places to
+    keep in step.
+
+    The video and audio widgets are the platform's VideoView with a
+    MediaController, which is what a viewer for a file already on disk needs:
+    no streaming, no custom decoder, no draggable scrubber. The bitmap case is
+    an ImageView inside a zoomable container is deliberately NOT used — images
+    are decoded downsampled to the view and pinch-zoom is not worth a gesture
+    detector for a first pass.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background">
+
+    <LinearLayout
+        style="@style/Widget.Eq.Screen">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/eq_background">
+
+            <include
+                android:id="@+id/appbar"
+                layout="@layout/partial_topbar"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/eq_topbar_h"
+                android:layout_weight="1" />
+
+            <!--
+                "Open with" hands the same file to another app. Present even
+                for images, because the built-in viewer is the simplest thing
+                that could work, not the best possible photo editor.
+            -->
+            <ImageButton
+                android:id="@+id/btnOpenWith"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:padding="9dp"
+                android:src="@drawable/ic_eq_open_new"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="@color/eq_text_secondary"
+                android:contentDescription="@string/files_open_with_action" />
+        </LinearLayout>
+
+        <View style="@style/Widget.Eq.Divider" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/image"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/files_preview_image"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <VideoView
+                android:id="@+id/video"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!--
+                The one state this screen has that a listing does not: the bytes
+                are here and the widget cannot make sense of them. Separate from
+                a download failure, because this file arrived intact.
+            -->
+            <LinearLayout
+                android:id="@+id/stateGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:paddingStart="@dimen/eq_gutter"
+                android:paddingEnd="@dimen/eq_gutter"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ImageView
+                    android:id="@+id/stateIcon"
+                    android:layout_width="@dimen/eq_icon_lg"
+                    android:layout_height="@dimen/eq_icon_lg"
+                    android:src="@drawable/ic_eq_warning"
+                    app:tint="@color/eq_error"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@+id/stateText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/eq_gap_md"
+                    android:gravity="center"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                    tools:text="@string/files_preview_failed" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRetry"
+                    style="@style/Widget.Eq.Button.Outlined"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/eq_gap_md"
+                    android:text="@string/action_retry"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Shown while a large photo is decoded. -->
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:indeterminate="true"
+        app:indicatorColor="@color/eq_primary"
+        app:trackThickness="@dimen/eq_divider"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

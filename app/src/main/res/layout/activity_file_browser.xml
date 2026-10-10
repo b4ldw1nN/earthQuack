@@ -52,6 +52,25 @@
                 app:tint="@color/eq_text_secondary"
                 android:contentDescription="@string/files_search" />
 
+            <!--
+                Stops an in-flight download. Hidden except while a file is being
+                transferred: the stop affordance next to a search button with no
+                transfer running would say "something can be stopped" when
+                nothing can.
+            -->
+            <ImageButton
+                android:id="@+id/btnCancel"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="@dimen/eq_gap_xs"
+                android:padding="9dp"
+                android:src="@drawable/ic_eq_stop"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                app:tint="@color/eq_error"
+                android:visibility="gone"
+                tools:visibility="visible"
+                android:contentDescription="@string/files_download_cancel" />
+
             <ImageButton
                 android:id="@+id/btnOverflow"
                 android:layout_width="40dp"

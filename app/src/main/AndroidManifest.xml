@@ -147,6 +147,41 @@
             android:exported="false"
             android:label="@string/files_title" />
 
+        <!--
+            Shows one file that was just downloaded — image, video or audio —
+            with platform widgets. Not exported: it is only ever started from
+            this app, with a path into this app's own cache.
+        -->
+        <activity
+            android:name=".ui.FilePreviewActivity"
+            android:exported="false"
+            android:label="@string/files_preview_title" />
+
+        <!--
+            Serves downloaded remote files to viewer apps.
+
+            Required because the download lands in cache, and handing a
+            viewer a file:// URI there throws FileUriExposedException on
+            API 24+. The grant is per-URI and read-only, and the configured
+            root is the single "opened/" subdirectory (res/xml/file_paths.xml)
+            rather than the whole cache, so a viewer can never reach
+            rclone.conf or another app's data through this provider.
+
+            The authority is derived from the application id, so a debug build
+            and a release build installed together do not collide.
+            No existing provider was registered in this manifest, so nothing is
+            being replaced by this entry.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <service
             android:name=".EarthQuackService"
             android:exported="true"
