@@ -80,6 +80,22 @@
                 tools:visibility="visible" />
 
             <!--
+                Pages of a PDF. A RecyclerView rather than a pager: a document
+                is longer than the screen and scrolling through it is how the
+                whole thing is read, and rendering each page on demand keeps
+                memory at a handful of bitmaps rather than the whole document.
+            -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/pdfList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="@dimen/eq_gutter"
+                android:scrollbars="vertical"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!--
                 The one state this screen has that a listing does not: the bytes
                 are here and the widget cannot make sense of them. Separate from
                 a download failure, because this file arrived intact.

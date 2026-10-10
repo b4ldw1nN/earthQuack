@@ -37,7 +37,22 @@
     <string name="files_cache_choice_day">1 day</string>
     <string name="files_cache_choice_days">%1$d days</string>
     <string name="files_cache_menu_title">Keep listings for</string>
-    <string name="files_cache_pruned">Stale cached listings removed</string>
+
+    <!-- Files cache settings screen. -->
+    <string name="files_cache_title">Downloaded files</string>
+    <string name="files_cache_auto_title">Delete automatically after</string>
+    <string name="files_cache_auto_sub">A file downloaded from a remote is deleted once it has been unused for this long. Zipping in and out of a folder does not count as using a file.</string>
+    <string name="files_cache_now_title">In use now</string>
+    <string name="files_cache_used">%1$s in %2$d files</string>
+    <string name="files_cache_empty">Nothing cached</string>
+    <string name="files_cache_clear">Delete all downloaded files</string>
+    <string name="files_cache_clear_confirm_title">Delete all downloaded files?</string>
+    <string name="files_cache_clear_confirm">Every file the Files screen has downloaded is removed. Opening one again downloads it again. A file you are viewing in another app right now may stop working.</string>
+    <string name="files_cache_cleared">Deleted %1$d files</string>
+    <string name="files_cache_pruned">Deleted %1$d old files</string>
+    <string name="files_cache_note">Android may also clear this cache by itself when the device runs low on storage.</string>
+    <string name="settings_files_cache">Downloaded files</string>
+    <string name="settings_files_cache_sub">How long a file you opened is kept</string>
 
     <string name="action_dismiss">Dismiss</string>
 
@@ -45,4 +60,7 @@
     <string name="files_preview_title">Preview</string>
     <string name="files_preview_image">Photo</string>
     <string name="files_preview_failed">This file could not be shown here. Try opening it with another app.</string>
+    <!-- Page count in the PDF viewer's subtitle. -->
+    <string name="files_pdf_pages">%1$d pages</string>
+    <string name="files_pdf_failed">That file could not be opened as a PDF. It may be damaged or password-protected.</string>
 </resources>

@@ -29,7 +29,14 @@ enum class PreviewKind {
     VIDEO,
 
     /** Audio: VideoView's audio-only mode with just a MediaController. */
-    AUDIO
+    AUDIO,
+
+    /**
+     * Document: a list of pages rendered by [PdfDocument] and zoomed by
+     * [PdfPageView]. The one type where a viewer cannot be assumed to be
+     * installed, which is why this app ships one.
+     */
+    PDF
 }
 
 /**
@@ -89,16 +96,16 @@ class FileOpener(private val context: Context) {
     /**
      * Whether this file is one this app can render itself.
      *
-     * Only image, video and audio. A photo, a clip and a track are exactly the
-     * three kinds where "find an app" is a worse experience than showing it,
-     * and where the platform widgets (ImageView, VideoView) are sufficient
-     * without a third-party rendering stack. PDFs, archives and documents have
-     * no adequate built-in renderer in an app of this size, so they keep going
-     * out to whatever the user has installed.
+     * Image, video, audio and PDF. A photo, a clip, a track and a document are
+     * the four kinds where "find an app" is a worse experience than showing it.
+     * PDF is in that set for one reason the others are not: no PDF viewer can
+     * be assumed to be installed, because the ones that exist are large and
+     * ad-supported, so a document is the one file the platform *cannot* step in
+     * for.
      *
-     * ZIP files are excluded even though some are images: a `.zip` can be
-     * anything, and guessing wrong means showing an error in place of a file
-     * that another app would have opened fine.
+     * Everything else goes out. ZIP is excluded even though some are images: a
+     * `.zip` can be anything, and guessing wrong means showing an error in
+     * place of a file another app would have opened fine.
      */
     fun previewKind(fileName: String, reportedMime: String? = null): PreviewKind? {
         val mime = mimeType(fileName, reportedMime)
@@ -106,6 +113,10 @@ class FileOpener(private val context: Context) {
             mime.startsWith("image/") -> PreviewKind.IMAGE
             mime.startsWith("video/") -> PreviewKind.VIDEO
             mime.startsWith("audio/") -> PreviewKind.AUDIO
+            // The exact type, not a prefix: epub is also a type ending in
+            // `+pdf` nowhere, but a bare `application/pdf` can be matched by
+            // `*/*` from a backend, which would render a binary as a document.
+            mime == "application/pdf" -> PreviewKind.PDF
             else -> null
         }
     }

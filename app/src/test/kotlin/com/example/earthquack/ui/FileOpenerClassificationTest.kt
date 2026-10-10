@@ -30,11 +30,20 @@ class FileOpenerClassificationTest {
         "apk" to "application/vnd.android.package-archive"
     )
 
-    /** The same rule [FileOpener.previewKind] applies, for JVM tests. */
+    /**
+     * The same rule [FileOpener.previewKind] applies, for JVM tests.
+     *
+     * Mirrors production rather than calling it: `MimeTypeMap` is a framework
+     * class and does not exist here, so the classifier's *rule* is what the
+     * tests exercise, not the platform's type table.
+     */
     private fun previewOf(mime: String): String? = when {
         mime.startsWith("image/") -> "image"
         mime.startsWith("video/") -> "video"
         mime.startsWith("audio/") -> "audio"
+        // Exact match, not a prefix: an `epub+pdf`-style suffixed type must
+        // not be caught by this, and it is not.
+        mime == "application/pdf" -> "pdf"
         else -> null
     }
 
@@ -62,10 +71,29 @@ class FileOpenerClassificationTest {
      * try to render itself — and it includes ZIP, even though an image may be
      * inside it, because the type of a `.zip` does not say what is inside.
      */
+    /**
+     * The document itself must be rendered, because a PDF viewer is the one
+     * app the user cannot be expected to have installed — which is exactly the
+     * case that led to this app shipping a reader.
+     */
+    @Test
+    fun `a pdf is rendered in-app rather than handed out`() {
+        assertEquals("pdf", previewOf("application/pdf"))
+    }
+
+    /**
+     * Containers that *contain* PDFs are not documents: a `.zip` can hold
+     * anything, and rendering it as a document would show an error where
+     * another app would have opened the archive.
+     */
+    @Test
+    fun `a zip of pdfs is not itself a pdf`() {
+        assertEquals(null, previewOf("application/zip"))
+    }
+
     @Test
     fun `documents archives and other files go out to another app`() {
         listOf(
-            "application/pdf",
             "application/zip",
             "application/vnd.android.package-archive",
             "text/plain",
@@ -73,7 +101,9 @@ class FileOpenerClassificationTest {
             "text/markdown",
             "application/msword",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/octet-stream"
+            "application/octet-stream",
+            "application/epub+zip",
+            "application/vnd.ms-excel"
         ).forEach { assertEquals("expected $it external", null, previewOf(it)) }
     }
 

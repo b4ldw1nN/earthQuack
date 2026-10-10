@@ -151,16 +151,33 @@ private const val UNKNOWN_SIZE = "—"
  */
 internal fun formatSize(bytes: Long?): String {
     if (bytes == null || bytes < 0L) return UNKNOWN_SIZE
-    if (bytes < 1024L) return "$bytes B"
 
-    val units = arrayOf("KB", "MB", "GB", "TB")
+    // "B" is index 0 on purpose. The previous list started at "KB" with the
+    // counter at 0, so one division -- the KB step -- printed "MB", and
+    // everything on screen was one unit too large.
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
     var value = bytes.toDouble()
     var unit = 0
+    // The bound is `lastIndex - 1`, not `lastIndex`: once the counter is on TB
+    // there is nothing left to divide into, and continuing would print a TB
+    // count in the low fractions for a petabyte-scale remote.
     while (value >= 1024.0 && unit < units.lastIndex) {
         value /= 1024.0
         unit++
     }
-    return String.format(Locale.US, "%.1f %s", value, units[unit])
+    // No decimal below 1 KB: "512 B" not "512.0 B", which reads as a float bug.
+    if (unit == 0) return "${value.toLong()} B"
+
+    // 1023.99 KB must not print as "1024.0 KB" — a value that rounds up into
+    // the next unit belongs in that unit, exactly as the division above would
+    // have placed it.
+    var text = String.format(Locale.US, "%.1f", value)
+    if (text.toDouble() >= 1024.0 && unit < units.lastIndex) {
+        value /= 1024.0
+        unit++
+        text = String.format(Locale.US, "%.1f", value)
+    }
+    return "$text ${units[unit]}"
 }
 
 /**

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+    Files cache.
+
+    Two questions, on one screen:
+
+      1. How long is a downloaded file kept before it is deleted
+         automatically? A picker, because a spinner would hide the options
+         that exist and the user cannot reason about "7 days" against a list
+         of numbers they have not seen.
+      2. How much is it using right now, and can it go now? A size figure and
+         a delete button, because the honest answer to "delete the cache"
+         needs both what it costs and what pressing the button does.
+
+    The figures are read from the filesystem when the screen opens, not
+    cached: a number that is stale next to a Delete button is worse than one
+    that takes a moment to compute.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!--
+            Retention. A single-choice row group rather than a spinner: the
+            options are the answer to "when do files disappear", and a
+            selection that has to be opened to be read is one that gets left
+            at its default.
+        -->
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/files_cache_auto_title"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/files_cache_auto_sub"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+            <RadioGroup
+                android:id="@+id/retentionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:orientation="vertical">
+
+                <!-- Populated from code: the choices are a constant list, and
+                     duplicating them here is how the screen drifts. -->
+            </RadioGroup>
+        </LinearLayout>
+
+        <!-- What the cache holds right now, and the button that empties it. -->
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/files_cache_now_title"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+            <TextView
+                android:id="@+id/cacheSize"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="1.4 GB in 12 files" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClearCache"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:text="@string/files_cache_clear" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/files_cache_note"
+            android:textAppearance="@style/TextAppearance.Eq.Meta" />
+
+    </LinearLayout>
+</ScrollView>

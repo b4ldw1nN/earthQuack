@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentSettingsBinding
 import com.example.earthquack.ui.sub.BatteryActivity
+import com.example.earthquack.ui.sub.FilesCacheActivity
 import com.example.earthquack.ui.sub.PermissionsActivity
 import com.example.earthquack.ui.sub.SecurityActivity
 
@@ -65,6 +66,14 @@ class SettingsFragment : Fragment() {
             rowTitle.setText(R.string.settings_permissions)
             rowSubtitle.setText(R.string.settings_permissions_sub)
             root.setOnClickListener { open(PermissionsActivity::class.java) }
+        }
+
+        binding.rowFilesCache.apply {
+            rowIcon.setImageResource(R.drawable.ic_eq_storage)
+            rowIcon.imageTintList = tint(R.color.eq_primary)
+            rowTitle.setText(R.string.settings_files_cache)
+            rowSubtitle.setText(R.string.settings_files_cache_sub)
+            root.setOnClickListener { open(FilesCacheActivity::class.java) }
         }
 
         // Appearance is not a settings screen yet: dark is the only theme. The

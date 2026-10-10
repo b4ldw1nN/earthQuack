@@ -32,6 +32,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.ActivityFileBrowserBinding
 import com.example.earthquack.storage.DirectoryListingCache
+import com.example.earthquack.storage.DownloadCache
+import com.example.earthquack.storage.DownloadVerification
 import com.example.earthquack.storage.DownloadTracker
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.storage.RcloneDownloadPlanner
@@ -216,12 +218,15 @@ class FileBrowserActivity : AppCompatActivity() {
 
         if (startEngine()) load()
 
-        // Entries whose directory is never revisited still go away, so the
-        // cache cannot grow while the user explores. Cheap, and off the main
-        // thread; nothing here depends on its result.
+        // Auto-delete. Both caches are trimmed on entry, so a directory that
+        // is never revisited and a file that is never opened again both go
+        // away. Cheap, off the main thread, and nothing here depends on the
+        // result -- a prune that fails leaves the next one to retry.
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
                 listingCache.prune(ServerConfig.getCacheRetentionDays(this@FileBrowserActivity))
+                DownloadCache(DownloadCache.rootFor(cacheDir))
+                    .prune(ServerConfig.getDownloadCacheDays(this@FileBrowserActivity))
             }
         }
     }
@@ -326,13 +331,25 @@ class FileBrowserActivity : AppCompatActivity() {
             return
         }
 
+        val displayName = entry.name.ifBlank { entry.path.substringAfterLast('/') }
         val planner = RcloneDownloadPlanner(cacheDir.absolutePath)
-        val token = UUID.randomUUID().toString()
+
+        // Already downloaded: open what is there instead of fetching it again.
+        // The check is the same completeness rule the transfer applies, so a
+        // cached copy is never a partially written one.
+        val cached = planner.cachedFile(fs, entry.path, entry.size, displayName)
+        if (cached != null) {
+            Log.i(TAG, "opening ${cached.name} from the download cache")
+            reuseDownloaded(cached, entry)
+            return
+        }
+
+
         val request = planner.request(
             srcFs = fs,
             srcRemote = entry.path,
-            fileName = entry.name.ifBlank { entry.path.substringAfterLast('/') },
-            token = token
+            fileName = displayName,
+            key = RcloneDownloadPlanner.cacheKey(fs, entry.path, entry.size)
         )
 
         // Second tap of the same row: the first download is either running or
@@ -401,16 +418,32 @@ class FileBrowserActivity : AppCompatActivity() {
     /**
      * After a successful copy: resolve the type, find a viewer, open.
      *
-     * The failure modes here are about the *receiving* half, so they are
-     * reported separately from a failed download: a file that downloaded fine
-     * and then found no viewer is a different problem from one that failed.
+     * The same route a cached file takes, so the two cannot drift apart: if
+     * only one of them offered an in-app preview, the behaviour of tapping a
+     * file would change on the second tap.
      */
     private fun openDownloaded(
         request: RcloneDownloadRequest,
         result: RcloneDownloadResult.Success,
         entry: FileEntry
     ) {
-        val file = File(result.localPath)
+        openFileWith(File(result.localPath), entry)
+    }
+
+    /** Opens a file already in the download cache, with no transfer. */
+    private fun reuseDownloaded(file: File, entry: FileEntry) {
+        openFileWith(file, entry)
+    }
+
+    /**
+     * Shows [file]: in-app where this app can render it, out to another app
+     * otherwise.
+     *
+     * The failure modes here are about the *receiving* half, so they are
+     * reported separately from a failed download: a file that downloaded fine
+     * and then found no viewer is a different problem from one that failed.
+     */
+    private fun openFileWith(file: File, entry: FileEntry) {
 
         // An empty or unreadable file must never reach a viewer: some apps
         // crash on it, and the user would blame Android, not EarthQuack.
@@ -429,7 +462,7 @@ class FileBrowserActivity : AppCompatActivity() {
         }
         savePending?.let { requested ->
             savePending = null
-            saveToDownloads(requested, result.localPath)
+            saveToDownloads(requested, file.absolutePath)
             return
         }
 
@@ -440,7 +473,7 @@ class FileBrowserActivity : AppCompatActivity() {
                 // one is always present.
                 FilePreviewActivity.start(
                     this@FileBrowserActivity,
-                    result.localPath,
+                    file.absolutePath,
                     target.kind,
                     file.name
                 )

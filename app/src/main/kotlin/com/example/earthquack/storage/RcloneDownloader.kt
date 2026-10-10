@@ -1,5 +1,8 @@
 package com.example.earthquack.storage
 
+import java.io.File
+import java.security.MessageDigest
+
 /**
  * A resolved request to pull one remote file into a local cache directory.
  *
@@ -58,25 +61,34 @@ sealed class RcloneDownloadResult {
  *     name, must not collide, and must not overwrite a file that is currently
  *     open in another app.
  *
- * The resolution is one directory per download: `cacheDir/opened/<token>/<name>`.
- * A token makes the destination unique without mangling the filename, and when
- * an old copy is deleted its directory can be removed wholesale, so cleanup
- * never touches a sibling download that is still being read.
+ * The resolution is one directory per *file*, not per attempt:
+ * `cacheDir/opened/<key>/<name>`.
+ *
+ * The key is derived from the file's identity (remote + path + size), so the
+ * second tap of the same file finds the first download already there and opens
+ * it without a round trip — which is what "shows downloading each time" was.
+ *
+ * The consequence to design around: a directory keyed on the file is *not*
+ * unique per attempt, so a re-download would land on a name another app may be
+ * reading. Two things keep that safe. The transfer writes `<name>.part` and
+ * renames it into place, so a reader either sees the old complete file or the
+ * new complete one and never a half-writing one. And cleanup is age-based, so
+ * it never deletes a file it only suspects is unused.
  */
 class RcloneDownloadPlanner(private val cacheRoot: String) {
 
     /**
      * Builds the destination for [fileName].
      *
-     * @param token unique to this download attempt, e.g. a UUID.
+     * @param key the file's cache key, from [cacheKey].
      */
     fun request(
         srcFs: String,
         srcRemote: String,
         fileName: String,
-        token: String
+        key: String
     ): RcloneDownloadRequest {
-        val dir = "$cacheRoot/$OPENED_DIR/$token"
+        val dir = "$cacheRoot/$OPENED_DIR/$key"
         val safeName = safeFileName(fileName)
         return RcloneDownloadRequest(
             srcFs = srcFs,
@@ -87,12 +99,56 @@ class RcloneDownloadPlanner(private val cacheRoot: String) {
         )
     }
 
+    /**
+     * The already-downloaded copy of a file, or null.
+     *
+     * @param size the size the listing reported, so a cached copy of an older
+     *   version of the same path is not served as if it were current.
+     */
+    fun cachedFile(srcFs: String, srcRemote: String, size: Long?, fileName: String): File? {
+        val file = File(request(srcFs, srcRemote, fileName, cacheKey(srcFs, srcRemote, size)).localFile)
+        return file.takeIf { DownloadVerification.isComplete(it.length(), size) }
+    }
+
     /** The directory holding every downloaded file. */
     fun openedDir(): String = "$cacheRoot/$OPENED_DIR"
 
     companion object {
         /** Under `cacheDir`, next to the caches the OS already prunes for us. */
         const val OPENED_DIR = "opened"
+
+        /** Name rclone writes while the transfer is in flight. */
+        const val PART_SUFFIX = ".part"
+
+        /**
+         * Identity of a file in a remote, as a hex digest.
+         *
+         * Size is part of the key deliberately: a file whose size changed is a
+         * different file, and a stale copy of the old one must not be served
+         * from cache. The size is what the local backend reports for free, so
+         * this costs no extra RPC. A remote that reports no size at all gets
+         * the literal "unknown" in the key, which is the same every time — so
+         * backing that remote, a one-size-fits-all download, still caches per
+         * path rather than colliding on a shared constant.
+         *
+         * SHA-256 rather than a shorter hash: the key is unique per file and a
+         * collision would silently show one file's contents under another's
+         * name, which is the worst failure this cache could have.
+         */
+        fun cacheKey(fs: String, srcRemote: String, size: Long?): String {
+            val raw = "$fs\u0000$srcRemote\u0000${size ?: UNKNOWN_SIZE}"
+            val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
+            val hex = StringBuilder(digest.size * 2)
+            for (byte in digest) {
+                val value = byte.toInt() and 0xFF
+                if (value < 0x10) hex.append('0')
+                hex.append(Integer.toHexString(value))
+            }
+            return hex.toString()
+        }
+
+        /** A backend that reports no size, spelled so it cannot collide with 0. */
+        private const val UNKNOWN_SIZE = "unknown"
 
         /**
          * rclone's on-the-fly local filesystem prefix. The leading colon is the

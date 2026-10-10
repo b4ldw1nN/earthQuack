@@ -22,6 +22,7 @@ object ServerConfig {
     private const val KEY_AES_KEY = "aes_key_b64"
     private const val KEY_AUTH_TOKEN = "auth_token"
     private const val KEY_CACHE_RETENTION_DAYS = "files_cache_retention_days"
+    private const val KEY_DOWNLOAD_CACHE_DAYS = "files_download_cache_days"
 
     // Fallback default — the IP that was previously hardcoded
     const val DEFAULT_HOST = "YOUR_TAILSCALE_IP"
@@ -149,4 +150,32 @@ object ServerConfig {
 
     /** The day counts offered by the Files screen, "off" first. */
     val CACHE_RETENTION_CHOICES = listOf(0, 1, 7, 30, 90)
+
+    // ── Downloaded files ─────────────────────────────────────────────────────
+    // A different setting from the listing cache above, and for a different
+    // thing: this one is file *content*, which is megabytes to gigabytes, so
+    // "keep for a week" means something entirely different for a 1.6 GB video
+    // than it does for a directory listing.
+
+    fun getDownloadCacheDays(context: Context): Int =
+        prefs(context).getInt(KEY_DOWNLOAD_CACHE_DAYS, DEFAULT_DOWNLOAD_CACHE_DAYS)
+
+    fun setDownloadCacheDays(context: Context, days: Int) {
+        prefs(context).edit().putInt(
+            KEY_DOWNLOAD_CACHE_DAYS,
+            days.coerceIn(0, MAX_DOWNLOAD_CACHE_DAYS)
+        ).apply()
+    }
+
+    /**
+     * Seven days by default: long enough that a file opened twice in a week
+     * does not download twice, short enough that a phone does not fill up with
+     * files it has seen once. "Off" is zero, meaning a file is downloaded when
+     * tapped and deleted as soon as the retention is next applied — which is
+     * effectively per-session behaviour.
+     */
+    const val DEFAULT_DOWNLOAD_CACHE_DAYS = 7
+    const val MAX_DOWNLOAD_CACHE_DAYS = 365
+
+    val DOWNLOAD_CACHE_CHOICES = listOf(0, 1, 7, 30, 90)
 }

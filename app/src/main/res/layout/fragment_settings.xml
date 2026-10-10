@@ -31,6 +31,9 @@
             <include android:id="@+id/rowBattery" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />
             <include android:id="@+id/rowPermissions" layout="@layout/item_settings_row" />
+
+            <!-- Downloaded files: how long they are kept, empty the cache. -->
+            <include android:id="@+id/rowFilesCache" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />
             <include android:id="@+id/rowAppearance" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />

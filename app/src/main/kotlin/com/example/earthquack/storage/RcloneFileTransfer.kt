@@ -9,6 +9,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.earthquack.storage.RcloneDownloadPlanner.Companion.PART_SUFFIX
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -82,22 +83,24 @@ class RcloneFileTransfer(
             )
         }
 
-        // A leftover file of the same name would be read as a successful
-        // download by an app that ignores the transfer's own result, and
-        // operations/copyfile with noClobber unset happily overwrites one
-        // anyway. Removing it first makes "exists" mean "this attempt wrote it".
-        if (destination.exists() && !destination.delete()) {
-            return@withContext RcloneDownloadResult.Failure(
-                "Could not clear the old copy of this file"
-            )
-        }
+        // Downloaded into a `.part` and renamed at the end, always. The
+        // destination is keyed on the file rather than on this attempt, so
+        // something may be reading it right now: renaming in a complete file
+        // means a reader sees either the old one or the new one, never a half
+        // written one, and an interrupted copy leaves a `.part` to clean up
+        // rather than a truncated file that looks like a success.
+        val staging = File(request.localFile + PART_SUFFIX)
 
         try {
-            val watcher = watchProgress(destination, onProgress)
+            val watcher = watchProgress(staging, onProgress)
             try {
                 engine.call(
                     METHOD_COPYFILE,
-                    JSONObject(request.params.mapValues { it.value })
+                    JSONObject(
+                        request.params.mapValues { it.value } + (
+                            "dstRemote" to (request.dstRemote + PART_SUFFIX)
+                            )
+                    )
                 )
             } catch (e: RcloneException) {
                 return@withContext RcloneDownloadResult.Failure(describeOf(e))
@@ -118,28 +121,36 @@ class RcloneFileTransfer(
             // blocking call returns; see the class docs.
             currentCoroutineContext().ensureActive()
 
-            val size = destination.length()
-            if (!destination.exists()) {
+            if (!staging.exists()) {
                 // A 200 with nothing on disk is not a download. `--dry-run`
                 // backends and quota-limited remotes both do this.
-                Log.w(TAG, "copyfile reported success but ${destination.path} is absent")
+                Log.w(TAG, "copyfile reported success but ${staging.path} is absent")
+                staging.delete()
                 return@withContext RcloneDownloadResult.Failure(FALLBACK_MESSAGE)
             }
+            val size = staging.length()
             if (!DownloadVerification.isComplete(size, expectedSize)) {
-                destination.delete()
+                staging.delete()
                 return@withContext RcloneDownloadResult.Failure(
                     "The file did not download completely"
                 )
+            }
+
+            // Rename rather than copy: same filesystem, so it is atomic and
+            // costs nothing for a 1.6 GB file.
+            if (!staging.renameTo(destination)) {
+                staging.delete()
+                return@withContext RcloneDownloadResult.Failure(FALLBACK_MESSAGE)
             }
 
             RcloneDownloadResult.Success(request.localFile, size)
         } catch (e: kotlinx.coroutines.CancellationException) {
             // The native call returned (or never started). Drop the partial
             // file so an abandoned download cannot later be opened.
-            destination.delete()
+            staging.delete()
             throw e
         } catch (e: IOException) {
-            destination.delete()
+            staging.delete()
             RcloneDownloadResult.Failure("Could not write the file to storage")
         }
     }

@@ -1,14 +1,14 @@
-# Task: rclone file download and external open (Files screen)
+# Task: rclone File Download and Open (Files screen)
 
-**Status:** in progress
-**Owner:** agent working from this file (see *Handover* at the end)
-**Branch/commit:** work on current branch; commit as `feat(files): download and open rclone files`
+**Status:** open-worth-using; next is video streaming
+**Owner:** any agent picking this file up (see *Handover*)
+**Commits:** `3729e2a` (open/download/cache), `e2cfabe` (bugfixes + PDF viewer + cache settings), base `ec91eae`
 
 ---
 
-## 1. Root cause (found)
+## 1. Root cause (confirmed)
 
-`FileBrowserActivity.onCreate` wires the adapter as:
+`FileBrowserActivity.onCreate` wired the adapter as:
 
 ```kotlin
 adapter = FileEntryAdapter(
@@ -17,93 +17,108 @@ adapter = FileEntryAdapter(
 )
 ```
 
-A tap on a **directory** navigates. A tap on a **file** is dropped on the floor: the
-callback body is an `if (entry.isDir)` with no `else`, so the tap is acknowledged
-by the row's click listener and then does nothing. It is neither a missing listener
-nor a disabled view — the listener exists and intentionally only handles
-directories. The per-row overflow menu's "Download" item is also present but
-hard-disabled with `download.isEnabled = false` and the note "Not available: needs
-a desktop file id".
+A tap on a **directory** navigated; a tap on a **file** fell through the `if`
+with no `else`. The row's "Download" overflow item was also hard-disabled with
+the note "Not available: needs a desktop file id".
 
-Conclusion: no click listener is missing and nothing crashes; the click handler
-has no file branch.
+**Second crash found on device:** `listingCache` was a property initialiser
+calling `cacheDir`, which runs before the activity is attached to a Context →
+`NullPointerException` at construction, i.e. "clicking a drive closes the app".
+Fixed with `by lazy`.
 
-## 2. Existing APIs to reuse (do not reimplement)
+## 2. Transfer mechanism (reused, not rebuilt)
 
-| Concern | Existing thing |
+`operations/copyfile` with `srcFs`/`srcRemote`/`dstFs`/`dstRemote`. The remote
+is the source; the destination is an on-the-fly local filesystem
+`:local:<cache>/opened/<key>/<name>`.
+
+- Registered in `fs/operations`, which `rclone-android/rclone/rclone.go`
+  **already** blank-imports → no Go/NDK change needed.
+- rclone streams the object straight to the local file, so the Kotlin side
+  only ever sees the JSON envelope. No `ByteArray`, no in-memory buffering.
+- `_async` + `job/status` was evaluated and rejected: it needs `fs/rc/jobs`
+  linked, a Go rebuild, and no NDK is installed here.
+
+### The download bug that made "nothing open" (root-caused on device)
+
+The transfer wrote to `<name>.part` and then renamed it, but passed
+`dstRemote = <name>` to rclone. So rclone wrote the final name, `.part` never
+existed, and the check "copyfile reported success but ... is absent" fired —
+a failure, nothing opened. A second tap "worked" only because it opened what
+rclone had already written. Fixed by asking rclone for the `.part` name;
+`RcloneFileTransferTest` now pins it with a regression test.
+
+### Stable per-file cache keys
+
+Each download used to get a random UUID, so every tap re-downloaded. Now
+`RcloneDownloadPlanner.cacheKey(fs, path, size)` gives a stable directory, and
+a complete cached copy is opened without a round trip.
+
+## 3. Files changed
+
+| File | What |
 |---|---|
-| Native surface | `RcloneEngine.call(method, params)` → `librclone.RPC` via `NativeRcloneBridge` |
-| Remote config | `RcloneConfigManager`, `RcloneRemoteManager` (unchanged) |
-| Path model | `"fs"` + `"remote"`-relative path (`path` list in `FileBrowserActivity`) |
-| Listing | `operations/list` with both `fs` and `remote` |
-| Entry model | `ui.FileEntry` (`name`, `path`, `isDir`, `size`, `mimeType`, `modified`) |
-| Row click | `FileEntryAdapter.onOpen` |
-| Coroutines | `lifecycleScope` + `Dispatchers.IO` (already the pattern in this screen) |
-| Errors | `RcloneException` + `describe()` in the activity |
+| `storage/RcloneDownloader.kt` | Destination naming, sanitising, cache key, completion rule |
+| `storage/RcloneFileTransfer.kt` | `operations/copyfile` on IO, `.part`-then-rename, error mapping, cancellation, progress |
+| `storage/DownloadCache.kt` | Size/count/clear/prune, `.part` files protected |
+| `storage/DirectoryListingCache.kt` | Raw `operations/list` reply cache, SHA-256 key, TTL prune |
+| `ui/FileOpener.kt` | MIME resolution, preview classification, external launch |
+| `ui/FilePreviewActivity.kt` + `PdfDocument.kt` | Image/Video/Audio/PDF in-app viewing |
+| `ui/sub/FilesCacheActivity.kt` | Retention setting, cache size, delete now |
+| `ServerConfig.kt` | Retention days for listings and downloads |
+| `res/xml/file_paths.xml` | `<cache-path name="opened" path="opened/" />` only |
+| `AndroidManifest.xml` | FileProvider, `FilePreviewActivity`, `FilesCacheActivity` |
+| `FileBrowserActivity.kt` | File branch, cache-first load, UI states, row actions |
+| `strings_files_open.xml`, layouts | New strings, stop button, cache screen, page list |
 
-## 3. Transfer mechanism (chosen)
+## 4. Security and cache behaviour — verified
 
-`operations/copyfile` — srcFs/srcRemote (the remote) → dstFs/dstRemote (a local
-`:local:` filesystem rooted at an app cache dir).
+- No `file://` URIs anywhere; every hand-off is `content://` from FileProvider.
+- Permission is `FLAG_GRANT_READ_URI_PERMISSION` only, scoped to the one URI.
+- Provider root is exactly `cache/opened/`.
+- **"Delete the cache" verified on device:** only `cache/opened/` was emptied.
+  All 17 remotes in `files/rclone/rclone.conf` are intact and byte-identical,
+  because that file lives under `files/`, not `cache/`. `DownloadCacheTest`
+  pins the confinement property.
+- Retention is a setting; "Off" means nothing is served from cache, and
+  changing it prunes immediately.
 
-Rationale:
-- It is registered in `fs/operations`, which the shim **already** blank-imports
-  (`_ "github.com/rclone/rclone/fs/operations"`), so it is callable today with
-  no Go change. Proven by `RcloneConfigInstrumentedTest.fileOperationsAgainstConfiguredRemote`.
-- rclone copies the object **directly from the backend to the local file**, streaming
-  in chunks. Nothing is loaded into a Kotlin `ByteArray` — the Kotlin side only
-  sees the JSON envelope.
-- It preserves every byte, so arbitrary binary types work and the result can be
-  compared byte-for-byte with the source.
+## 5. Results
 
-Bridge status: **no rclone bridge change is needed.** `operations/copyfile` is
-sufficient and already linked. `_async` + `job/status` were evaluated as well;
-they need `fs/rc/jobs` linked in (not currently imported) so they are left out
-of scope. Progress is reported by polling the local file's size during the copy.
+- `./gradlew :app:testDebugUnitTest` → **BUILD SUCCESSFUL** (231 tests).
+- `./gradlew :app:assembleDebug` → **BUILD SUCCESSFUL**.
+- On device (Android 15, arm64):
+  - Sizes now correct: `34.9 KB`, `31.0 KB`, `110.6 KB` (was showing MB/GB).
+  - Image downloads and `FilePreviewActivity` opens it automatically.
+  - PDF opens in the built-in viewer with the page count and "1 pages".
+  - Cache screen showed `32.3 GB in 25 files` — **wrong**, it was 32.3 MB;
+    fixed by reusing the tested `formatSize`, now shows `Nothing cached`.
+  - Delete emptied `cache/opened/` only; remotes verified untouched.
 
-## 4. Plan
+## 6. OPEN
 
-1. `storage/RcloneDownloader.kt` — pure-Kotlin request/result types, local-cache
-   destination naming, filename sanitising, duplicate guard, path helpers
-   (unit-testable, no Android deps).
-2. `storage/RcloneFileTransfer.kt` — runs `operations/copyfile` on `Dispatchers.IO`
-   via the existing `RcloneEngine`; no in-memory buffering; error mapping.
-3. `ui/FileOpener.kt` — MIME resolution + `FileProvider.getUriForFile` +
-   `ACTION_VIEW` + `ActivityNotFoundException` handling.
-4. `res/xml/file_paths.xml` — narrow `<cache-path name="opened" path="opened/" />`.
-5. `AndroidManifest.xml` — register `FileProvider` with authority
-   `${applicationId}.fileprovider` (none exists today).
-6. `FileBrowserActivity` — wire `onOpen` to `openFile(entry)`, show progress,
-   surface the six UI states, guard duplicate taps, update the overflow menu.
-7. Tests: `app/src/test/.../storage/RcloneDownloaderTest.kt`,
-   `RcloneFileTransferTest.kt`, `ui/FileOpenerTest.kt` (MIME only).
-8. `./gradlew test assembleDebug`.
+### 6.1 Video streaming (requested, not started)
+User asked: "for videos, instead of completely downloading it, cant we just
+stream, like youtube". Needs a local range-capable HTTP server (or a
+pipe-based descriptor) plus Media3/ExoPlayer, because `VideoView` cannot
+consume a partial file. **This is not a small change — plan before coding.**
 
-## 5. UI states to cover
+### 6.2 Remaining per-row actions (requested, partially done)
+Done: Open, Share, Save to Downloads, Copy path, Delete. Still worth adding:
+Rename/Move, Properties (size/type/modified), "Open with" (force the chooser).
 
-- downloading (indeterminate progress bar, already in the layout)
-- opening
-- download failed
-- file unavailable / permission denied
-- no compatible viewer installed
-- download cancelled (back / job cancelled → partial file removed)
+### 6.3 Download cache is one flat `opened/`
+`DownloadCache` walks it; a very large number of files would slow the walk. A
+size budget or LRU cap is worth considering before it grows to hundreds.
 
-## 6. Progress log
+---
 
-- [x] Root cause identified
-- [ ] Implementation
-- [ ] Tests
-- [ ] Build
-- [ ] On-device verification (NEEDS A REAL DEVICE — see limitations)
+## 7. Handover
 
-## 7. Handover notes (for the next agent)
-
-- Do **not** claim device-tested unless a device run happened. Section 8 must stay
-  honest.
-- Testable logic is kept out of the Activity so it survives on the JVM.
-- The existing `FileTransferService` (desktop-id based) is a different feature and
-  is untouched deliberately.
-
-## 8. Actual results (fill in, distinguish "ran" from "not run")
-
-TBD.
+- Do **not** claim device-tested results that were not run.
+- `docs/rclone-file-download.md` (this file) is the tracker — update it
+  before finishing.
+- `formatSize` in `ui/FileEntryAdapter.kt` is the single tested byte formatter;
+  reuse it, do not write another.
+- Cache is deliberately raw-JSON so a cached listing renders through the
+  same parse path as a live one.

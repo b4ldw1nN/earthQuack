@@ -98,6 +98,16 @@
             android:exported="false"
             android:label="@string/add_remote_title" />
 
+        <!--
+            Downloaded-files cache: how long to keep them, and a way to empty
+            the cache now. Separate from the Files screen because it is a
+            storage policy, not a browsing control.
+        -->
+        <activity
+            android:name=".ui.sub.FilesCacheActivity"
+            android:exported="false"
+            android:label="@string/files_cache_title" />
+
         <activity
             android:name=".ui.sub.SecurityActivity"
             android:exported="false"
@@ -148,9 +158,10 @@
             android:label="@string/files_title" />
 
         <!--
-            Shows one file that was just downloaded — image, video or audio —
-            with platform widgets. Not exported: it is only ever started from
-            this app, with a path into this app's own cache.
+            Shows a downloaded file in-app: a photo, a clip, a track or a PDF.
+
+            Not exported: it is only ever started from this app, with a path
+            into this app's own cache.
         -->
         <activity
             android:name=".ui.FilePreviewActivity"

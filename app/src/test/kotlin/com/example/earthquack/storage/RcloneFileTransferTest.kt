@@ -105,8 +105,10 @@ class RcloneFileTransferTest {
             // The destination is a local filesystem root built the same way
             // the planner says it is, or the copy would land in the wrong fs.
             assertEquals(request.dstFs, params.getString("dstFs"))
-            assertEquals("file.txt", params.getString("dstRemote"))
-            File(request.localFile).writeText(content)
+            // The staging name, with the suffix: this is what the transfer
+            // waits for before renaming it into place.
+            assertEquals("file.txt.part", params.getString("dstRemote"))
+            writePart(request, content)
             org.json.JSONObject()
         }
 
@@ -126,7 +128,7 @@ class RcloneFileTransferTest {
         val tmp = createTempDir()
         val request = planner(tmp).request("remote:", "big.bin", "big.bin", "tok")
         val engine = fakeEngine { _, _ ->
-            File(request.localFile).writeBytes(ByteArray(16))
+            writePartBytes(request, ByteArray(16))
             org.json.JSONObject()
         }
 
@@ -203,7 +205,7 @@ class RcloneFileTransferTest {
         val before = File(request.localFile).length()
 
         val engine = fakeEngine { _, _ ->
-            File(request.localFile).writeText("fresh")
+            writePart(request, "fresh")
             org.json.JSONObject()
         }
         val result = RcloneFileTransfer(engine).download(
@@ -223,7 +225,7 @@ class RcloneFileTransferTest {
         val request = planner(tmp).request("remote:", "p.bin", "p.bin", "tok")
         val engine = fakeEngine { _, _ ->
             // Grow the file so the poller sees several distinct sizes.
-            val destination = File(request.localFile)
+            val destination = File(request.localFile + ".part")
             destination.parentFile!!.mkdirs()
             listOf(10, 40, 90, 150).forEach { size ->
                 destination.writeBytes(ByteArray(size))
@@ -252,7 +254,117 @@ class RcloneFileTransferTest {
         tmp.deleteRecursively()
     }
 
+
+    /**
+     * A re-download of a file that is already cached must not disturb the copy
+     * that is currently open in a viewer: it writes a `.part` and renames it in,
+     * so the old inode stays valid and the new one is only ever complete.
+     */
+    @Test
+    fun `re-downloading a cached file renames a complete copy over it`() = runTest {
+        val tmp = createTempDir()
+        val request = planner(tmp).request("remote:", "repeat.bin", "repeat.bin", "key")
+        val destination = File(request.localFile)
+        destination.parentFile!!.mkdirs()
+        destination.writeBytes(ByteArray(8))
+
+        val engine = fakeEngine { _, _ ->
+            File(request.localFile + ".part").writeBytes(ByteArray(8))
+            org.json.JSONObject()
+        }
+        val result = RcloneFileTransfer(engine).download(request, expectedSize = 8)
+
+        assertTrue(result is RcloneDownloadResult.Success)
+        assertTrue("the rename left the file in place", destination.exists())
+        assertTrue("no .part is left behind", File(request.localFile + ".part").exists().not())
+        tmp.deleteRecursively()
+    }
+
+    /**
+     * A transfer that never produces anything must leave the destination alone,
+     * not delete a previously good copy of the same file.
+     */
+    @Test
+    fun `a copy that writes nothing does not remove an existing good download`() = runTest {
+        val tmp = createTempDir()
+        val request = planner(tmp).request("remote:", "keep.bin", "keep.bin", "key")
+        val destination = File(request.localFile)
+        destination.parentFile!!.mkdirs()
+        destination.writeBytes(ByteArray(16))
+
+        val engine = fakeEngine { _, _ -> org.json.JSONObject() }
+        val result = RcloneFileTransfer(engine).download(request, expectedSize = 16)
+
+        assertTrue(result is RcloneDownloadResult.Failure)
+        assertTrue("the previous download survives a failed refresh", destination.exists())
+        tmp.deleteRecursively()
+    }
+
+    /**
+     * A partially written copy is left as `.part` and removed, never as the
+     * name a viewer would open: the destination must not exist at all.
+     */
+    @Test
+    fun `an incomplete copy leaves no file at the destination`() = runTest {
+        val tmp = createTempDir()
+        val request = planner(tmp).request("remote:", "half.bin", "half.bin", "key")
+
+        val engine = fakeEngine { _, _ ->
+            File(request.localFile + ".part").writeBytes(ByteArray(10))
+            org.json.JSONObject()
+        }
+        val result = RcloneFileTransfer(engine).download(request, expectedSize = 1024)
+
+        assertTrue(result is RcloneDownloadResult.Failure)
+        assertTrue(File(request.localFile).exists().not())
+        assertTrue(File(request.localFile + ".part").exists().not())
+        tmp.deleteRecursively()
+    }
+
+
+    /**
+     * Regression test for the bug that made a download open nothing.
+     *
+     * The transfer polls and verifies `<name>.part`, but `request.params`
+     * carried `dstRemote` as the bare filename -- so rclone wrote the final
+     * name, the `.part` was never created, the check failed with "copyfile
+     * reported success but ... is absent", and the file the user tapped only
+     * appeared on the second tap. This pins the one detail that was wrong.
+     */
+    @Test
+    fun `the copy is asked for the part file the transfer verifies`() = runTest {
+        val tmp = createTempDir()
+        val request = planner(tmp).request("remote:", "regress.bin", "regress.bin", "key")
+        var requestedRemote: String? = null
+        val engine = fakeEngine { _, params ->
+            requestedRemote = params.getString("dstRemote")
+            File(request.localFile + ".part").writeBytes(ByteArray(4))
+            org.json.JSONObject()
+        }
+
+        val result = RcloneFileTransfer(engine).download(request, expectedSize = 4)
+
+        assertTrue(result is RcloneDownloadResult.Success)
+        // The destination rclone must write to is the one this code waits for.
+        assertEquals("regress.bin.part", requestedRemote)
+        assertTrue(File(request.localFile).exists())
+        tmp.deleteRecursively()
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    /** A fake backend writes where the transfer told it to. */
+    private fun writePart(request: RcloneDownloadRequest, text: String) {
+        val f = File(request.localFile + ".part")
+        f.parentFile!!.mkdirs()
+        f.writeText(text)
+    }
+
+    private fun writePartBytes(request: RcloneDownloadRequest, bytes: ByteArray) {
+        val f = File(request.localFile + ".part")
+        f.parentFile!!.mkdirs()
+        f.writeBytes(bytes)
+    }
 
     private fun createTempDir(): File =
         File.createTempFile("eq-transfer", ".d").apply {
