@@ -8,7 +8,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -153,25 +152,49 @@ class TerminalFragment : Fragment() {
     }
 
     private fun wireInput() {
-        binding.inputField.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEND ||
-                actionId == EditorInfo.IME_ACTION_UNSPECIFIED
-            ) {
-                submitInput()
-                true
-            } else {
-                false
-            }
+        // Termux-style: the TerminalInputView forwards every keystroke straight
+        // to the shell. There is no "type then press send" — printable text,
+        // Enter (as CR), and Backspace each become the raw bytes the PTY
+        // expects, and the characters show up in the terminal because the
+        // remote echoes them, not because we insert them into the field.
+        (binding.inputField as? TerminalInputView)?.onBytes = { bytes ->
+            send(bytes) { /* nothing to clear: the field stays empty */ }
+        }
+        // A single tap on the terminal focuses the input and raises the
+        // keyboard. The field is transparent and has no send button, so without
+        // this the user would have to find the invisible field at the bottom to
+        // type at all.
+        binding.terminalLog.setOnClickListener { focusInputAndShowKeyboard() }
+        binding.terminalScroll.setOnClickListener { focusInputAndShowKeyboard() }
+    }
+
+    /** Focuses the input sink and raises the soft keyboard. */
+    private fun focusInputAndShowKeyboard() {
+        val field = binding.inputField
+        if (!field.isEnabled) return
+        field.requestFocusFromTouch()
+        // The keyboard's own adjustResize triggers a relayout that can hand the
+        // IME back to a sibling, so rebind *after* layout settles rather than
+        // once, synchronously. requestFocusFromTouch wins the touch-mode focus
+        // the terminal log would otherwise claim.
+        field.post {
+            if (_binding == null) return@post
+            val manager = context?.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as? InputMethodManager ?: return@post
+            if (!field.hasFocus()) field.requestFocus()
+            // restartInput forces the IME to (re)attach to this field. Without
+            // it, a keyboard that is already showing stays bound to whatever had
+            // focus before (observed: bound to the terminalLog TextView), and
+            // showSoftInput is then a no-op — so keystrokes never reach the sink
+            // until the user taps again.
+            manager.restartInput(field)
+            manager.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
     private fun wireButtons() {
         binding.btnConnect.setOnClickListener { connect() }
         binding.btnDisconnect.setOnClickListener { disconnect() }
-        binding.btnSend.setOnClickListener {
-            submitInput()
-            hideKeyboard()
-        }
         // Control keys. A soft keyboard has no Ctrl key, so without these an
         // interactive program can be neither interrupted nor sent a Tab: no
         // Ctrl+C exists for the shell to react to, no matter how politely the
@@ -436,7 +459,12 @@ class TerminalFragment : Fragment() {
         if (userScrolledUp) return
         binding.terminalScroll.post {
             if (userScrolledUp) return@post
-            binding.terminalScroll.fullScroll(View.FOCUS_DOWN)
+            // Scroll position only — never fullScroll(FOCUS_DOWN), which also
+            // requests focus for the last focusable view and would yank the IME
+            // off the input sink mid-typing (observed: the first echoed char
+            // moved focus to terminalLog, so every keystroke after it was lost).
+            val child = binding.terminalScroll.getChildAt(0) ?: return@post
+            binding.terminalScroll.scrollTo(0, child.height)
         }
     }
 
@@ -466,7 +494,9 @@ class TerminalFragment : Fragment() {
         binding.btnConnect.isEnabled = false
         binding.btnDisconnect.isEnabled = true
         binding.inputField.isEnabled = true
-        binding.inputField.requestFocus()
+        // Raise the keyboard the moment the shell is live, so the user can type
+        // immediately without hunting for the transparent field at the bottom.
+        focusInputAndShowKeyboard()
     }
 
     private fun resetTerminal() {
@@ -478,12 +508,6 @@ class TerminalFragment : Fragment() {
 
     // ── input ────────────────────────────────────────────────────────────────
 
-    private fun submitInput() {
-        val text = binding.inputField.text?.toString().orEmpty()
-        if (text.isEmpty()) return
-        send(text.toByteArray(Charsets.UTF_8)) { binding.inputField.text?.clear() }
-    }
-
     /**
      * Sends a control byte.
      *
@@ -492,7 +516,11 @@ class TerminalFragment : Fragment() {
      */
     private fun sendControl(label: String, bytes: ByteArray) {
         Log.i(TAG, "sending control key $label")
-        send(bytes) { /* nothing to clear: this did not come from the field */ }
+        // A control key such as Ctrl+C resets the shell's line buffer, so the
+        // invisible mirror must be emptied too or the next keystroke's diff
+        // would be computed against text the shell no longer holds.
+        (binding.inputField as? TerminalInputView)?.clearMirror()
+        send(bytes) { /* nothing further to clear */ }
     }
 
     /**
@@ -621,13 +649,6 @@ class TerminalFragment : Fragment() {
      */
     private fun showInputError(message: String) {
         showStatus(getString(R.string.terminal_state_error, message))
-    }
-
-    private fun hideKeyboard() {
-        val context = context ?: return
-        val manager = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-            as? InputMethodManager ?: return
-        manager.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
     }
 
     /**
@@ -785,3 +806,25 @@ class TerminalState {
         conn?.close()
     }
 }
+
+/**
+ * The bytes a typed command line becomes on its way to the shell: the text
+ * followed by the Enter key.
+ *
+ * A PTY shell is line-buffered by the tty in cooked mode, so it runs a line
+ * only when it receives the Enter key. Sending the bare text — the previous
+ * behaviour — left the shell waiting on its input line forever, which is
+ * exactly the "I typed `ls` and nothing happened" report. Enter is a carriage
+ * return (0x0D): the tty line discipline (ICRNL) turns it into the newline the
+ * shell acts on, and it is what Termux and every other PTY client send.
+ *
+ * Kept as a pure top-level function so the byte layout is unit-testable without
+ * an Android shell.
+ */
+internal fun commandWithEnter(text: String): ByteArray {
+    val bytes = text.toByteArray(Charsets.UTF_8)
+    return bytes + byteArrayOf(ENTER_BYTE)
+}
+
+/** Carriage return — the byte the Enter key sends to a PTY. */
+internal const val ENTER_BYTE: Byte = 0x0D

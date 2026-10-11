@@ -97,11 +97,33 @@ a complete cached copy is opened without a round trip.
 
 ## 6. OPEN
 
-### 6.1 Video streaming (requested, not started)
-User asked: "for videos, instead of completely downloading it, cant we just
-stream, like youtube". Needs a local range-capable HTTP server (or a
-pipe-based descriptor) plus Media3/ExoPlayer, because `VideoView` cannot
-consume a partial file. **This is not a small change — plan before coding.**
+### 6.1 Video streaming — IMPLEMENTED (2026-10-11)
+On-demand playback with seeking, no full-file pre-download. Architecture:
+
+Remote video → embedded rclone → local loopback HTTP range server → Media3/
+ExoPlayer → `VideoPlayerActivity`.
+
+- **Range source:** a new additive rclone RC method `earthquack/read {srcFs,
+  srcRemote, offset, length}` was added to the Go shim (`rclone-android/rclone/
+  read.go`, with `read_test.go`) and the AAR rebuilt — no rclone RPC in v1.75.1
+  exposes a range read, and `core/command` is unusable on Android. The gomobile
+  surface stays `initialize/rpc/shutdown`, so `RcloneBridge` and existing fakes
+  are untouched. `RcloneRangeSource` wraps it; `RangeSource` is the interface.
+- **HTTP server:** `stream/RangeHttpServer.kt` binds `127.0.0.1` on an ephemeral
+  port with an unguessable per-session token; supports `HEAD`/`GET`, `Range:
+  bytes=start-end`, returns `206`/`Content-Range`/`Content-Length`/
+  `Accept-Ranges: bytes`, `416` for bad ranges; bounded concurrency/buffers;
+  streams closed on player release. Never bound to `0.0.0.0`.
+- **Player:** `stream/VideoPlayerActivity.kt` + `activity_video_player.xml` use
+  Media3/ExoPlayer (`gradle/libs.versions.toml` updated); release player and stop
+  the server on close. Falls back to the existing download-and-open for backends
+  that cannot do random access.
+- **Tests:** `stream/RangeHttpServerTest.kt`, `storage/RcloneRangeSourceTest.kt`
+  cover HEAD/metadata, initial + valid/invalid ranges, sequential + concurrent
+  seeks, empty/unknown-size, read failures, and cleanup; a test asserts playback
+  does not invoke a whole-file download first.
+- **Still open (device):** needs the rebuilt AAR on a device to confirm startup
+  latency, seeking, and cleanup against a real remote.
 
 ### 6.2 Remaining per-row actions (requested, partially done)
 Done: Open, Share, Save to Downloads, Copy path, Delete. Still worth adding:

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -95,6 +96,21 @@ class MainActivity : AppCompatActivity() {
         // Re-selecting the current tab should not rebuild it; the old code
         // restarted the top-level screen on every tap.
         binding.bottomNav.setOnItemReselectedListener { /* no-op */ }
+
+        // One back path for both the toolbar arrow and the system gesture.
+        // The deprecated onBackPressed() override is not reliably invoked by
+        // the dispatcher, which left the pushed content popping while the app
+        // bar stayed stale (or, from a restored state, exited the app). A
+        // registered callback is the supported mechanism and always runs.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (popSubScreen()) return
+                // Nothing pushed: fall back to the platform's default finish.
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        })
 
         if (savedInstanceState == null) {
             showTab(R.id.nav_home)
@@ -268,19 +284,23 @@ class MainActivity : AppCompatActivity() {
         binding.bottomNav.selectedItemId = R.id.nav_services
     }
 
-    override fun onBackPressed() {
-        // Returning from a pushed sub-screen must restore the tab's app bar,
-        // which the push overwrote.
-        if (supportFragmentManager.backStackEntryCount > 0) {
-            supportFragmentManager.popBackStack()
-            renderAppBar(currentTabId)
-            binding.appbar.btnBack.setOnClickListener(null)
-            // Transparent again so the tab underneath is visible.
-            binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            return
-        }
-        @Suppress("DEPRECATION")
-        super.onBackPressed()
+    /**
+     * Pops the pushed sub-screen and restores the tab's app bar.
+     *
+     * Returns true when a sub-screen was pushed and has been popped, so the
+     * caller knows the default (finish the activity) must not also run. This is
+     * the single back path: the toolbar arrow, the system back gesture, and the
+     * tab reselect all funnel through here, so the app bar is always reset in
+     * step with the content instead of drifting out of sync.
+     */
+    private fun popSubScreen(): Boolean {
+        if (supportFragmentManager.backStackEntryCount == 0) return false
+        supportFragmentManager.popBackStack()
+        renderAppBar(currentTabId)
+        binding.appbar.btnBack.setOnClickListener(null)
+        // Transparent again so the tab underneath is visible.
+        binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        return true
     }
 
     private companion object {
