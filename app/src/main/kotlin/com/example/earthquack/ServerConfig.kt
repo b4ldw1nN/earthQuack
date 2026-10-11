@@ -2,6 +2,8 @@ package com.example.earthquack
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.earthquack.ssh.KeystoreSecretStore
+import com.example.earthquack.ssh.SecretStore
 
 /**
  * ServerConfig — single source of truth for server addresses.
@@ -11,6 +13,16 @@ import android.content.SharedPreferences
  *
  * Python side (server.py / desktop daemon / file-server.py) reads the same value
  * from the CLIPBOARD_SERVER_HOST env var or --host CLI flag.
+ *
+ * ## Credential storage (Section C hardening)
+ *
+ * Non-secret settings (host, toggles, cache days) stay in SharedPreferences.
+ * The AES key and bearer token live in the Keystore-backed [SecretStore]
+ * via [CredentialVault] and are migrated lazily from legacy plaintext prefs:
+ * first read promotes the value and deletes the plaintext only after a
+ * vault read-back verifies; a vault failure keeps the legacy value so a
+ * valid configuration is never destroyed. See [CredentialVault] for the
+ * testable core.
  */
 object ServerConfig {
 
@@ -29,6 +41,27 @@ object ServerConfig {
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Keystore-backed vault. One per call; the Keystore key itself is cached by the OS. */
+    private fun secrets(context: Context): SecretStore =
+        secretStoreOverride ?: KeystoreSecretStore(context.applicationContext.filesDir)
+
+    /** Test seam: Section C tests inject an InMemorySecretStore here. Null in production. */
+    @Volatile
+    internal var secretStoreOverride: SecretStore? = null
+
+    private fun legacy(context: Context): CredentialVault.LegacySecrets {
+        val p = prefs(context)
+        return object : CredentialVault.LegacySecrets {
+            override fun get(key: String): String? = runCatching { p.getString(key, "") }.getOrNull()
+            override fun put(key: String, value: String) {
+                runCatching { p.edit().putString(key, value).apply() }
+            }
+            override fun clear(key: String) {
+                runCatching { p.edit().remove(key).apply() }
+            }
+        }
+    }
 
     // ── Host ───────────────────────────────────────────────────────────────
 
@@ -95,10 +128,10 @@ object ServerConfig {
     }
 
     fun getAesKey(context: Context): String =
-        prefs(context).getString(KEY_AES_KEY, "") ?: ""
+        CredentialVault.resolve(secrets(context), legacy(context), KEY_AES_KEY, CredentialVault.ALIAS_AES_KEY)
 
     fun setAesKey(context: Context, b64: String) {
-        prefs(context).edit().putString(KEY_AES_KEY, b64.trim()).apply()
+        CredentialVault.store(secrets(context), legacy(context), KEY_AES_KEY, CredentialVault.ALIAS_AES_KEY, b64)
     }
 
     fun hasValidAesKey(context: Context): Boolean {
@@ -114,10 +147,20 @@ object ServerConfig {
     // in source — set it from the app UI.
 
     fun getAuthToken(context: Context): String =
-        prefs(context).getString(KEY_AUTH_TOKEN, "") ?: ""
+        CredentialVault.resolve(secrets(context), legacy(context), KEY_AUTH_TOKEN, CredentialVault.ALIAS_AUTH_TOKEN)
 
     fun setAuthToken(context: Context, token: String) {
-        prefs(context).edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
+        CredentialVault.store(secrets(context), legacy(context), KEY_AUTH_TOKEN, CredentialVault.ALIAS_AUTH_TOKEN, token)
+    }
+
+    /**
+     * True when no secret plaintext remains in SharedPreferences.
+     * Diagnostics only — never logs values.
+     */
+    fun secretsAreVaultBacked(context: Context): Boolean {
+        val legacyAes = runCatching { prefs(context).getString(KEY_AES_KEY, "") }.getOrNull().orEmpty()
+        val legacyTok = runCatching { prefs(context).getString(KEY_AUTH_TOKEN, "") }.getOrNull().orEmpty()
+        return legacyAes.isBlank() && legacyTok.isBlank()
     }
 
     // ── Files screen: directory listing cache ─────────────────────────────────

@@ -8,6 +8,15 @@ build/
 
 # Local config
 /config.json
+# Local node configs with secrets (templates live in examples/ and stay tracked).
+config.local.json
+*-local.json
+.env
+.env.local
+# Local rclone config copies (device file lives in app-private storage; only
+# local desktop copies are ignored — no tracked template is affected).
+rclone.conf
+rclone.conf.old
 # Compiled node binary. Deliberately unanchored: the previous `/earthquack-node`
 # matched only as `./earthquack-node` and `git status` still listed the file as
 # untracked, so it was not reliably excluded.

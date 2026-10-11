@@ -119,7 +119,10 @@
         </LinearLayout>
 
         <!-- Breadcrumbs. Horizontally scrollable because a deep path is longer
-             than the screen; the chip container is filled from code. -->
+             than the screen; the chip container is filled from code, and the
+             selection count rides beside the root chip — "beside the storage
+             name", so the mode is stated where the location is, not in a bar
+             of its own that had room for nothing else. -->
         <HorizontalScrollView
             android:id="@+id/crumbScroll"
             android:layout_width="match_parent"
@@ -131,11 +134,31 @@
             android:paddingBottom="@dimen/eq_gap_xs">
 
             <LinearLayout
-                android:id="@+id/crumbs"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="center_vertical" />
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:id="@+id/crumbs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical" />
+
+                <!-- Selection count. Beside the storage name, gone unless rows
+                     are actually selected. -->
+                <TextView
+                    android:id="@+id/selectionCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/eq_gap_sm"
+                    android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                    android:textColor="@color/eq_primary"
+                    android:visibility="gone"
+                    tools:text="3 selected"
+                    tools:visibility="visible" />
+            </LinearLayout>
         </HorizontalScrollView>
 
         <com.google.android.material.progressindicator.LinearProgressIndicator
@@ -148,6 +171,61 @@
             app:trackColor="@color/eq_border"
             app:indicatorColor="@color/eq_primary"
             tools:visibility="visible" />
+
+        <!--
+            Selection mode has no bar of its own any more. Back unwinds it
+            (see wireBack), the actions live in the overflow menu, and the
+            count rides beside the storage name in the crumb strip. What
+            remains is the paste bar below: while a Copy/Move waits for a
+            destination, navigating anywhere offers the paste there.
+            Destructive Delete always confirms with the item list; Copy/Move
+            never run without a paste.
+        -->
+
+        <!--
+            Paste destination bar (Section E). Shown while a copy/move waits for
+            its destination: the current folder of the current remote is where
+            pasting lands. Paste runs the per-file RPCs with unique-name
+            resolution; Cancel drops the clipboard without touching anything.
+        -->
+        <LinearLayout
+            android:id="@+id/pasteBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingTop="@dimen/eq_gap_sm"
+            android:paddingBottom="@dimen/eq_gap_sm"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/pasteLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="Paste 3 items here" />
+
+            <Button
+                android:id="@+id/btnPaste"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="@dimen/eq_touch_min"
+                android:text="@string/files_bulk_paste" />
+
+            <Button
+                android:id="@+id/btnPasteCancel"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/eq_gap_xs"
+                android:minHeight="@dimen/eq_touch_min"
+                android:text="@string/action_dismiss" />
+        </LinearLayout>
 
         <FrameLayout
             android:layout_width="match_parent"

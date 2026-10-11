@@ -93,6 +93,20 @@ enum class PermissionKind(val label: String, val why: String) {
     OVERLAY(
         "Draw over other apps",
         "Lets clipboard sync keep working while other apps are in the foreground."
+    ),
+
+    /**
+     * All-files access (`MANAGE_EXTERNAL_STORAGE`).
+     *
+     * Special access with no runtime dialog, like the overlay, but earned
+     * separately: the SFTP server serves `/storage/emulated/0` as its root,
+     * and the Files screen browses shared storage, so both are listless
+     * without it. It is listed here because "grant it in Storage" was the
+     * only place it appeared, and only while it was missing.
+     */
+    SHARED_STORAGE(
+        "All files access",
+        "Lets the SFTP server and Files screen reach shared storage (/storage/emulated/0)."
     )
 }
 

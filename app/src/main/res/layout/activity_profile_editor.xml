@@ -12,6 +12,7 @@
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -265,19 +266,52 @@
 
                 <TextView
                     android:id="@+id/textHostKey"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:layout_marginTop="@dimen/eq_gap_xs"
                     android:text="@string/profile_host_key_unverified"
                     android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+                <!--
+                    Share the fingerprint the same way the SFTP server's is
+                    shared: the one thing that makes a first connection
+                    verifiable, and a changed key fixable. Hidden until a key
+                    has actually been recorded.
+                -->
+                <ImageButton
+                    android:id="@+id/btnShareHostKey"
+                    android:layout_width="@dimen/eq_touch_min"
+                    android:layout_height="@dimen/eq_touch_min"
+                    android:layout_marginTop="@dimen/eq_gap_xs"
+                    android:padding="@dimen/eq_gap_md"
+                    android:src="@drawable/ic_eq_send"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@string/profile_host_key_share"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
             </LinearLayout>
+
+            <!--
+                Test before saving: connects with the form as it stands, so a
+                typo is caught here rather than by a timeout after Save.
+                An unfamiliar host key is shown for acceptance here.
+            -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTest"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:text="@string/profiles_test" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSave"
                 style="@style/Widget.Eq.Button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/eq_gap_lg"
+                android:layout_marginTop="@dimen/eq_gap_md"
                 android:text="@string/profile_save"
                 app:icon="@drawable/ic_eq_check" />
 

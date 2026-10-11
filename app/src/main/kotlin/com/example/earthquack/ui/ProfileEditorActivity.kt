@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import androidx.core.view.isVisible
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -23,6 +24,7 @@ import com.example.earthquack.ssh.SshServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.earthquack.ui.runProfileTest
 
 /**
  * Add or edit a [ConnectionProfile].
@@ -106,6 +108,7 @@ class ProfileEditorActivity : AppCompatActivity() {
         existing = intent.getStringExtra(EXTRA_PROFILE_ID)?.let { profileStore.get(it) }
         authMethod = existing?.authMethod ?: AuthMethod.PUBLIC_KEY
         selectedKeyAlias = existing?.identityKeyAlias
+        restoreState(savedInstanceState)
 
         binding.appbar.title.setText(
             if (existing == null) R.string.profile_editor_add_title
@@ -123,9 +126,37 @@ class ProfileEditorActivity : AppCompatActivity() {
         binding.btnImportKey.setOnClickListener { importKeyLauncher.launch(arrayOf("*/*")) }
 
         binding.btnSave.setOnClickListener { save() }
+        binding.btnTest.setOnClickListener { test() }
 
         refreshKeys()
         prefill()
+    }
+
+    /**
+     * Restores the form's editor state after an activity recreation.
+     *
+     * The imported keys live in the store and survive anything, but *which
+     * key the user selected* was a plain field — so a rotation (or any vendor
+     * configuration change: a dark-mode, font, or dialog-triggered recreate)
+     * reset it to null, and Save then failed validation with "public key
+     * authentication needs an imported key". The user's loop — import, rotate,
+     * save fails, import again — is exactly the three identical keys in the
+     * store with an empty profile list. The chosen alias and auth method are
+     * now part of the instance state.
+     */
+    private fun restoreState(savedInstanceState: Bundle?) {
+        savedInstanceState ?: return
+        val savedName = savedInstanceState.getString(STATE_AUTH_METHOD)
+        if (savedName != null) {
+            runCatching { AuthMethod.valueOf(savedName) }.getOrNull()?.let { authMethod = it }
+        }
+        selectedKeyAlias = savedInstanceState.getString(STATE_KEY_ALIAS) ?: selectedKeyAlias
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_AUTH_METHOD, authMethod.name)
+        outState.putString(STATE_KEY_ALIAS, selectedKeyAlias)
     }
 
     private fun prefill() {
@@ -137,8 +168,17 @@ class ProfileEditorActivity : AppCompatActivity() {
 
         val fingerprint = p?.let { knownHosts.forProfile(it.id)?.fingerprint }
         binding.textHostKey.text = fingerprint ?: getString(R.string.profile_host_key_unverified)
+        // Share is offered only for a key that exists: there is nothing to
+        // verify until the first connection records one.
+        binding.btnShareHostKey.isVisible = fingerprint != null
+        if (fingerprint != null) {
+            binding.btnShareHostKey.setOnClickListener { shareHostKey(p!!, fingerprint) }
+        }
 
         setAuthMethod(authMethod)
+        // The label follows the alias, including the restored one: a selected
+        // key the UI does not show is a key the user cannot trust is selected.
+        selectKey(selectedKeyAlias)
     }
 
     private fun setAuthMethod(method: AuthMethod) {
@@ -215,25 +255,60 @@ class ProfileEditorActivity : AppCompatActivity() {
         toast(R.string.profile_key_copied)
     }
 
-    private fun save() {
+    /**
+     * Shares the profile's recorded host-key fingerprint.
+     *
+     * The SSH mirror of the SFTP server's share button: the fingerprint is
+     * the number that makes a first connection verifiable and a changed key
+     * recoverable, and a fingerprint the user cannot move off the phone is
+     * one they cannot check against the server.
+     */
+    private fun shareHostKey(profile: ConnectionProfile, fingerprint: String) {
+        val body = getString(
+            R.string.profile_host_key_share_body,
+            profile.endpoint,
+            fingerprint
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, body)
+        }
+        startActivity(Intent.createChooser(send, getString(R.string.profile_host_key_share)))
+    }
+
+    /**
+     * Builds the profile the form currently describes, without saving it.
+     *
+     * Extracted from [save] so Test can exercise exactly what Save would
+     * write — a test of a different object than the saved one would prove
+     * nothing. A password typed into the form is written to the encrypted
+     * store under the profile's alias first: the backend cannot authenticate
+     * with a password that only exists in an EditText, and silently testing
+     * the *stored* (possibly absent or old) password instead would report a
+     * failure the user did not make.
+     *
+     * @return null when the form cannot produce a testable profile; the
+     *   reason has already been shown as a toast.
+     */
+    private fun candidateFromForm(): ConnectionProfile? {
         val name = binding.fieldName.text.toString().trim()
         val host = binding.fieldHost.text.toString().trim()
         val port = binding.fieldPort.text.toString().trim().toIntOrNull()
             ?: ConnectionProfile.DEFAULT_SSH_PORT
         val username = binding.fieldUsername.text.toString().trim()
 
-        // Password goes to the encrypted store under a per-profile alias. The
-        // profile records only that alias — never the password itself.
         var passwordAlias: String? = existing?.passwordAlias
         if (authMethod == AuthMethod.PASSWORD) {
             val entered = binding.fieldPassword.text.toString()
             if (entered.isNotEmpty()) {
+                // The same alias save() would use, so a Test then Save tests
+                // and saves the same credential.
                 passwordAlias = "profile-pw-" + (existing?.id ?: System.currentTimeMillis())
                 secretStore.put(passwordAlias, entered.toByteArray(Charsets.UTF_8))
                 binding.fieldPassword.text?.clear()
             } else if (passwordAlias == null) {
                 toast(R.string.profile_password_required)
-                return
+                return null
             }
         }
 
@@ -248,12 +323,16 @@ class ProfileEditorActivity : AppCompatActivity() {
             passwordAlias = passwordAlias,
             hostKeyPolicy = existing?.hostKeyPolicy ?: HostKeyPolicy.TOUF
         )
-
         val problems = candidate.problems()
         if (problems.isNotEmpty()) {
             Toast.makeText(this, problems.first(), Toast.LENGTH_SHORT).show()
-            return
+            return null
         }
+        return candidate
+    }
+
+    private fun save() {
+        val candidate = candidateFromForm() ?: return
 
         if (profileStore.upsert(candidate)) {
             setResult(RESULT_OK)
@@ -261,6 +340,19 @@ class ProfileEditorActivity : AppCompatActivity() {
         } else {
             toast(R.string.profile_save_failed)
         }
+    }
+
+    /**
+     * Connects with the form as it stands.
+     *
+     * Nothing is saved by succeeding — that is Save's job — but an accepted
+     * host key *is* recorded, because that is the consent the test dialog
+     * asked for. [runProfileTest] shows the fingerprint and refuses to record
+     * anything without an explicit accept.
+     */
+    private fun test() {
+        val candidate = candidateFromForm() ?: return
+        runProfileTest(this, candidate)
     }
 
     /**
@@ -277,17 +369,30 @@ class ProfileEditorActivity : AppCompatActivity() {
     /**
      * Prompts the user for a key passphrase.
      */
+    /**
+     * Asks for the passphrase protecting a private key being imported.
+     *
+     * The field is built in code, but it uses the same field drawable as the
+     * form ([R.drawable.bg_eq_field]): a bare EditText gets the platform
+     * default, whose underline spans the whole dialog width and reads as a
+     * broken layout artifact rather than a text field.
+     */
     private fun promptPassphrase(onResult: (String?) -> Unit) {
         val input = android.widget.EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = getString(R.string.profile_key_passphrase_hint)
+            setBackgroundResource(R.drawable.bg_eq_field)
+            setTextColor(resources.getColor(R.color.eq_text_primary, theme))
+            setHintTextColor(resources.getColor(R.color.eq_text_muted, theme))
+            textSize = 15f
+            val pad = resources.getDimensionPixelSize(R.dimen.eq_gap_md)
+            setPadding(pad, pad, pad, pad)
+            importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO
         }
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(R.string.profile_key_passphrase_title)
-            .setView(input.apply {
-                val pad = resources.getDimensionPixelSize(R.dimen.eq_gap_lg)
-                setPadding(pad, pad / 2, pad, 0)
-            })
+            .setView(input)
             .setNegativeButton(android.R.string.cancel) { _, _ -> onResult(null) }
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val text = input.text.toString()
@@ -302,6 +407,10 @@ class ProfileEditorActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_PROFILE_ID = "profile_id"
+
+        /** Editor fields lost to a recreation unless instance state keeps them. */
+        private const val STATE_AUTH_METHOD = "auth_method"
+        private const val STATE_KEY_ALIAS = "key_alias"
 
         /** Opens the editor for a new profile. */
         fun intent(context: android.content.Context): Intent =

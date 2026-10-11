@@ -17,7 +17,7 @@
     <string name="security_key_copied">Key copied to clipboard</string>
     <string name="security_key_invalid">Invalid key — must be 44 characters of Base64 (32 bytes)</string>
     <string name="security_no_key">No key to copy</string>
-    <string name="security_storage_warning">This build stores the key and token in plain-text SharedPreferences. They are app-private but not encrypted at rest.</string>
+    <string name="security_storage_warning">Key and token are encrypted with the Android Keystore. Upgraded installs migrate from app-private preferences on first use.</string>
     <string name="security_yes">yes</string>
     <string name="security_no">no</string>
     <string name="security_ready">Ready for secure sync</string>

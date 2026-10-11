@@ -21,6 +21,7 @@ import com.example.earthquack.databinding.ItemProfileRowBinding
 import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ssh.SshServices
 import com.example.earthquack.ssh.KnownHostsStore
+import com.example.earthquack.ui.sub.SftpBrowserActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,9 +114,20 @@ class ProfilesFragment : Fragment() {
         mainActivity?.openTerminal(profile)
     }
 
-    /** Not implemented yet: replaced by the file browser screen. */
+    /**
+     * Browses the profile's files over SFTP.
+     *
+     * The same profile the terminal uses: this is the whole point of one
+     * connection record, so a port or key change cannot leave the two asking
+     * different questions of the same machine.
+     */
     private fun openFiles(profile: ConnectionProfile) {
-        toast(R.string.profile_files_not_implemented)
+        startActivity(SftpBrowserActivity.intent(requireContext(), profile.id))
+    }
+
+    /** Connects and authenticates once, showing what would happen. */
+    private fun testProfile(profile: ConnectionProfile) {
+        runProfileTest(requireActivity(), profile)
     }
 
     private fun deleteProfile(profile: ConnectionProfile) {
@@ -142,6 +154,10 @@ class ProfilesFragment : Fragment() {
                     }
                     R.id.menu_files -> {
                         openFiles(profile)
+                        true
+                    }
+                    R.id.menu_test -> {
+                        testProfile(profile)
                         true
                     }
                     R.id.menu_delete -> {

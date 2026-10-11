@@ -8,10 +8,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -28,9 +30,15 @@ import java.io.File
  * rather than the in-memory default, because the thing being verified is that
  * configuration survives — which is impossible to observe without a file.
  *
- * They write only inside a controlled directory under the app's own files dir.
- * The Android filesystem is never exposed: a remote's root is a directory we
- * create, not `/`.
+ * A remote's working directory is likewise real, scoped to the app's own
+ * files dir: the test can neither read nor write anything outside
+ * EarthQuack's private storage, and a remote's root is a directory it
+ * creates there, not `/`.
+ *
+ * Because the config under test is the live one, the class snapshots it
+ * before the first test and restores it after the last — see
+ * [preserveRealConfig]. Without that, a suite run would clear the remotes
+ * the user configured in the app.
  *
  * Note `runBlocking<Unit>` on every test: JUnit4 requires test methods to
  * return void, and the explicit type argument is what makes that compile
@@ -48,6 +56,39 @@ class RcloneConfigInstrumentedTest {
         get() = ApplicationProvider.getApplicationContext()
 
     private fun config(): RcloneConfigManager = RcloneConfigManager(context)
+
+    /**
+     * The user's real rclone.conf, preserved across the whole class.
+     *
+     * Every test here starts from a clean slate (the only way to state the
+     * "fresh install" precondition), and the config it clears is the live
+     * one in app-private storage — the file holding the user's configured
+     * remotes. A test suite must not spend it, so it is snapshotted before
+     * the first test and written back after the last, whatever happened.
+     */
+    private var savedConfig: ByteArray? = null
+
+    @Before
+    fun preserveRealConfig() {
+        val file = config().configFile
+        savedConfig = runCatching { if (file.exists()) file.readBytes() else null }.getOrNull()
+    }
+
+    @After
+    fun restoreRealConfig() {
+        val cfg = config()
+        val file = cfg.configFile
+        runCatching {
+            when {
+                savedConfig != null -> {
+                    file.writeBytes(savedConfig!!)
+                    cfg.repairPermissions(file)
+                }
+                file.exists() -> file.delete()
+            }
+        }
+        sandbox().deleteRecursively()
+    }
 
     /** An engine with no config file, for tests that only need the RPC surface. */
     private fun engine(): RcloneEngine = RcloneEngine().also { it.initialize() }

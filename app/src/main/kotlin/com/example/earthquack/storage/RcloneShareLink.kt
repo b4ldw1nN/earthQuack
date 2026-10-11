@@ -73,6 +73,56 @@ sealed class ShareLinkResult {
 }
 
 /**
+ * A request to generate a public link for a file **where it already lives**.
+ *
+ * This is the in-place equivalent of `rclone link remote:path/to/file`: one
+ * `operations/publiclink` call against the file's own `(fs, remote)` pair, with
+ * no copy, no upload, and no destination picker. Both fields are passed to
+ * rclone verbatim — [fs] is the browser screen's current filesystem root
+ * (`name:`, `:local:/abs/path`, …) and [remote] is the path exactly as the
+ * listing returned it, so a name with spaces or Unicode survives untouched.
+ *
+ * @param fs the remote (or path-root) the entry was listed from.
+ * @param remote the path **relative to [fs]** — the same value the row's
+ *   `operations/list` produced. Never rewritten, re-escaped or joined.
+ */
+data class DirectLinkRequest(
+    val fs: String,
+    val remote: String
+)
+
+/**
+ * The outcome of a [RcloneShareLink.directLink] call.
+ *
+ * Split by cause rather than success/failure because each case needs a
+ * different thing said to the user: an unsupported backend will never work for
+ * any file on that remote, a missing file is a refresh away from resolving, an
+ * auth failure needs a sign-in, and a network error is worth retrying. rclone
+ * reports all four as a plain error string, so [RcloneShareLink.directLink]
+ * classifies them from the message — see [classifyLinkError].
+ */
+sealed class DirectLinkResult {
+
+    /** rclone returned a link. [url] is exactly what the backend produced. */
+    data class Success(val url: String) : DirectLinkResult()
+
+    /** The backend has no public-link feature (most non-cloud remotes). */
+    data class Unsupported(val detail: String) : DirectLinkResult()
+
+    /** The file is not (or no longer) at that path. */
+    data class NotFound(val detail: String) : DirectLinkResult()
+
+    /** The remote refused: expired token, revoked grant, blocked sharing. */
+    data class AuthFailed(val detail: String) : DirectLinkResult()
+
+    /** The request never got a definitive answer. Worth retrying. */
+    data class Network(val detail: String) : DirectLinkResult()
+
+    /** Anything else. [detail] is rclone's own text where it gave one. */
+    data class Failure(val detail: String) : DirectLinkResult()
+}
+
+/**
  * Publishes a remote file as a public "anyone with the link" share on a Google
  * Drive remote, using the app's existing embedded rclone and its JSON RPC.
  *
@@ -201,7 +251,50 @@ class RcloneShareLink(private val engine: RcloneEngine) {
         return names
     }
 
-    /** rclone's human-readable error text, or a fixed fallback. Mirrors
+    /**
+     * Generates a public link for a file **at its existing remote path** —
+     * the in-place equivalent of `rclone link remote:path/to/file`.
+     *
+     * Exactly one RPC: `operations/publiclink` with the request's own
+     * `(fs, remote)` pair. No copy, no upload, no destination picker, no
+     * listing. The file is never touched; on backends where the call changes
+     * sharing state (Google Drive creates an "anyone with the link" reader
+     * permission, per upstream `fs/operations/operations.go`), that is the
+     * backend's own behaviour and the caller has already obtained the user's
+     * consent for it.
+     *
+     * Called on an IO dispatcher via [engine.call]. rclone reports every
+     * failure as a plain error string, so the outcome is classified from that
+     * text — see [classifyLinkError] — and each class of failure reaches the
+     * UI as itself rather than as a generic "could not share".
+     */
+    suspend fun directLink(request: DirectLinkRequest): DirectLinkResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val reply = engine.call(
+                    METHOD_PUBLICLINK,
+                    JSONObject().put("fs", request.fs).put("remote", request.remote)
+                )
+                val url = reply.optString("url").trim()
+                if (url.isEmpty()) {
+                    // A 200 without a URL is rclone reporting success with
+                    // nothing to hand back; there is no honest link to show.
+                    DirectLinkResult.Failure(NO_LINK_MESSAGE)
+                } else {
+                    DirectLinkResult.Success(url)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Class name only: the message can contain the remote path,
+                // and this line goes to logcat.
+                Log.w(TAG, "direct link failed: ${e.javaClass.simpleName}")
+                classifyLinkError(describe(e))
+            }
+        }
+
+    /**
+     * rclone's human-readable error text, or a fixed fallback. Mirrors
      *  [RcloneFileTransfer]'s mapping so the two screens read the same. */
     private fun describe(e: Exception): String {
         if (e is RcloneException) {
@@ -227,11 +320,66 @@ class RcloneShareLink(private val engine: RcloneEngine) {
         private const val METHOD_PUBLICLINK = "operations/publiclink"
 
         private const val FALLBACK_MESSAGE = "The file could not be shared"
+        private const val NO_LINK_MESSAGE = "The remote returned no link"
         private const val MAX_DETAIL = 200
         private const val FALLBACK_NAME = "shared file"
 
         /** Upper bound on the collision counter before we stop trying. */
         private const val MAX_COLLISION_ATTEMPTS = 999
+
+        /**
+         * Maps one of rclone's error strings to a [DirectLinkResult] cause.
+         *
+         * rclone's RC reports every failure as `{"error": "…"}` with no error
+         * codes, so the text is the only signal. The patterns below are pinned
+         * to upstream v1.75.1 behaviour:
+         *
+         *   - `operations.PublicLink` returns `"<fs> doesn't support public
+         *     links"` when the backend has no `Features().PublicLink`
+         *     (`fs/operations/operations.go`), which covers SFTP, local,
+         *     SMB and most non-cloud remotes.
+         *   - a missing object surfaces as the backend's own "not found"
+         *     ("directory not found" from the generic NewObject path, or the
+         *     provider's phrasing — "File not found", "no such file").
+         *   - auth failures carry "permission denied" / "token" / "401" /
+         *     "403" depending on the provider.
+         *   - anything mentioning a connection/timeout/DNS/TLS problem is a
+         *     network failure and worth a retry.
+         *
+         * Pure and public so every mapping is a JVM test away; the fall-through
+         * is [DirectLinkResult.Failure] carrying the original text, so an
+         * unrecognised error still reaches the user honestly rather than being
+         * mislabelled.
+         *
+         * Order matters: "not found" is checked before the auth patterns
+         * because some providers word a permission error as "access to the
+         * path is denied" while genuinely missing files say "not found".
+         */
+        fun classifyLinkError(detail: String): DirectLinkResult {
+            val text = detail.lowercase()
+            return when {
+                "doesn't support public links" in text ||
+                    "not implemented" in text ->
+                    DirectLinkResult.Unsupported(detail)
+
+                "not found" in text || "no such file" in text ||
+                    "does not exist" in text ->
+                    DirectLinkResult.NotFound(detail)
+
+                "permission denied" in text || "insufficient permissions" in text ||
+                    "sufficient permissions" in text || "token" in text ||
+                    "unauthorized" in text || "401" in text ||
+                    "403" in text || "forbidden" in text ->
+                    DirectLinkResult.AuthFailed(detail)
+
+                "connection" in text || "timeout" in text || "timed out" in text ||
+                    "dial tcp" in text || "no such host" in text ||
+                    "tls" in text || "certificate" in text || "eof" in text ->
+                    DirectLinkResult.Network(detail)
+
+                else -> DirectLinkResult.Failure(detail)
+            }
+        }
 
         /**
          * Joins a destination folder and a file name into a path relative to the

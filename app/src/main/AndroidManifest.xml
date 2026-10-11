@@ -23,6 +23,15 @@
 
     <!--
         Android 14+ requires the exact foreground-service type permission.
+        User-initiated file transfers map cleanly onto dataSync, which is the
+        honest category for the transfer queue (the specialUse entries below
+        cover clipboard sync and the inbound SFTP server, neither of which is
+        a user-initiated transfer).
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--
+        Android 14+ requires the exact foreground-service type permission.
         We use "specialUse" because clipboard sync does not map cleanly to
         any of the standard types (camera, microphone, location, dataSync, etc.).
     -->
@@ -230,6 +239,46 @@
         <service
             android:name=".FileTransferService"
             android:exported="false" />
+
+        <!--
+            Shared transfer queue. Foreground so a 2 GB download survives the
+            screen that started it, dataSync because that is exactly what it
+            is, and the notification is the user-visible progress the
+            background-execution rules require.
+        -->
+        <service
+            android:name=".transfer.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
+
+        <!--
+            Raw rclone.conf editor. The per-remote form cannot express
+            removing a stale upstream from a combine remote, or any other
+            fix that is editing the file itself. Backs up and re-validates
+            through rclone on every save.
+        -->
+        <activity
+            android:name=".ui.RcloneConfigEditorActivity"
+            android:exported="false"
+            android:label="@string/config_editor_title" />
+
+        <!-- Transfer queue: active transfers, errors, and recent history. -->
+        <activity
+            android:name=".ui.sub.TransfersActivity"
+            android:exported="false"
+            android:label="@string/transfers_title" />
+
+        <!--
+            SFTP browser for a saved connection profile: the "Files" half of
+            the profile record the terminal uses. Own activity, not a tab,
+            because it is a pushed screen with a back arrow and no bottom
+            navigation, exactly like the Files screen.
+        -->
+        <activity
+            android:name=".ui.sub.SftpBrowserActivity"
+            android:exported="false"
+            android:label="@string/sftp_browser_title" />
 
         <!--
             Embedded SFTP server. Serves one configured directory over SSH to

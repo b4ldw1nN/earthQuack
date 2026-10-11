@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Transfer manager strings.
+
+    Kept in their own file, mirroring strings_files_open.xml: the transfer
+    screen, its rows and its foreground-service notification share one
+    vocabulary, and none of it belongs to another screen's files.
+-->
+<resources>
+
+    <!-- Notification channel for the foreground transfer service. -->
+    <string name="transfers_channel_name">Transfers</string>
+    <string name="transfers_channel_desc">Progress of files being uploaded or downloaded</string>
+
+    <!-- Foreground service notification. -->
+    <string name="transfers_service_title">Transfers</string>
+    <string name="transfers_service_starting">Starting…</string>
+    <string name="transfers_service_working">Working…</string>
+    <plurals name="transfers_service_running">
+        <item quantity="one">%1$d running</item>
+        <item quantity="other">%1$d running</item>
+    </plurals>
+    <plurals name="transfers_service_queued">
+        <item quantity="one">%1$d queued</item>
+        <item quantity="other">%1$d queued</item>
+    </plurals>
+    <plurals name="transfers_service_done">
+        <item quantity="one">%1$d transfer finished</item>
+        <item quantity="other">%1$d transfers finished</item>
+    </plurals>
+    <plurals name="transfers_service_failed_summary">
+        <item quantity="one">%1$d transfer failed</item>
+        <item quantity="other">%1$d transfers failed</item>
+    </plurals>
+    <!-- %1$d completed, %2$d failed. -->
+    <string name="transfers_service_mixed">%1$d finished, %2$d failed</string>
+
+    <!-- Screen. -->
+    <string name="transfers_title">Transfers</string>
+    <string name="transfers_active_title">Active</string>
+    <string name="transfers_history_title">Recent</string>
+    <string name="transfers_empty_active">Nothing is transferring right now.</string>
+    <string name="transfers_empty_history">Finished transfers show up here.</string>
+    <string name="transfers_retry">Retry</string>
+    <string name="transfers_cancel">Stop</string>
+    <string name="transfers_clear_history">Clear history</string>
+    <string name="transfers_starting">Waiting to start…</string>
+    <string name="transfers_unknown_size">size unknown</string>
+    <string name="transfers_interrupted_hint">Stopped when the app closed. Start it again if it is still needed.</string>
+    <string name="transfers_duplicate">This one is already transferring.</string>
+    <!-- %1$s size, %2$s time. -->
+    <string name="transfers_done_meta">%1$s · %2$s</string>
+    <!-- %1$s time. -->
+    <string name="transfers_failed_meta">Failed · %1$s</string>
+    <string name="transfers_cancelled_meta">Stopped · %1$s</string>
+
+    <!-- Settings row. -->
+    <string name="settings_transfers">Transfers</string>
+    <string name="settings_transfers_sub">Active downloads, uploads, and recent history</string>
+
+</resources>

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Transfers: what is moving now, and what moved recently.
+
+    Two cards rather than two screens: the question "is it done yet?" and
+    "what failed?" are asked one after the other, and splitting them would
+    mean navigating for the second. Each list carries only its own states —
+    active rows never show Retry, finished rows never show a bar — so the
+    screen cannot mislead about either half.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- Active transfers, with a bar and a Stop button each. -->
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/transfers_active_title"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/listActive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:nestedScrollingEnabled="false"
+                android:overScrollMode="never"
+                android:scrollbars="none"
+                tools:listitem="@layout/item_transfer_row" />
+
+            <TextView
+                android:id="@+id/emptyActive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:text="@string/transfers_empty_active"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Recent history: terminal rows, with errors and Retry. -->
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:text="@string/transfers_history_title"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/listHistory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:nestedScrollingEnabled="false"
+                android:overScrollMode="never"
+                android:scrollbars="none"
+                tools:listitem="@layout/item_transfer_row" />
+
+            <TextView
+                android:id="@+id/emptyHistory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:text="@string/transfers_empty_history"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClearHistory"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:text="@string/transfers_clear_history" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

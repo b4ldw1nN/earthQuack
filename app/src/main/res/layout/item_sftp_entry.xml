@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One remote entry: a folder or a document icon, the name, and the only
+    metadata the server reports that matters for deciding whether to
+    download it — size and when it changed.
+
+    Two rows are synthetic and deliberately not styled as data: ".." (the
+    parent), rendered by the adapter rather than the listing.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowIcon">
+
+    <ImageView
+        android:id="@+id/entryIcon"
+        android:layout_width="@dimen/eq_icon_lg"
+        android:layout_height="@dimen/eq_icon_lg"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_eq_doc"
+        app:tint="@color/eq_text_muted" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/eq_gap_md"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/entryName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="middle"
+            android:maxLines="1"
+            android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+            tools:text="notes.txt" />
+
+        <TextView
+            android:id="@+id/entryMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_xs"
+            android:maxLines="1"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+            tools:text="12 KB · 27 minutes ago" />
+    </LinearLayout>
+
+    <ImageView
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_marginStart="@dimen/eq_gap_sm"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_eq_chevron"
+        app:tint="@color/eq_text_muted" />
+
+</LinearLayout>

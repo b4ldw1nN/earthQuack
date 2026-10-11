@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Profile test-connection strings.
+
+    The result of a test is a sentence the user can act on: what was checked,
+    what failed, and whether retrying could help. [SshFailure] already
+    produces that sentence; these are the wrappers around it.
+-->
+<resources>
+
+    <!-- Action. -->
+    <string name="profiles_test">Test connection</string>
+    <string name="profiles_test_progress">Testing %1$s …</string>
+    <string name="profiles_test_success_title">Connected</string>
+    <string name="profiles_test_success_body">%1$s (%2$s) accepted the connection and the credentials.</string>
+    <string name="profiles_test_failed_title">Connection failed</string>
+    <!-- %1$s endpoint, %2$s reason. -->
+    <string name="profiles_test_failed_body">%1$s — %2$s</string>
+    <string name="profiles_test_host_key_changed">The host key changed. The connection was blocked.</string>
+    <string name="profiles_test_host_key_unknown_title">New host key</string>
+    <!-- %1$s endpoint, %2$s fingerprint. -->
+    <string name="profiles_test_host_key_unknown_body">%1$s presented a host key this device has not seen before:\n\n%2$s\n\nCompare it with what the server shows (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub) before accepting.</string>
+    <string name="profiles_test_accept">Trust it</string>
+    <string name="profiles_test_decline">Deny</string>
+    <string name="profiles_test_retry">Try again</string>
+    <string name="profiles_test_dismiss">Close</string>
+
+</resources>

@@ -197,9 +197,32 @@ class SftpSession(private val client: SftpClient) : AutoCloseable {
     }
 
     /** Renames, and therefore also moves: SFTP has one operation for both. */
-    suspend fun rename(from: String, to: String) = withContext(Dispatchers.IO) {
+    /**
+     * Renames [from] to [to].
+     *
+     * A bare SFTP rename refuses to replace an existing file, which is right
+     * for "move this out of the way" and wrong for an upload of a newer
+     * version: the transfer manager stages into `.part` and renames into
+     * place, and an upload the user re-ran onto the same remote path must be
+     * able to land. So the overwrite is opt-in: an explicit
+     * [SftpClient.CopyMode.Overwrite], not a delete-then-rename (which would
+     * open a window where the destination does not exist at all).
+     *
+     * @param overwrite when the destination already exists, replace it.
+     *   Default false: existing behaviour for a plain move.
+     */
+    suspend fun rename(
+        from: String,
+        to: String,
+        overwrite: Boolean = false
+    ) = withContext(Dispatchers.IO) {
         try {
-            client.rename(from, to)
+            val modes = if (overwrite) {
+                listOf(SftpClient.CopyMode.Overwrite)
+            } else {
+                emptyList()
+            }
+            client.rename(from, to, modes)
         } catch (e: IOException) {
             throw friendly("could not rename $from", e)
         }

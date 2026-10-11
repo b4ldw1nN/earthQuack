@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SFTP browser for one connection profile.
+
+    A browser, not a transfer screen: it connects with the same host-key
+    consent the terminal uses, lists what the server offers, and hands every
+    download and upload to the shared transfer manager (TransfersActivity),
+    so progress and history live in one place rather than in this screen.
+-->
+<resources>
+
+    <string name="sftp_browser_title">Files</string>
+    <string name="sftp_browser_profile_gone">That connection profile no longer exists.</string>
+    <string name="sftp_browser_this_device">This device</string>
+    <string name="sftp_browser_connecting">Connecting…</string>
+    <string name="sftp_browser_failed">Could not connect</string>
+    <string name="sftp_browser_retry">Try again</string>
+    <string name="sftp_browser_upload">Upload a file here</string>
+    <string name="sftp_browser_host_key_prompt">This host is new — check the fingerprint below before connecting.</string>
+    <string name="sftp_browser_up">Up one level</string>
+    <string name="sftp_browser_empty">This directory is empty.</string>
+    <string name="sftp_browser_queued">%1$s — added to Transfers</string>
+    <string name="sftp_browser_declined">The host key was not accepted, so nothing was connected.</string>
+    <string name="sftp_browser_downloading">Downloading %1$s</string>
+    <string name="sftp_browser_staging_failed">The file could not be staged for upload.</string>
+    <string name="sftp_browser_dir">Directory</string>
+
+</resources>

@@ -10,6 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import androidx.core.view.isVisible
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,9 @@ import com.example.earthquack.sftp.SftpServerController
 import com.example.earthquack.sftp.SftpServerControllerImpl
 import com.example.earthquack.sftp.SftpServerStatus
 import com.example.earthquack.sftp.SftpSettings
+import com.example.earthquack.sftp.HostKeyStore
+import com.example.earthquack.sftp.HostKeyPairing
+import com.example.earthquack.sftp.readHostKeyPublicLine
 import com.example.earthquack.sftp.SftpSettingsStore
 import com.example.earthquack.sftp.AuthorizedKeysStore
 import com.example.earthquack.sftp.DerivedPublicKey
@@ -310,8 +314,93 @@ class SftpFragment : Fragment() {
 
         binding.textPort.text = settings.port.toString()
         binding.textRoot.text = settings.rootPath
-        binding.textHostKey.text = settings.hostKeyFingerprint
-            ?: getString(R.string.sftp_host_key_none)
+        // The engine stamps the fingerprint onto the settings it returns, but
+        // only a running server produces that object. The key file on disk
+        // survives a stop -- and so does its fingerprint -- so the persisted
+        // one is what this screen shows when nothing is listening. A screen
+        // that hid the fingerprint until the server ran could not be used to
+        // verify the *first* connection, which is when it matters most.
+        val fingerprint = settings.hostKeyFingerprint
+            ?: HostKeyStore(requireContext()).fingerprint()
+        binding.textHostKey.text = fingerprint ?: getString(R.string.sftp_host_key_none)
+        // The share button is meaningful only when there is something to
+        // share: an absent fingerprint sharing nothing is a dead end.
+        binding.btnShareHostKey.isVisible = fingerprint != null
+        binding.btnShareHostKey.setOnClickListener { shareHostKey(fingerprint, settings.port) }
+
+        renderPairing(settings.port)
+    }
+
+    /**
+     * Fills the pairing card: every artifact the host key implies, derived
+     * from the same persisted key file so the three can never disagree.
+     *
+     * The host name is the phone's current tailnet address: the artifacts are
+     * only as correct as the name in them, and the name can change, so the
+     * card is re-rendered on every resume rather than cached once.
+     */
+    private fun renderPairing(port: Int) {
+        val publicLine = readHostKeyPublicLine(requireContext().filesDir)
+        if (publicLine == null) {
+            binding.textKnownHosts.text = getString(R.string.sftp_host_key_none)
+            binding.textPublicKey.text = getString(R.string.sftp_host_key_none)
+            binding.textSshfp.text = getString(R.string.sftp_host_key_none)
+            binding.btnCopyKnownHosts.isVisible = false
+            binding.btnCopyPublicKey.isVisible = false
+            binding.btnCopySshfp.isVisible = false
+            return
+        }
+        // The comment is stripped for parsing: the key line's first two
+        // fields are the key; everything after them is decoration.
+        val parts = HostKeyPairing.partsOf(publicLine) ?: run {
+            binding.textKnownHosts.text = getString(R.string.sftp_host_key_none)
+            binding.textPublicKey.text = getString(R.string.sftp_host_key_none)
+            binding.textSshfp.text = getString(R.string.sftp_host_key_none)
+            return
+        }
+        val host = tailnetHost()
+
+        val knownHosts = HostKeyPairing.knownHostsLine(parts, host, port)
+        binding.textKnownHosts.text = knownHosts
+        binding.btnCopyKnownHosts.isVisible = true
+        binding.btnCopyKnownHosts.setOnClickListener { copyText(knownHosts) }
+
+        binding.textPublicKey.text = publicLine
+        binding.btnCopyPublicKey.isVisible = true
+        binding.btnCopyPublicKey.setOnClickListener { copyText(publicLine) }
+
+        val sshfp = HostKeyPairing.sshfpRecords(parts, "phone").joinToString("\n")
+        binding.textSshfp.text = sshfp
+        binding.btnCopySshfp.isVisible = true
+        binding.btnCopySshfp.setOnClickListener { copyText(sshfp) }
+    }
+
+    /** The phone's tailnet address, or a placeholder when there is none. */
+    private fun tailnetHost(): String =
+        TailnetStatus(requireContext()).tailnetAddress() ?: "phone"
+
+    private fun copyText(text: String) {
+        val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("earthquack", text))
+        toast(R.string.profile_key_copied)
+    }
+
+    /**
+     * Shares the server's host-key fingerprint with another app.
+     *
+     * The fingerprint is the one number that makes an SFTP client's "unknown
+     * host" and "host key changed" prompts decidable. Sending it over
+     * Telegram to the machine that will connect is exactly how a user checks
+     * it, so sharing is the honest complement to showing it.
+     */
+    private fun shareHostKey(fingerprint: String?, port: Int) {
+        fingerprint ?: return
+        val body = getString(R.string.sftp_host_key_share_body, fingerprint, port)
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, body)
+        }
+        startActivity(android.content.Intent.createChooser(send, getString(R.string.sftp_host_key_share)))
     }
 
     // ── Editing ──────────────────────────────────────────────────────────────

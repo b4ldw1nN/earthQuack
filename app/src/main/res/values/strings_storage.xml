@@ -16,6 +16,7 @@
 
     <string name="storage_transfers_untracked">Transfer history is not recorded yet, so no totals are shown.</string>
     <string name="storage_import_remote">Import</string>
+    <string name="storage_edit_config">Edit</string>
     <string name="storage_import_ok">Imported %1$d remote(s)%2$s</string>
     <string name="storage_import_backup">A backup of your previous config was kept.</string>
     <string name="storage_import_failed">That file could not be imported as an rclone config.</string>

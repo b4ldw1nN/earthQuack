@@ -13,6 +13,7 @@ import com.example.earthquack.R
 import com.example.earthquack.databinding.ActivityPermissionsBinding
 import com.example.earthquack.databinding.ItemPermissionRowBinding
 import com.example.earthquack.state.PermissionKind
+import androidx.core.view.isVisible
 import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.ui.SubScreenActivity
 
@@ -64,33 +65,50 @@ class PermissionsActivity : SubScreenActivity() {
         val container = body.cardPermissions
         container.removeAllViews()
 
-        val kinds = mutableListOf<PermissionKind>()
-        if (!statusProvider.hasNotificationPermission()) kinds += PermissionKind.NOTIFICATIONS
-        if (!statusProvider.canDrawOverlays()) kinds += PermissionKind.OVERLAY
-
-        // When nothing is missing the card would be an empty bordered box, which
-        // reads as a rendering failure rather than as "you are all set".
-        val allGranted = kinds.isEmpty()
-        body.cardPermissions.visibility =
-            if (allGranted) android.view.View.GONE else android.view.View.VISIBLE
-        body.textAllGranted.visibility =
-            if (allGranted) android.view.View.VISIBLE else android.view.View.GONE
-
-        kinds.forEachIndexed { index, kind ->
+        // Both permissions are always listed, granted or not.
+        //
+        // The screen used to show only what was missing, which made it a
+        // to-do list rather than a status page: a row the user had just
+        // granted vanished, leaving no way to see what the app actually has,
+        // and an all-granted device got an empty card that read as a broken
+        // screen. State is now per row — the row stays, the button leaves.
+        PermissionKind.entries.forEachIndexed { index, kind ->
+            val granted = kind.isGranted()
             val row = ItemPermissionRowBinding.inflate(layoutInflater, container, false)
             row.permName.text = kind.label
             row.permWhy.text = kind.why
-            row.permState.text = getString(R.string.permissions_not_granted)
-            row.permState.setTextColor(getColor(R.color.eq_warning))
-            row.permIcon.setImageResource(
-                if (kind == PermissionKind.OVERLAY) R.drawable.ic_eq_open_new
-                else R.drawable.ic_eq_info
+            row.permState.text = getString(
+                if (granted) R.string.permissions_granted else R.string.permissions_not_granted
             )
-            row.btnGrant.setOnClickListener { grant(kind) }
+            row.permState.setTextColor(
+                getColor(if (granted) R.color.eq_success else R.color.eq_warning)
+            )
+            row.permIcon.setImageResource(
+                when (kind) {
+                    PermissionKind.OVERLAY -> R.drawable.ic_eq_open_new
+                    PermissionKind.SHARED_STORAGE -> R.drawable.ic_eq_storage
+                    else -> R.drawable.ic_eq_info
+                }
+            )
+            // Nothing to grant means nothing to tap: a button that only
+            // re-opens the system screen for a granted permission is a trap.
+            row.btnGrant.isVisible = !granted
+            if (!granted) row.btnGrant.setOnClickListener { grant(kind) }
             container.addView(row.root)
 
-            if (index < kinds.lastIndex) container.addView(divider())
+            if (index < PermissionKind.entries.lastIndex) container.addView(divider())
         }
+    }
+
+    private fun PermissionKind.isGranted(): Boolean = when (this) {
+        PermissionKind.NOTIFICATIONS -> statusProvider.hasNotificationPermission()
+        PermissionKind.OVERLAY -> statusProvider.canDrawOverlays()
+        PermissionKind.SHARED_STORAGE ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.os.Environment.isExternalStorageManager()
+            } else {
+                getExternalFilesDir(null)?.canRead() ?: false
+            }
     }
 
     /**
@@ -117,6 +135,30 @@ class PermissionsActivity : SubScreenActivity() {
                             Uri.parse("package:$packageName")
                         )
                     )
+                }
+            }
+
+            // All-files access is special access too: no dialog, only the
+            // system page. Scoped to this package, with the app's details
+            // screen as the fallback for ROMs that do not offer the scoped
+            // page (several OEM skins do not).
+            PermissionKind.SHARED_STORAGE -> {
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:$packageName")
+                        )
+                    )
+                }.onFailure {
+                    runCatching {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:$packageName")
+                            )
+                        )
+                    }
                 }
             }
         }

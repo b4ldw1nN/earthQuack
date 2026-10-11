@@ -15,6 +15,12 @@
         android:title="@string/profiles_files"
         android:icon="@drawable/ic_eq_folder" />
 
+    <!-- Test: connect and authenticate without changing anything. -->
+    <item
+        android:id="@+id/menu_test"
+        android:title="@string/profiles_test"
+        android:icon="@drawable/ic_eq_refresh" />
+
     <!-- Delete -->
     <item
         android:id="@+id/menu_delete"

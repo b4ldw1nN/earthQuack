@@ -45,8 +45,20 @@ import com.example.earthquack.storage.RcloneException
 import com.example.earthquack.storage.RcloneFileTransfer
 import com.example.earthquack.storage.RcloneRemoteManager
 import com.example.earthquack.storage.RcloneShareLink
-import com.example.earthquack.storage.ShareLinkRequest
-import com.example.earthquack.storage.ShareLinkResult
+import com.example.earthquack.storage.DirectLinkRequest
+import com.example.earthquack.storage.DirectLinkResult
+import com.example.earthquack.storage.SelectionState
+import com.example.earthquack.storage.FileSortMode
+import com.example.earthquack.storage.FileTypeFilter
+import com.example.earthquack.storage.BulkItemResult
+import com.example.earthquack.storage.BulkTransferKind
+import com.example.earthquack.storage.planBulkTransfer
+import com.example.earthquack.storage.bulkDeleteMessage
+import com.example.earthquack.storage.bulkResultMessage
+import com.example.earthquack.storage.sortEntries
+import com.example.earthquack.storage.filterEntries
+import com.example.earthquack.storage.searchEntries
+import com.example.earthquack.storage.validateNewName
 import com.example.earthquack.ui.FileEntry
 import com.example.earthquack.ui.FileEntryAdapter
 import com.example.earthquack.ui.FileOpener
@@ -113,6 +125,32 @@ class FileBrowserActivity : AppCompatActivity() {
     private var entries: List<FileEntry> = emptyList()
 
     private var query: String = ""
+
+    // ── Section E: selection, sort/filter, bulk clipboard ─────────────────────
+
+    /** Selected row paths. Cleared on every navigation — see [clearSelection]. */
+    private val selection = SelectionState()
+
+    /** True while the selection bar is up; row taps toggle instead of opening. */
+    private var selectionMode = false
+
+    private var sortMode = FileSortMode.NAME
+    private var typeFilter = FileTypeFilter.ALL
+
+    /**
+     * Staged copy/move clipboard: entries + verb, waiting for a destination.
+     * Null when nothing is staged. Folders are excluded at staging time —
+     * bulk copy/move handles files only, and the user is told which were
+     * skipped rather than discovering it at paste time.
+     */
+    private var bulkClipboard: BulkClipboard? = null
+
+    /** Staged clipboard payload. */
+    private data class BulkClipboard(
+        val files: List<FileEntry>,
+        val isMove: Boolean,
+        val srcFs: String
+    )
 
     /**
      * The listing cache, rooted in the app's cache dir so the OS prunes it under
@@ -235,8 +273,9 @@ class FileBrowserActivity : AppCompatActivity() {
         fs = intent.getStringExtra(EXTRA_FS)?.takeIf { it.isNotBlank() } ?: localRoot()
 
         adapter = FileEntryAdapter(
-            onOpen = { entry -> if (entry.isDir) openFolder(entry) else openFile(entry) },
-            onOverflow = { entry, anchor -> showEntryMenu(entry, anchor) }
+            onOpen = { entry -> onRowClick(entry) },
+            onOverflow = { entry, anchor -> showEntryMenu(entry, anchor) },
+            onLongPress = { entry -> onRowLongPress(entry) }
         )
         binding.list.layoutManager = LinearLayoutManager(this)
         binding.list.adapter = adapter
@@ -291,6 +330,13 @@ class FileBrowserActivity : AppCompatActivity() {
         binding.btnRetry.setOnClickListener { load() }
         binding.btnCancel.setOnClickListener { cancelDownload() }
         binding.fab.setOnClickListener { load() }
+
+        // ── Section E: multi-select + bulk actions ───────────────────────────
+        // Copy/Move/Delete live in the overflow menu (see showSelectionMenu);
+        // selection mode has no bar of its own — back unwinds it, and the
+        // count sits beside the storage name.
+        binding.btnPaste.setOnClickListener { pasteBulk() }
+        binding.btnPasteCancel.setOnClickListener { cancelBulkClipboard() }
     }
 
     private fun wireSearch() {
@@ -316,10 +362,15 @@ class FileBrowserActivity : AppCompatActivity() {
     }
 
     /**
-     * Back walks out of the browser before it leaves the screen: search first,
-     * then up one directory, then back to the caller. Closing the search field
-     * before popping a directory is deliberate, since a filter applied to the
-     * directory you are leaving is just noise.
+     * Back unwinds the most transient state first: an active selection, then
+     * search, then up one directory, then back to the caller.
+     *
+     * Selection wins over everything below it because it is the strongest
+     * modal state on the screen — the rows toggle instead of opening, so
+     * exiting the screen while it is up would look like the taps were lost.
+     * It is also the convention: every file manager clears a selection on
+     * back before navigating. Closing search before popping a directory
+     * stays, since a filter on the directory you are leaving is noise.
      */
     private fun wireBack() {
         onBackPressedDispatcher.addCallback(
@@ -327,6 +378,7 @@ class FileBrowserActivity : AppCompatActivity() {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     when {
+                        selectionMode -> clearSelection()
                         binding.searchRow.isVisible -> closeSearch()
                         path.isNotEmpty() -> {
                             path.removeAt(path.lastIndex)
@@ -340,6 +392,59 @@ class FileBrowserActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    /**
+     * Row tap: opens in browse mode, toggles in selection mode.
+     *
+     * The two gestures share one handler so there is never a state where a tap
+     * does nothing — the mode decides, and the mode is visible (selection bar).
+     */
+    private fun onRowClick(entry: FileEntry) {
+        if (selectionMode) {
+            selection.toggle(entry.path)
+            refreshSelection()
+            return
+        }
+        if (entry.isDir) openFolder(entry) else openFile(entry)
+    }
+
+    /** Long-press enters selection mode and selects the pressed row. */
+    private fun onRowLongPress(entry: FileEntry) {
+        if (!selectionMode) {
+            selectionMode = true
+            // Selection is per-directory: entering it starts from this row, and
+            // the set is cleared on navigation so a path from another folder can
+            // never be acted on here.
+            selection.clear()
+        }
+        selection.toggle(entry.path)
+        refreshSelection()
+    }
+
+    /** Re-submits the visible list with selection state and toggles the bars. */
+    private fun refreshSelection() {
+        adapter.selectionMode = selectionMode
+        adapter.selectedPaths = selection.paths()
+        // The count rides beside the storage name in the crumb strip: its own
+        // view, shown only while rows are actually selected.
+        binding.selectionCount.isVisible = selectionMode && !selection.isEmpty
+        binding.selectionCount.text = getString(R.string.files_selected, selection.count)
+        binding.pasteBar.isVisible = bulkClipboard != null && !selectionMode
+        binding.list.adapter?.notifyDataSetChanged()
+    }
+
+    private fun clearSelection() {
+        selectionMode = false
+        selection.clear()
+        refreshSelection()
+    }
+
+    /** Selection never survives a directory change or a remote switch. */
+    private fun resetForNavigation() {
+        clearSelection()
+        bulkClipboard = null
+        query = ""
     }
 
     // ── Download and open ────────────────────────────────────────────────────
@@ -837,17 +942,18 @@ class FileBrowserActivity : AppCompatActivity() {
      * half, so that is what is shown; anything missing or unbounded falls back
      * to a plain sentence.
      */
-    private fun describe(error: RcloneException): String {
+    private fun describe(error: Exception): String {
+        val raw = (error as? RcloneException)?.rcloneOutput
         val detail = try {
-            JSONObject(error.rcloneOutput).optString("error").trim()
+            if (raw == null) "" else JSONObject(raw).optString("error").trim()
         } catch (_: JSONException) {
             ""
         }.lineSequence().joinToString(" ").trim()
 
-        return if (detail.isEmpty()) {
-            getString(R.string.state_unavailable)
-        } else {
-            detail.take(MAX_DETAIL_CHARS)
+        return when {
+            detail.isNotEmpty() -> detail.take(MAX_DETAIL_CHARS)
+            !error.message.isNullOrBlank() -> error.message.orEmpty().take(MAX_DETAIL_CHARS)
+            else -> getString(R.string.state_unavailable)
         }
     }
 
@@ -880,12 +986,15 @@ class FileBrowserActivity : AppCompatActivity() {
         //
         // `entry.path` is rclone's own escaping, so it is split only to rebuild
         // the breadcrumb segments, never re-assembled into a request.
+        resetForNavigation()
         path.clear()
         path.addAll(entry.path.split('/').filter { it.isNotEmpty() })
         load()
     }
 
-    private fun switchTo(target: String) {        fs = target
+    private fun switchTo(target: String) {
+        resetForNavigation()
+        fs = target
         path.clear()
         if (binding.searchRow.isVisible) closeSearch()
         load()
@@ -914,13 +1023,21 @@ class FileBrowserActivity : AppCompatActivity() {
 
     private fun render() {
         val needle = query.trim()
-        val visible = if (needle.isEmpty()) {
-            entries
-        } else {
-            entries.filter { it.name.contains(needle, ignoreCase = true) }
-        }
+        // Section E pipeline: filter → search → sort. Search stays
+        // current-directory only (see FileBrowserOps.searchEntries); sort and
+        // filter are pure transforms of the rows the backend returned.
+        val filtered = filterEntries(entries, typeFilter)
+        val searched = searchEntries(filtered, needle)
+        val visible = sortEntries(searched, sortMode)
 
         adapter.submitList(visible)
+
+        // Item count: honest about what the backend returned vs what is shown.
+        binding.appbar.subtitle.text = if (needle.isEmpty() && typeFilter == FileTypeFilter.ALL) {
+            countLabel(entries.size)
+        } else {
+            "${visible.size} / ${entries.size}"
+        }
 
         if (visible.isEmpty()) {
             // An empty result is not always an empty folder: Android hides the
@@ -937,6 +1054,20 @@ class FileBrowserActivity : AppCompatActivity() {
             binding.stateGroup.isVisible = false
         }
     }
+
+    /**
+     * The item-count line.
+     *
+     * A large directory gets the slow-listing note up front rather than after a
+     * wait; a normal one just states the count. Never invents a number the
+     * backend did not return.
+     */
+    private fun countLabel(total: Int): String =
+        if (total >= LARGE_DIRECTORY_THRESHOLD) {
+            getString(R.string.files_count_large, total)
+        } else {
+            getString(R.string.files_count, total)
+        }
 
     /**
      * True when the current path is inside Android's app-private subtrees.
@@ -1105,31 +1236,87 @@ class FileBrowserActivity : AppCompatActivity() {
      * Both file actions (Open and Share) are disabled while a transfer runs, so
      * the menu can never offer something the row would refuse.
      */
+    /**
+     * The per-row overflow menu.
+     *
+     * Two things shape it: the selection, and whether the browsed location is
+     * a remote or a local directory.
+     *
+     * **Selection acts first.** While rows are selected, Copy / Move / Delete
+     * operate on the whole selection — on the file's own 3-dots, where the
+     * user already is, rather than a toolbar button that had no room to say
+     * what it would do. The normal per-row actions follow, so the menu is a
+     * superset rather than a replacement: the row's own Delete stands down
+     * (the selection Delete covers it, and two "Delete"s is a coin toss the
+     * user should not have to make).
+     *
+     * **Only remotes get backend actions.** "Share as link" asks the backend
+     * for a public URL where the file already lives, and a local directory has
+     * no backend to ask — offering it there was a guaranteed failure. "Save to
+     * downloads" is the mirror image: it is the remote download, and for a
+     * file already on the device it would only copy a file onto itself.
+     */
     private fun showEntryMenu(entry: FileEntry, anchor: View) {
         val menu = PopupMenu(this, anchor)
         val busy = transferring != null
+        val remote = isRemoteFs()
+        val selecting = selectionMode && !selection.isEmpty
 
         var order = 0
+        if (selecting) {
+            menu.menu.add(Menu.NONE, MENU_SEL_COPY, order++, getString(R.string.files_bulk_copy))
+            menu.menu.add(Menu.NONE, MENU_SEL_MOVE, order++, getString(R.string.files_bulk_move))
+            menu.menu.add(Menu.NONE, MENU_SEL_DELETE, order++, getString(R.string.files_delete))
+        }
+
         menu.menu.add(Menu.NONE, MENU_OPEN, order++, getString(R.string.files_open))
             .isEnabled = !busy
         menu.menu.add(Menu.NONE, MENU_SHARE, order++, getString(R.string.files_share))
             .isEnabled = !busy
-        menu.menu.add(Menu.NONE, MENU_SAVE, order++, getString(R.string.files_save_to_device))
-            .isEnabled = !busy
-        // "Share as link" only makes sense for a file, and only when no transfer
-        // is already running: it issues its own rclone copy, which must not race
-        // the download progress bar. Directories are refused here rather than
-        // deep in the share code, so the action never appears where it cannot work.
-        if (!entry.isDir) {
+        if (remote && !selecting) {
+            // "Share as link" asks the backend for a public URL for the item
+            // where it already lives (`operations/publiclink`), and rclone
+            // supports that for directories as well as files. Disabled while a
+            // transfer runs so it cannot race the download progress bar.
+            //
+            // Neither of these is offered while a selection is up: both act on
+            // one file, and with N selected the caller's `publiclink`/download
+            // would silently operate on the tapped row rather than the
+            // selection — the exactly-wrong-file class of bug. The selection
+            // menu carries actions that mean "these rows": Copy, Move, Delete.
             menu.menu.add(
                 Menu.NONE, MENU_SHARE_LINK, order++, getString(R.string.files_share_link)
             ).isEnabled = !busy
+            menu.menu.add(
+                Menu.NONE, MENU_SAVE, order++, getString(R.string.files_save_to_device)
+            ).isEnabled = !busy
         }
         menu.menu.add(Menu.NONE, MENU_COPY_PATH, order++, getString(R.string.files_copy_path))
-        menu.menu.add(Menu.NONE, MENU_DELETE, order++, getString(R.string.files_delete))
+        // The selection's Delete stands in for the row's own while selecting.
+        if (!selecting) {
+            menu.menu.add(Menu.NONE, MENU_DELETE, order++, getString(R.string.files_delete))
+        }
+        // Section E: rename (files only — a directory rename moves its subtree)
+        // and new-folder live here too: they are per-folder actions, not
+        // per-row, so they are offered once per menu rather than per row.
+        if (!entry.isDir) {
+            menu.menu.add(Menu.NONE, MENU_RENAME, order++, getString(R.string.files_rename))
+        }
 
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                MENU_SEL_COPY -> {
+                    stageBulk(isMove = false)
+                    true
+                }
+                MENU_SEL_MOVE -> {
+                    stageBulk(isMove = true)
+                    true
+                }
+                MENU_SEL_DELETE -> {
+                    confirmBulkDelete()
+                    true
+                }
                 MENU_OPEN -> {
                     if (transferring == null) openFile(entry)
                     true
@@ -1154,11 +1341,22 @@ class FileBrowserActivity : AppCompatActivity() {
                     confirmDelete(entry)
                     true
                 }
+                MENU_RENAME -> {
+                    promptRename(entry)
+                    true
+                }
                 else -> false
             }
         }
         menu.show()
     }
+
+    /**
+     * True when the browsed location is a cloud remote (`<name>:`), false for
+     * the two local roots. Backend actions — a public link, a download — only
+     * make sense for a remote, so the menu asks this before offering them.
+     */
+    private fun isRemoteFs(): Boolean = fs != localRoot() && fs != sharedRoot()
 
     /**
      * Share the file with another app, through the system's share sheet.
@@ -1178,131 +1376,81 @@ class FileBrowserActivity : AppCompatActivity() {
     // ── Share as link ─────────────────────────────────────────────────────────
 
     /**
-     * Publishes [entry] to a Google Drive remote as a public "anyone with the
-     * link" share, then shows the URL.
+     * Generates a public link for [entry] **at its current remote location**,
+     * then shows the URL.
      *
-     * All the business logic lives in [RcloneShareLink]; this method is only the
-     * Android shell — pick a Drive remote, confirm the public-access warning, run
-     * the share off the main thread, and render the three possible outcomes. The
-     * sequence is: [pickDriveRemote] → [confirmShareLink] → [runShareLink].
+     * This is `rclone link remote:path/to/file` in UI form: one
+     * `operations/publiclink` call against the browser's own `(fs, entry.path)`
+     * pair, issued by [RcloneShareLink.directLink]. The file is never copied,
+     * uploaded or moved, and there is no destination picker — the link belongs
+     * to where the file already lives. Both files and directories are offered,
+     * because rclone's publiclink handles both.
      *
-     * It reuses the existing configured remotes and the existing [RcloneEngine];
-     * there is no second rclone, no second Drive OAuth flow, and no credential is
-     * ever read or logged here.
+     * The consent step is deliberate: on backends such as Google Drive this
+     * call *creates* an "anyone with the link" reader permission; on others it
+     * only *retrieves* an existing share URL. The dialog states both
+     * possibilities before anything runs.
      */
     private fun shareAsLink(entry: FileEntry) {
         val rpc = engine ?: run {
             toast(getString(R.string.state_unavailable))
             return
         }
-        pickDriveRemote(entry, rpc)
+        confirmDirectLink(entry, rpc)
     }
 
     /**
-     * Asks which configured Drive remote to upload to, then confirms.
+     * The explicit consent step before a public link is requested.
      *
-     * Drive remotes are discovered with `config/dump` (the only call that reveals
-     * a remote's `type`); an empty result means the user has no Drive remote and
-     * is told how to add one rather than being shown an empty picker.
+     * Distinguishes the two things `operations/publiclink` can do, because they
+     * are not the same act: retrieving an existing share link changes nothing,
+     * while creating one may make the item reachable by anyone who obtains the
+     * URL. The confirm button repeats the verb so the choice is informed.
      */
-    private fun pickDriveRemote(entry: FileEntry, rpc: RcloneEngine) {
-        lifecycleScope.launch {
-            val drives = try {
-                withContext(Dispatchers.IO) {
-                    RcloneRemoteManager(rpc).driveRemotes()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "could not list drive remotes: ${e.javaClass.simpleName}")
-                emptyList()
-            }
-
-            if (drives.isEmpty()) {
-                toast(getString(R.string.files_share_link_no_drive))
-                return@launch
-            }
-            if (drives.size == 1) {
-                confirmShareLink(entry, rpc, drives.first())
-                return@launch
-            }
-
-            MaterialAlertDialogBuilder(this@FileBrowserActivity)
-                .setTitle(R.string.files_share_link_pick_remote)
-                .setItems(drives.toTypedArray()) { _, which ->
-                    confirmShareLink(entry, rpc, drives[which])
-                }
-                .setNegativeButton(R.string.action_dismiss, null)
-                .show()
-        }
-    }
-
-    /**
-     * The explicit consent step before anything is made public.
-     *
-     * A public link is not reversible by this app, so the warning states plainly
-     * that anyone with the link may access the file. It names the destination so
-     * the choice is informed, and the confirm button repeats the verb.
-     */
-    private fun confirmShareLink(entry: FileEntry, rpc: RcloneEngine, driveName: String) {
+    private fun confirmDirectLink(entry: FileEntry, rpc: RcloneEngine) {
+        val displayName = entry.name.ifBlank { entry.path.substringAfterLast('/') }
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.files_share_link_confirm_title)
             .setMessage(
                 getString(
                     R.string.files_share_link_confirm,
-                    entry.name.ifBlank { entry.path.substringAfterLast('/') },
-                    driveName
+                    displayName,
+                    fs.removeSuffix(":")
                 )
             )
             .setNegativeButton(R.string.action_dismiss, null)
             .setPositiveButton(R.string.files_share_link_confirm_action) { _, _ ->
-                runShareLink(entry, rpc, driveName)
+                runDirectLink(entry, rpc)
             }
             .show()
     }
 
     /**
-     * Runs the share on an IO coroutine and renders the outcome.
+     * Requests the link off the main thread and renders the outcome.
      *
-     * The share is guarded the same way a download is: one at a time, so two
-     * public links cannot be created for one file from a double tap. Progress is
-     * indeterminate — a determinate figure would need rclone's async job API,
-     * which this embedded build does not link — and a cancel button is offered,
-     * which cancels the coroutine (the native copy cannot be interrupted, so the
-     * UI stops immediately and the result is discarded when it lands, exactly as
-     * [cancelDownload] does).
+     * Guarded like a download: one at a time ([transferring]), with a cancel
+     * button that cancels the coroutine — the native call itself cannot be
+     * interrupted, so the UI stops immediately and the late result is
+     * discarded when it lands, exactly as [cancelDownload] does.
      */
-    private fun runShareLink(entry: FileEntry, rpc: RcloneEngine, driveName: String) {
+    private fun runDirectLink(entry: FileEntry, rpc: RcloneEngine) {
         val displayName = entry.name.ifBlank { entry.path.substringAfterLast('/') }
-        val request = ShareLinkRequest(
-            srcFs = fs,
-            srcRemote = entry.path,
-            dstFs = "$driveName:",
-            dstFolder = "",
-            fileName = displayName
-        )
+        val request = DirectLinkRequest(fs = fs, remote = entry.path)
 
         transferring = entry
         binding.progress.isVisible = true
         binding.progress.isIndeterminate = true
         binding.btnCancel.isVisible = true
-        binding.appbar.subtitle.text = getString(R.string.files_share_link_uploading)
+        binding.appbar.subtitle.text = getString(R.string.files_share_link_working)
         cancelled = false
 
         downloadJob = lifecycleScope.launch {
             try {
-                val result = RcloneShareLink(rpc).share(request)
+                val result = RcloneShareLink(rpc).directLink(request)
                 if (cancelled) {
                     toast(getString(R.string.files_share_link_cancelled))
                 } else {
-                    when (result) {
-                        is ShareLinkResult.Success ->
-                            showLinkReady(result.url, displayName)
-                        is ShareLinkResult.UploadedNoLink ->
-                            showUploadedNoLink(displayName, driveName, result.detail)
-                        is ShareLinkResult.Failure ->
-                            toast(getString(R.string.files_share_link_failed, displayName))
-                    }
+                    renderDirectLink(result, displayName)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1316,6 +1464,27 @@ class FileBrowserActivity : AppCompatActivity() {
                 binding.btnCancel.isVisible = false
                 binding.appbar.subtitle.text = fullPath()
             }
+        }
+    }
+
+    /**
+     * Maps each [DirectLinkResult] to what the user should be told — each
+     * failure class gets its own advice rather than one generic "failed".
+     */
+    private fun renderDirectLink(result: DirectLinkResult, displayName: String) {
+        when (result) {
+            is DirectLinkResult.Success ->
+                showLinkReady(result.url, displayName)
+            is DirectLinkResult.Unsupported ->
+                toast(getString(R.string.files_share_link_unsupported))
+            is DirectLinkResult.NotFound ->
+                toast(getString(R.string.files_share_link_not_found, displayName))
+            is DirectLinkResult.AuthFailed ->
+                toast(getString(R.string.files_share_link_auth_failed))
+            is DirectLinkResult.Network ->
+                toast(getString(R.string.files_share_link_network))
+            is DirectLinkResult.Failure ->
+                toast(getString(R.string.files_share_link_failed, displayName))
         }
     }
 
@@ -1344,62 +1513,361 @@ class FileBrowserActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    // ── Section E: bulk operations ───────────────────────────────────────────
+
     /**
-     * The partial state: the file is on Drive, but no public link exists.
+     * Stages the selected rows as a copy/move clipboard.
      *
-     * Reported honestly rather than as a bare failure, because the upload did
-     * succeed and the file is reachable by its owner. A "Retry link" action
-     * re-runs only the link step against the file already on Drive.
+     * Folders are excluded at staging time — bulk copy/move handles files only
+     * (single-object RPCs), and the user is told which were skipped rather than
+     * discovering it at paste time. Nothing runs yet: the clipboard waits for a
+     * destination folder, and the paste bar states where it will land.
      */
-    private fun showUploadedNoLink(displayName: String, driveName: String, detail: String) {
+    private fun stageBulk(isMove: Boolean) {
+        val plan = planBulkTransfer(entries, selection.paths(), fs, fs)
+        if (plan.isEmpty) {
+            toast(getString(R.string.files_empty))
+            return
+        }
+        bulkClipboard = BulkClipboard(plan.files, isMove, fs)
+        clearSelection()
+        binding.pasteLabel.text = getString(
+            R.string.files_bulk_clipboard,
+            plan.files.size,
+            if (isMove) getString(R.string.files_bulk_move) else getString(R.string.files_bulk_copy)
+        )
+        binding.pasteBar.isVisible = true
+        if (plan.excludedDirs.isNotEmpty()) {
+            toast(getString(R.string.files_bulk_dirs_excluded, plan.excludedDirs.size))
+        }
+    }
+
+    private fun cancelBulkClipboard() {
+        bulkClipboard = null
+        binding.pasteBar.isVisible = false
+    }
+
+    /**
+     * Bulk delete with the explicit listing confirmation.
+     *
+     * The confirmation lists the items by name (up to five, then a count) and
+     * warns that it cannot be undone — see [bulkDeleteMessage]. Folders are
+     * refused here rather than recursed: `operations/deletefile` addresses one
+     * object, and `operations/purge` on a whole subtree is not a gesture this
+     * screen should own without a progress story.
+     */
+    private fun confirmBulkDelete() {
+        val rpc = engine ?: return
+        val picked = entries.filter { it.path in selection.paths() }
+        val files = picked.filter { !it.isDir }
+        val dirs = picked.filter { it.isDir }
+        if (files.isEmpty()) {
+            toast(getString(R.string.files_empty))
+            return
+        }
+
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.files_share_link_no_link_title)
-            .setMessage(
-                getString(
-                    R.string.files_share_link_no_link,
-                    displayName,
-                    driveName,
-                    detail
-                )
-            )
+            .setTitle(getString(R.string.files_bulk_delete_title, files.size))
+            .setMessage(bulkDeleteMessage(files))
             .setNegativeButton(R.string.action_dismiss, null)
-            .setPositiveButton(R.string.files_share_link_retry) { _, _ ->
-                retryLinkOnly(driveName, displayName)
+            .setPositiveButton(R.string.files_delete) { _, _ ->
+                runBulkDelete(rpc, files, dirs)
             }
             .show()
     }
 
     /**
-     * Re-runs only [RcloneShareLink]'s link step against a file already on Drive.
+     * Runs the bulk delete, one RPC per file, collecting per-item results.
      *
-     * Used after an "uploaded but no link" partial result: the copy is there, so
-     * only `operations/publiclink` needs to run again. The destination path is
-     * rebuilt with the same join rule the share used, so a plain (uncollided)
-     * name addresses the copy that was just made.
+     * A failure on one item never aborts the rest: the user gets a partial-
+     * failure report naming what failed. The listing cache for the current
+     * directory is invalidated once at the end so deleted rows cannot reappear.
      */
-    private fun retryLinkOnly(driveName: String, displayName: String) {
-        val rpc = engine ?: return
-        val dstRemote = RcloneShareLink.joinDestination("", displayName)
+    private fun runBulkDelete(rpc: RcloneEngine, files: List<FileEntry>, dirs: List<FileEntry>) {
         binding.progress.isVisible = true
         lifecycleScope.launch {
+            val results = mutableListOf<BulkItemResult>()
             try {
-                val reply = withContext(Dispatchers.IO) {
-                    rpc.call(
-                        "operations/publiclink",
-                        JSONObject().put("fs", "$driveName:").put("remote", dstRemote)
+                withContext(Dispatchers.IO) {
+                    files.forEach { entry ->
+                        results += try {
+                            rpc.call(
+                                METHOD_DELETE,
+                                JSONObject().put("fs", fs).put("remote", entry.path)
+                            )
+                            BulkItemResult(entry, true)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            BulkItemResult(entry, false, describe(e))
+                        }
+                    }
+                }
+                listingCache.invalidate(fs, path.joinToString("/"))
+                val deletedPaths = results.filter { it.ok }.map { it.entry.path }.toSet()
+                entries = entries.filterNot { it.path in deletedPaths }
+                render()
+                clearSelection()
+                val failed = results.filter { !it.ok }
+                if (failed.isEmpty()) {
+                    toast(getString(R.string.files_bulk_deleted, results.size))
+                } else {
+                    toast(
+                        getString(
+                            R.string.files_bulk_partial,
+                            results.size - failed.size,
+                            results.size,
+                            failed.take(3).joinToString(", ") {
+                                it.entry.name.ifBlank { it.entry.path }
+                            }
+                        )
                     )
                 }
-                val url = reply.optString("url").trim()
-                if (url.isEmpty()) {
-                    toast(getString(R.string.files_share_link_failed, displayName))
-                } else {
-                    showLinkReady(url, displayName)
+                if (dirs.isNotEmpty()) {
+                    toast(getString(R.string.files_bulk_dirs_excluded, dirs.size))
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "retry link failed: ${e.javaClass.simpleName}")
-                toast(getString(R.string.files_share_link_failed, displayName))
+                Log.w(TAG, "bulk delete failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_delete_failed, ""))
+            } finally {
+                binding.progress.isVisible = false
+            }
+        }
+    }
+
+    /**
+     * Pastes the staged clipboard into the current folder.
+     *
+     * Destination = current `fs` + current `relative` path. Same-fs paste is
+     * server-side; cross-fs streams through rclone on this device — the label
+     * says which before anything runs. Names are resolved against the
+     * destination listing so a paste never silently overwrites. Move runs
+     * copy-then-delete per item: a cross-device move is not atomic, and the
+     * delete is issued only after its copy verified.
+     */
+    private fun pasteBulk() {
+        val clip = bulkClipboard ?: return
+        val rpc = engine ?: return
+        val relative = path.joinToString("/")
+        val plan = planBulkTransfer(clip.files, clip.files.map { it.path }.toSet(), clip.srcFs, fs)
+
+        binding.progress.isVisible = true
+        binding.progress.isIndeterminate = true
+        binding.appbar.subtitle.text = if (clip.isMove) {
+            if (plan.kind == BulkTransferKind.SERVER_SIDE) {
+                getString(R.string.files_bulk_moving_server_side)
+            } else {
+                getString(R.string.files_bulk_moving_via_device)
+            }
+        } else {
+            if (plan.kind == BulkTransferKind.SERVER_SIDE) {
+                getString(R.string.files_bulk_server_side)
+            } else {
+                getString(R.string.files_bulk_via_device)
+            }
+        }
+
+        lifecycleScope.launch {
+            try {
+                val destNames = withContext(Dispatchers.IO) {
+                    existingNames(rpc, fs, relative)
+                }
+                val results = mutableListOf<BulkItemResult>()
+                withContext(Dispatchers.IO) {
+                    var used = destNames.toMutableSet()
+                    clip.files.forEach { entry ->
+                        val name = RcloneShareLink.resolveUniqueName(entry.name, used)
+                        used.add(name)
+                        val dstRemote = if (relative.isEmpty()) name else "$relative/$name"
+                        results += try {
+                            val method = if (clip.isMove) METHOD_MOVE else METHOD_COPY
+                            rpc.call(
+                                method,
+                                JSONObject()
+                                    .put("srcFs", clip.srcFs)
+                                    .put("srcRemote", entry.path)
+                                    .put("dstFs", fs)
+                                    .put("dstRemote", dstRemote)
+                            )
+                            if (clip.isMove) {
+                                // Copy verified; only now is the source removed.
+                                rpc.call(
+                                    METHOD_DELETE,
+                                    JSONObject().put("fs", clip.srcFs).put("remote", entry.path)
+                                )
+                            }
+                            BulkItemResult(entry, true)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            BulkItemResult(entry, false, describe(e))
+                        }
+                    }
+                }
+                listingCache.invalidate(fs, relative)
+                load()
+                val failed = results.filter { !it.ok }
+                if (failed.isEmpty()) {
+                    toast(getString(R.string.files_bulk_deleted, results.size).let {
+                        if (clip.isMove) it.replace("deleted", "moved") else it
+                    })
+                } else {
+                    toast(
+                        getString(
+                            R.string.files_bulk_partial,
+                            results.size - failed.size,
+                            results.size,
+                            failed.take(3).joinToString(", ") {
+                                it.entry.name.ifBlank { it.entry.path }
+                            }
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "paste failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_bulk_partial, 0, clip.files.size, ""))
+            } finally {
+                binding.progress.isVisible = false
+                binding.appbar.subtitle.text = fullPath()
+                bulkClipboard = null
+                binding.pasteBar.isVisible = false
+            }
+        }
+    }
+
+    /**
+     * The names already present in `fs/remote`, for unique-name resolution.
+     *
+     * A listing failure is not fatal: the worst case is a rare collision the
+     * RPC will surface. One `operations/list` rather than a stat per candidate.
+     */
+    private suspend fun existingNames(rpc: RcloneEngine, fs: String, remote: String): Set<String> {
+        return try {
+            val reply = rpc.call(METHOD_LIST, JSONObject().put("fs", fs).put("remote", remote))
+            val list = reply.optJSONArray(KEY_LIST) ?: return emptySet()
+            val names = LinkedHashSet<String>()
+            for (i in 0 until list.length()) {
+                list.optJSONObject(i)?.optString("Name")?.takeIf { it.isNotEmpty() }?.let { names.add(it) }
+            }
+            names
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    // ── Section E: mkdir + rename ─────────────────────────────────────────────
+
+    /** New-folder dialog. Validates the name locally before the RPC. */
+    private fun promptMkdir() {
+        val input = android.widget.EditText(this).apply {
+            hint = getString(R.string.files_name_hint)
+            setSingleLine()
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.files_mkdir_title))
+            .setView(input)
+            .setNegativeButton(R.string.action_dismiss, null)
+            .setPositiveButton(R.string.files_mkdir) { _, _ ->
+                val name = input.text?.toString().orEmpty()
+                val problem = validateNewName(name)
+                if (problem != null) {
+                    toast(problem)
+                } else {
+                    doMkdir(name.trim())
+                }
+            }
+            .show()
+    }
+
+    private fun doMkdir(name: String) {
+        val rpc = engine ?: return
+        val relative = path.joinToString("/")
+        val target = if (relative.isEmpty()) name else "$relative/$name"
+        lifecycleScope.launch {
+            binding.progress.isVisible = true
+            try {
+                withContext(Dispatchers.IO) {
+                    rpc.call(METHOD_MKDIR, JSONObject().put("fs", fs).put("remote", target))
+                }
+                listingCache.invalidate(fs, relative)
+                load()
+                toast(getString(R.string.files_mkdir_created))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "mkdir failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_mkdir_failed))
+            } finally {
+                binding.progress.isVisible = false
+            }
+        }
+    }
+
+    /** Rename dialog. Refuses directories: rename is a single-object operation. */
+    private fun promptRename(entry: FileEntry) {
+        if (entry.isDir) {
+            toast(getString(R.string.files_bulk_dirs_excluded, 1))
+            return
+        }
+        val input = android.widget.EditText(this).apply {
+            setText(entry.name)
+            setSingleLine()
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.files_rename_title, entry.name))
+            .setView(input)
+            .setNegativeButton(R.string.action_dismiss, null)
+            .setPositiveButton(R.string.files_rename) { _, _ ->
+                val name = input.text?.toString().orEmpty()
+                val problem = validateNewName(name)
+                if (problem != null) {
+                    toast(problem)
+                } else {
+                    doRename(entry, name.trim())
+                }
+            }
+            .show()
+    }
+
+    /**
+     * Renames one file.
+     *
+     * `operations/movefile` with src=dst fs is the rename. Directories are
+     * refused in the dialog: a directory rename moves its whole subtree, and
+     * this screen has no progress or cancellation story for that.
+     */
+    private fun doRename(entry: FileEntry, newName: String) {
+        val rpc = engine ?: return
+        val relative = path.joinToString("/")
+        val dir = if (relative.isEmpty()) "" else "$relative/"
+        val dst = "$dir$newName"
+        lifecycleScope.launch {
+            binding.progress.isVisible = true
+            try {
+                withContext(Dispatchers.IO) {
+                    rpc.call(
+                        METHOD_MOVE,
+                        JSONObject()
+                            .put("srcFs", fs)
+                            .put("srcRemote", entry.path)
+                            .put("dstFs", fs)
+                            .put("dstRemote", dst)
+                    )
+                }
+                listingCache.invalidate(fs, relative)
+                load()
+                toast(getString(R.string.files_renamed))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "rename failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_rename_failed, entry.name))
             } finally {
                 binding.progress.isVisible = false
             }
@@ -1557,6 +2025,10 @@ class FileBrowserActivity : AppCompatActivity() {
             menu.menu.add(Menu.NONE, MENU_SHARED, 1, getString(R.string.storage_shared))
                 .isCheckable = true
 
+            // Section E: new-folder action lives in the location menu because it
+            // is a folder-level action, not a row action.
+            menu.menu.add(Menu.NONE, MENU_MKDIR, 2, getString(R.string.files_mkdir))
+
             // Names come from config/listremotes. Nothing is invented: an empty
             // config lists nothing and says where to create one.
             val names = remotes.orEmpty().sortedBy { it.lowercase() }
@@ -1605,17 +2077,56 @@ class FileBrowserActivity : AppCompatActivity() {
                 .takeIf { it >= 0 }
                 ?.let { menu.menu.findItem(MENU_CACHE_BASE + it)?.isChecked = true }
 
+            // ── Section E: sort + filter ──────────────────────────────────────
+            // Sort: name / size / date / type. Folders always lead (see
+            // FileBrowserOps.sortEntries); the choice is remembered per screen.
+            FileSortMode.values().forEachIndexed { index, mode ->
+                menu.menu.add(
+                    Menu.NONE, MENU_SORT_BASE + index, 40 + index, mode.label
+                ).isCheckable = true
+            }
+            menu.menu.findItem(MENU_SORT_BASE + sortMode.ordinal)?.isChecked = true
+
+            // Filter: all / folders / files.
+            FileTypeFilter.values().forEachIndexed { index, filter ->
+                menu.menu.add(
+                    Menu.NONE, MENU_FILTER_BASE + index, 50 + index, filter.label
+                ).isCheckable = true
+            }
+            menu.menu.findItem(MENU_FILTER_BASE + typeFilter.ordinal)?.isChecked = true
+
             menu.setOnMenuItemClickListener { item ->
                 when {
                     item.itemId == MENU_INTERNAL -> { openLocation(localRoot()); true }
                     item.itemId == MENU_SHARED -> { openLocation(sharedRoot()); true }
+                    item.itemId == MENU_MKDIR -> { promptMkdir(); true }
                     item.itemId == MENU_NO_REMOTES -> true
                     item.itemId == MENU_NO_REMOTES_NOTE -> true
-                    item.itemId >= MENU_CACHE_BASE -> {
+                    item.itemId >= MENU_CACHE_BASE && item.itemId < MENU_SORT_BASE -> {
                         val idx = item.itemId - MENU_CACHE_BASE
                         val days = ServerConfig.CACHE_RETENTION_CHOICES.getOrNull(idx)
                         if (days != null) {
                             setRetentionDays(days)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    item.itemId >= MENU_SORT_BASE && item.itemId < MENU_FILTER_BASE -> {
+                        val mode = FileSortMode.values().getOrNull(item.itemId - MENU_SORT_BASE)
+                        if (mode != null) {
+                            sortMode = mode
+                            render()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    item.itemId >= MENU_FILTER_BASE -> {
+                        val filter = FileTypeFilter.values().getOrNull(item.itemId - MENU_FILTER_BASE)
+                        if (filter != null) {
+                            typeFilter = filter
+                            render()
                             true
                         } else {
                             false
@@ -1739,17 +2250,35 @@ class FileBrowserActivity : AppCompatActivity() {
         /** "Share as link" — upload to a Drive remote and return a public URL. */
         private const val MENU_SHARE_LINK = 11
         private const val MENU_LOCATION = 4
+
+        /** Selection actions (overflow menu while selection mode is up). */
+        private const val MENU_SEL_COPY = 400
+        private const val MENU_SEL_MOVE = 401
+        private const val MENU_SEL_DELETE = 402
         private const val MENU_SHARED = 8
         private const val MENU_INTERNAL = 5
         private const val MENU_NO_REMOTES = 6
         private const val MENU_NO_REMOTES_NOTE = 7
 
         /** Remote names are ids from here up; index is id minus this. */
-        /** Remote names are ids from here up; index is id minus this. */
         private const val MENU_REMOTE_BASE = 100
 
         /** Retention options, menu ids from [MENU_CACHE_BASE] upward. */
         private const val MENU_CACHE_BASE = 200
+
+        /** Section E menu bases. */
+        private const val MENU_SORT_BASE = 300
+        private const val MENU_FILTER_BASE = 400
+        private const val MENU_MKDIR = 2
+        private const val MENU_RENAME = 12
+
+        /** Section E RPCs (operations/ — already linked in the shim). */
+        private const val METHOD_MOVE = "operations/movefile"
+        private const val METHOD_COPY = "operations/copyfile"
+        private const val METHOD_MKDIR = "operations/mkdir"
+
+        /** Above this row count the count line says the folder is large. */
+        private const val LARGE_DIRECTORY_THRESHOLD = 500
 
         const val EXTRA_FS = "fs"
 

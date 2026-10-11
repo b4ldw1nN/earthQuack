@@ -90,6 +90,11 @@ class StorageFragment : Fragment() {
         binding.btnAddRemote.setOnClickListener {
             startActivity(AddRemoteActivity.intent(requireContext()))
         }
+        binding.btnEditConfig.setOnClickListener {
+            startActivity(
+                android.content.Intent(requireContext(), RcloneConfigEditorActivity::class.java)
+            )
+        }
         binding.btnRemotesRetry.setOnClickListener { loadRemotes() }
         binding.btnGrantStorage.setOnClickListener { openAllFilesAccessSettings() }
 

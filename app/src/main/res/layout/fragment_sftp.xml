@@ -250,10 +250,154 @@
 
                 <TextView
                     android:id="@+id/textHostKey"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:text="@string/sftp_host_key_none"
                     android:textAppearance="@style/TextAppearance.Eq.Meta" />
+
+                <!--
+                    Shareable because a host key is only useful if the client
+                    can be told about it: pasting this fingerprint into the
+                    client (or into the confirmation dialog) is what makes the
+                    first connection verifiable, and a changed key recoverable.
+                -->
+                <ImageButton
+                    android:id="@+id/btnShareHostKey"
+                    android:layout_width="@dimen/eq_touch_min"
+                    android:layout_height="@dimen/eq_touch_min"
+                    android:padding="@dimen/eq_gap_md"
+                    android:src="@drawable/ic_eq_send"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@string/sftp_host_key_share" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!--
+            Pairing with a computer.
+
+            Three artifacts, all derived from the same persisted host key, so
+            the pairing survives the key being regenerated as long as the
+            computer is handed the new one the same way. The known_hosts line
+            is the zero-infrastructure path; the SSHFP records are the one
+            that needs no manual pin at all — but they need DNS that serves
+            them, which Tailscale's MagicDNS does not, so the note under them
+            says so plainly rather than pretending otherwise.
+        -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sftp_pairing_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <!-- known_hosts: the one-line fix for a stale pin. -->
+            <LinearLayout style="@style/Widget.Eq.Row" android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/sftp_pairing_known_hosts"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                    <TextView
+                        android:id="@+id/textKnownHosts"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.Meta"
+                        tools:text="[100.87.152.1]:8022 ecdsa-sha2-nistp256 AAAA…" />
+                </LinearLayout>
+                <ImageButton
+                    android:id="@+id/btnCopyKnownHosts"
+                    android:layout_width="@dimen/eq_touch_min"
+                    android:layout_height="@dimen/eq_touch_min"
+                    android:padding="@dimen/eq_gap_md"
+                    android:src="@drawable/ic_eq_copy"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@string/sftp_pairing_copy" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <!-- The public line: for the computer's authorized_keys, when the
+                 computer connects out rather than in. -->
+            <LinearLayout style="@style/Widget.Eq.Row" android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/sftp_pairing_public_key"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                    <TextView
+                        android:id="@+id/textPublicKey"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.Eq.Meta"
+                        tools:text="ecdsa-sha2-nistp256 AAAA… earthquack" />
+                </LinearLayout>
+                <ImageButton
+                    android:id="@+id/btnCopyPublicKey"
+                    android:layout_width="@dimen/eq_touch_min"
+                    android:layout_height="@dimen/eq_touch_min"
+                    android:padding="@dimen/eq_gap_md"
+                    android:src="@drawable/ic_eq_copy"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@string/sftp_pairing_copy" />
+            </LinearLayout>
+
+            <View style="@style/Widget.Eq.Divider.Inset" />
+
+            <!-- SSHFP: publish into DNS, and clients with VerifyHostKeyDNS
+                 need no manual pin at all. -->
+            <LinearLayout style="@style/Widget.Eq.RowStatic" android:minHeight="@dimen/eq_row_v">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/sftp_pairing_sshfp"
+                        android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+                    <TextView
+                        android:id="@+id/textSshfp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:typeface="monospace"
+                        android:textAppearance="@style/TextAppearance.Eq.Meta"
+                        tools:text="phone. IN SSHFP 3 2 a1b2…" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/eq_gap_xs"
+                        android:text="@string/sftp_pairing_sshfp_note"
+                        android:textAppearance="@style/TextAppearance.Eq.Meta"
+                        android:textColor="@color/eq_text_muted" />
+                </LinearLayout>
+                <ImageButton
+                    android:id="@+id/btnCopySshfp"
+                    android:layout_width="@dimen/eq_touch_min"
+                    android:layout_height="@dimen/eq_touch_min"
+                    android:padding="@dimen/eq_gap_md"
+                    android:src="@drawable/ic_eq_copy"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    app:tint="@color/eq_text_muted"
+                    android:contentDescription="@string/sftp_pairing_copy" />
             </LinearLayout>
         </LinearLayout>
 

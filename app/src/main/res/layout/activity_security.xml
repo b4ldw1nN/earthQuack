@@ -6,8 +6,8 @@
 
     Both secret fields are masked by default with an explicit reveal control.
     They are never written to logcat from this screen, and the warning at the
-    bottom states plainly that this build stores them unencrypted — which is
-    true, and better surfaced than quietly implied to be safe.
+    bottom states the Keystore-backed storage — migrated from legacy prefs
+    on upgrade — rather than a generic reassurance.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -235,9 +235,9 @@
             style="@style/Widget.Eq.Card"
             android:orientation="vertical" />
 
-        <!-- Honest disclosure. This build really does store both values as
-             plaintext in SharedPreferences; saying so is the whole reason this
-             note exists rather than a generic reassurance. -->
+        <!-- Keystore-backed storage note. The warning string carries the
+             user-visible text; this comment records why the note exists
+             rather than a generic reassurance. -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -37,10 +37,13 @@ import com.example.earthquack.ui.SubScreenActivity
  *
  * ## The storage warning is not decorative
  *
- * `ServerConfig` stores the AES key and bearer token as plaintext in
- * SharedPreferences. They are app-private, so no other app can read them, but
- * they are not encrypted at rest and are not protected by the Keystore. The
- * screen says exactly that rather than implying a guarantee it does not provide.
+ * `ServerConfig` keeps the AES key and bearer token in the Keystore-backed
+ * vault ([CredentialVault] over `SecretStore`), migrating lazily from legacy
+ * plaintext prefs. Fresh installs never write plaintext; upgraded installs
+ * promote on first read and delete the plaintext only after a vault
+ * read-back verifies, so a failed migration keeps the working value.
+ * The screen says what the storage actually provides rather than implying a
+ * guarantee it does not.
  */
 class SecurityActivity : SubScreenActivity() {
 

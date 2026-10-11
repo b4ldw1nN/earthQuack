@@ -134,7 +134,7 @@ class EarthQuackService : LifecycleService() {
                 Log.d(TAG, "Listener fired but clipboard read returned null (OS restriction)")
                 return@launch
             }
-            Log.d(TAG, "ClipChangedListener got: '${text.take(60)}'")
+            Log.d(TAG, "ClipChangedListener got ${text.length} chars (content withheld: may be sensitive)")
             withContext(Dispatchers.IO) { handleLocalClipboard(text) }
         }
     }
@@ -386,12 +386,12 @@ class EarthQuackService : LifecycleService() {
                 val clip = android.content.ClipData.newPlainText("earthQuack", text)
                 clipboardManager.setPrimaryClip(clip)
             }
-            broadcastStatus(SyncStatus.RUNNING, "← $text")
+            broadcastStatus(SyncStatus.RUNNING, "← ${text.length} chars")
             // Recorded here, at the point the value genuinely arrives, rather
             // than by a UI listener: a listener only sees syncs that happen
             // while a screen is open, so history would be silently incomplete.
             clipboardHistory.record(text, ClipboardEntry.Direction.RECEIVED)
-            Log.i(TAG, "Applied remote clipboard v$version: '${text.take(60)}'")
+            Log.i(TAG, "Applied remote clipboard v$version (${text.length} chars; content withheld)")
         } catch (e: Exception) {
             Log.e(TAG, "SSE parse error: ${e.message}")
         }
@@ -506,7 +506,7 @@ class EarthQuackService : LifecycleService() {
                     super.onWindowFocusChanged(hasWindowFocus)
                     if (hasWindowFocus && cont.isActive) {
                         val text = readClipboardText()
-                        Log.d(TAG, "Overlay focus read: ${text?.take(40)}")
+                        Log.d(TAG, "Overlay focus read ${text?.length ?: 0} chars (content withheld)")
                         removeOverlaySafe(this)
                         cont.resume(text)
                     }
@@ -558,12 +558,12 @@ class EarthQuackService : LifecycleService() {
         if (!syncState.tryClaimLocalChange(text)) return
         if (isSyncPaused()) return
         val toSend = CryptoUtil.wrapIfNeeded(text, ServerConfig.getAesKey(this), ServerConfig.isAesEnabled(this))
-        Log.i(TAG, "Posting to server: '${text.take(60)}'${if (toSend != text) " [AES]" else ""}")
+        Log.i(TAG, "Posting to server (${text.length} chars${if (toSend != text) ", AES" else ""}; content withheld)")
         acquireWakeLock()
         try {
             val version = api.postClipboard(toSend)
             if (version >= 0) {
-                broadcastStatus(SyncStatus.RUNNING, "→ $text")
+                broadcastStatus(SyncStatus.RUNNING, "→ ${text.length} chars")
                 // Only on success: recording an item the desktop never accepted
                 // would put a row in history that did not actually transfer.
                 clipboardHistory.record(text, ClipboardEntry.Direction.SENT)

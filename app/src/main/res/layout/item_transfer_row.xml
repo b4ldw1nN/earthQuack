@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One transfer row: direction icon, the file, where it is going, and the
+    one action this state permits.
+
+    The progress area (bar + byte line) is hidden for terminal rows rather
+    than shown zeroed — a stopped transfer with a full-width bar at 0% reads
+    as "about to start", which is exactly wrong. The error text sits under
+    the status line only for failures.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/eq_touch_min"
+    android:orientation="vertical"
+    android:paddingTop="@dimen/eq_gap_sm"
+    android:paddingBottom="@dimen/eq_gap_sm">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/rowTransferIcon"
+            android:layout_width="@dimen/eq_icon"
+            android:layout_height="@dimen/eq_icon"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_eq_download"
+            app:tint="@color/eq_primary" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/eq_gap_md"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/rowName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="middle"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                tools:text="holiday.mov" />
+
+            <TextView
+                android:id="@+id/rowSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="start"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="drive: → cache/opened/" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/rowAction"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/eq_gap_sm"
+            android:minWidth="0dp"
+            android:paddingStart="@dimen/eq_gap_md"
+            android:paddingEnd="@dimen/eq_gap_md"
+            android:text="@string/transfers_cancel"
+            tools:text="Stop" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/rowProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="@dimen/eq_gap_sm"
+        android:max="100"
+        android:progress="0" />
+
+    <TextView
+        android:id="@+id/rowProgressMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_xs"
+        android:maxLines="1"
+        android:textAppearance="@style/TextAppearance.Eq.Meta"
+        tools:text="512 KB / 1.4 GB · 36%" />
+
+    <TextView
+        android:id="@+id/rowStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_xs"
+        android:maxLines="2"
+        android:textAppearance="@style/TextAppearance.Eq.Meta"
+        tools:text="1.4 GB · 14:45" />
+
+    <TextView
+        android:id="@+id/rowError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_xs"
+        android:textAppearance="@style/TextAppearance.Eq.Meta"
+        android:textColor="@color/eq_error"
+        android:visibility="gone"
+        tools:text="network dropped"
+        tools:visibility="visible" />
+
+</LinearLayout>

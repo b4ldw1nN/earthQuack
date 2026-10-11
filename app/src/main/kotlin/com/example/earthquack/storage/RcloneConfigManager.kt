@@ -1,6 +1,7 @@
 package com.example.earthquack.storage
 
 import android.content.Context
+import android.system.Os
 import android.util.Log
 import java.io.File
 
@@ -37,6 +38,22 @@ import java.io.File
  * "use defaults" and `config/listremotes` returns `[]`. [ensureReady] still
  * creates the file so the location is explicit and the first write has
  * somewhere to go, rather than relying on rclone to create it later.
+ *
+ * ## At-rest protection (Section C hardening)
+ *
+ * rclone.conf holds OAuth refresh tokens and passwords. The gomobile
+ * integration requires it as plaintext on disk (`config.SetConfigPath` +
+ * rclone reads/writes it directly on every config RPC), so app-side
+ * encryption of the file is incompatible: rclone itself must read and
+ * rewrite it. Protection is therefore location + permissions + backup
+ * exclusion + never logging contents:
+ *
+ * - app-private `filesDir/rclone/`, never shared storage,
+ * - owner-only (600) permissions, repaired on every [ensureReady],
+ * - excluded from backup (`allowBackup="false"` — no backup-rules file
+ *   re-includes it),
+ * - never served via FileProvider (root is `cache/opened/`, not `files/`),
+ * - never logged: use [RcloneLogRedactor] for any error derived from config.
  */
 class RcloneConfigManager(context: Context) {
 
@@ -44,6 +61,12 @@ class RcloneConfigManager(context: Context) {
         const val TAG = "RcloneConfigManager"
         const val CONFIG_DIR = "rclone"
         const val CONFIG_FILE = "rclone.conf"
+
+        /** 0700: the directory must be searchable+listable by its owner. */
+        const val DIR_MODE = 448
+
+        /** 0600: owner read+write, and nothing for anyone else. */
+        const val FILE_MODE = 384
     }
 
     // Application context: this outlives any Activity and must not leak one.
@@ -90,23 +113,51 @@ class RcloneConfigManager(context: Context) {
                 "rclone config directory unavailable: ${dir.absolutePath}"
             )
         }
+        repairPermissions(dir)
         val file = configFile
         if (file.exists()) {
             // Never clobber: this is where remote credentials live.
+            repairPermissions(file)
             return false
         }
-        // Create with owner-only permissions. Android's filesDir is already
-        // private to the app, but an explicit mode means the file is not even
-        // group/other readable if the umask is ever relaxed.
+        // Create with owner-only permissions (0600). Android's filesDir is
+        // already private to the app, but an explicit mode means the file is
+        // not even group/other readable if the umask is ever relaxed.
         if (!file.createNewFile()) {
             throw IllegalStateException("could not create ${file.absolutePath}")
         }
-        file.setReadable(false, false)
-        file.setReadable(true, true)
-        file.setWritable(false, false)
-        file.setWritable(true, true)
+        chmod(file, FILE_MODE)
         Log.i(TAG, "created empty rclone config at ${file.absolutePath}")
         return true
+    }
+
+    /**
+     * Repairs owner-only permissions on the config dir and file.
+     *
+     * Best-effort and silent on failure: a restrictive umask keeps files
+     * private anyway, and this must never throw on a valid install. Never
+     * logs file contents — only paths, which contain no secrets.
+     *
+     * ## Why this is an absolute chmod and not the File setters
+     *
+     * `File.setReadable/Writable/Executable` each perform an *absolute*
+     * `chmod` on Android — `setReadable(true, true)` chmods to 0400,
+     * `setWritable(true, true)` to 0600, `setExecutable(true, true)` to
+     * 0700 — so chaining them does not add bits, it replaces the mode with
+     * each one. The earlier version of this method ended in
+     * `setExecutable(false, false)`, which chmods to 0000: the config
+     * directory was left owner-unwritable, `ensureReady`'s
+     * `createNewFile` failed with EACCES on a fresh install, and any
+     * install that did get past it had an rclone.conf rclone itself could
+     * not open. One `Os.chmod` with the intended mode states the intent
+     * exactly once.
+     */
+    fun repairPermissions(target: File = configFile) {
+        runCatching {
+            if (target.exists() || target == configDir) {
+                chmod(target, if (target == configDir) DIR_MODE else FILE_MODE)
+            }
+        }
     }
 
     /**
@@ -134,5 +185,17 @@ class RcloneConfigManager(context: Context) {
     fun deleteConfig(): Boolean {
         val file = configFile
         return if (file.exists()) file.delete() else false
+    }
+
+    /**
+     * Chmods [target] to the absolute [mode], quietly.
+     *
+     * Quiet because a failure here leaves the app-private path with the
+     * umask's mode, which is still private: the caller has already failed to
+     * reach anything better, and throwing would take down the screen that
+     * only wanted to show a directory listing.
+     */
+    private fun chmod(target: File, mode: Int) {
+        runCatching { Os.chmod(target.absolutePath, mode) }
     }
 }

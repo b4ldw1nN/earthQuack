@@ -44,7 +44,19 @@ data class FileEntry(
  */
 class FileEntryAdapter(
     private val onOpen: (FileEntry) -> Unit,
-    private val onOverflow: (FileEntry, View) -> Unit
+    private val onOverflow: (FileEntry, View) -> Unit,
+    /**
+     * Selection support (Section E, additive — defaults keep every existing
+     * caller unchanged).
+     *
+     * [selectionMode] shows the checkbox on each row; [selectedPaths] marks
+     * which rows are checked; [onLongPress] enters selection (the activity
+     * toggles the row and re-submits). Clicks still go to [onOpen] — the
+     * activity toggles instead of opening while in selection mode.
+     */
+    var selectionMode: Boolean = false,
+    var selectedPaths: Set<String> = emptySet(),
+    private val onLongPress: (FileEntry) -> Unit = {}
 ) : ListAdapter<FileEntry, FileEntryAdapter.EntryHolder>(DIFF) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EntryHolder =
@@ -74,7 +86,14 @@ class FileEntryAdapter(
             binding.icon.imageTintList =
                 ContextCompat.getColorStateList(binding.root.context, tintFor(entry))
 
+            // Selection checkbox: visible only in selection mode, and it is
+            // display-only — the row click (handled below) is what toggles, so
+            // there is exactly one gesture per outcome and no focus fight.
+            binding.check.isVisible = selectionMode
+            binding.check.isChecked = selectedPaths.contains(entry.path)
+
             binding.root.setOnClickListener { onOpen(entry) }
+            binding.root.setOnLongClickListener { onLongPress(entry); true }
             binding.btnOverflow.setOnClickListener { onOverflow(entry, it) }
         }
     }

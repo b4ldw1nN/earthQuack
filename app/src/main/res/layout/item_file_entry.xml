@@ -14,6 +14,21 @@
     xmlns:tools="http://schemas.android.com/tools"
     style="@style/Widget.Eq.RowIcon">
 
+    <!--
+        Multi-select checkbox (Section E). Gone unless the list is in selection
+        mode; display-only — the row click toggles, so one gesture owns the
+        outcome and the box never steals focus from the row.
+    -->
+    <CheckBox
+        android:id="@+id/check"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
     <ImageView
         android:id="@+id/icon"
         android:layout_width="@dimen/eq_icon_lg"

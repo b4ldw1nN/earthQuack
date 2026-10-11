@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The raw rclone.conf, editable.
+
+    A remote form is the right way to add one remote; this screen is the only
+    way to fix the things a form cannot express — a combine remote whose
+    upstream list mentions a remote that no longer exists, a mistyped key,
+    an upstream order the user wants changed. Without it, fixing a broken
+    config meant exporting it, editing it on a computer, and importing it
+    back.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/eq_background">
+
+    <include android:id="@+id/appbar" layout="@layout/partial_topbar" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/eq_gutter"
+            android:paddingEnd="@dimen/eq_gutter"
+            android:paddingBottom="@dimen/eq_gap_xl">
+
+            <!--
+                Warning first, before the credentials are on screen: the file
+                holds OAuth tokens and passwords, and the user should know
+                what they are holding before they scroll into it.
+            -->
+            <LinearLayout style="@style/Widget.Eq.Card">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/config_editor_warning"
+                    android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+            </LinearLayout>
+
+            <!-- The editor. Monospace, no autofill, no spellcheck: this is a
+                 configuration file, and a keyboard's red squiggles under
+                 `client_secret` help nobody. -->
+            <EditText
+                android:id="@+id/editConfig"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:background="@drawable/bg_eq_field"
+                android:gravity="top|start"
+                android:minHeight="320dp"
+                android:padding="@dimen/eq_gap_md"
+                android:textColor="@color/eq_text_primary"
+                android:textColorHint="@color/eq_text_muted"
+                android:textSize="13sp"
+                android:typeface="monospace"
+                android:autofillHints=""
+                android:importantForAutofill="no"
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:hint="@string/config_editor_hint"
+                tools:text="[remote]" />
+
+            <TextView
+                android:id="@+id/textStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:textAppearance="@style/TextAppearance.Eq.Meta"
+                android:textColor="@color/eq_warning"
+                android:visibility="gone"
+                tools:text="rclone rejected the edited file; the previous one is kept."
+                tools:visibility="visible" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSave"
+                style="@style/Widget.Eq.Button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:text="@string/config_editor_save"
+                app:icon="@drawable/ic_eq_check" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRestore"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_sm"
+                android:text="@string/config_editor_restore"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

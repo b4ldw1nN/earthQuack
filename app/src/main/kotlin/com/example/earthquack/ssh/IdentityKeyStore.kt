@@ -128,6 +128,24 @@ class IdentityKeyStore(
         val keyPair = parseKeyPair(pem, passphrase)
             ?: error("That file does not contain a private key I can read. " +
                 "Expected an OpenSSH, PKCS#1 or PKCS#8 private key.")
+        // The same key file imported twice is one key, not two. Without this
+        // the picker fills with indistinguishable entries and any retry loop
+        // around a failed save multiplies them — which is exactly the pile of
+        // identical "imported" rows a user gets after an editor bug. The
+        // fingerprint is identity: same public key, same key.
+        val fingerprint = KeyUtils.getFingerPrint(keyPair.public)
+        val existing = list().firstOrNull { it.fingerprint == fingerprint }
+        if (existing != null) {
+            // Keep the stored key, but let a newly supplied passphrase update
+            // it, so re-importing with the right passphrase still works.
+            if (passphrase != null) {
+                secrets.put(
+                    existing.alias + SUFFIX_PASS,
+                    passphrase.concatToString().toByteArray(Charsets.UTF_8)
+                )
+            }
+            return@runCatching existing.copy(hasPassphrase = passphrase != null || existing.hasPassphrase)
+        }
         store(alias, label, keyPair, pem, passphrase, generated = false)
     }
 

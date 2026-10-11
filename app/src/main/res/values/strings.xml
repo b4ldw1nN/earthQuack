@@ -150,6 +150,9 @@
     <string name="profile_password_required">A password is required for password authentication.</string>
     <string name="profile_host_key">Host key</string>
     <string name="profile_host_key_unverified">Not verified yet — recorded on first connection.</string>
+    <string name="profile_host_key_share">Share host key</string>
+    <!-- %1$s endpoint, %2$s fingerprint. -->
+    <string name="profile_host_key_share_body">EarthQuack SSH profile host key for %1$s\nFingerprint: %2$s\n\nIf your client reports the host key changed, it is pinning an older key. Compare this fingerprint with the server (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub) before trusting it.</string>
     <string name="profile_save">Save</string>
     <string name="profile_save_failed">Could not save the profile.</string>
     <string name="profile_editor_add_title">New connection</string>
@@ -168,6 +171,16 @@
     <string name="sftp_advanced">Advanced</string>
     <string name="sftp_port">Port</string>
     <string name="sftp_host_key">Host key</string>
+    <string name="sftp_host_key_share">Share host key</string>
+    <!-- Pairing card. -->
+    <string name="sftp_pairing_header">Pair with a computer</string>
+    <string name="sftp_pairing_known_hosts">known_hosts line</string>
+    <string name="sftp_pairing_public_key">Public key line</string>
+    <string name="sftp_pairing_sshfp">SSHFP DNS records</string>
+    <string name="sftp_pairing_sshfp_note">Publish these into the DNS that serves the phone\'s name, and a client with VerifyHostKeyDNS yes needs no manual pin at all. Tailscale\'s MagicDNS does not serve SSHFP, so this needs a resolver that does (CoreDNS/unbound on the tailnet, or the machine\'s own resolver). The known_hosts line above needs no DNS at all.</string>
+    <string name="sftp_pairing_copy">Copy</string>
+    <!-- %1$s fingerprint, %2$d port. -->
+    <string name="sftp_host_key_share_body">EarthQuack SFTP server (port %2$d)\nHost key fingerprint: %1$s\n\nIf your client reports that the host key changed, it is pinning an older key. On the client: ssh-keygen -R \"[host]:%2$d\" then connect again and accept this fingerprint.</string>
     <string name="sftp_start">Start</string>
     <string name="sftp_stop">Stop</string>
 

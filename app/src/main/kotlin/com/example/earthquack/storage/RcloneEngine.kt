@@ -143,22 +143,9 @@ class RcloneEngine(
      *
      * rclone returns `{"error": "...", "path": "...", "status": N}` on
      * failure, so the useful message is in `error`, not in the raw body.
+     * The detail is passed through [RcloneLogRedactor] so a backend that
+     * echoes a value can never land it in logcat.
      */
-    private fun describe(method: String, result: RcloneResult): String {
-        val detail = try {
-            JSONObject(result.output).optString("error").ifEmpty { null }
-        } catch (_: JSONException) {
-            null
-        }
-        return buildString {
-            append("rclone RPC ")
-            append(method)
-            append(" failed with status ")
-            append(result.status)
-            if (detail != null) {
-                append(": ")
-                append(detail)
-            }
-        }
-    }
+    private fun describe(method: String, result: RcloneResult): String =
+        RcloneLogRedactor.describeFailure(method, result.status, result.output)
 }

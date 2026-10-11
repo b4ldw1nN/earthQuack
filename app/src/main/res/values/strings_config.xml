@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Raw rclone.conf editor strings.
+
+    The copy states the two things a user must know before seeing their
+    credentials on screen: what this file is, and what saving will do.
+-->
+<resources>
+
+    <string name="config_editor_title">Edit rclone config</string>
+    <string name="config_editor_warning">This file contains passwords and OAuth tokens for every remote. It stays on this device — never share it, and be careful where you paste it.</string>
+    <string name="config_editor_hint">rclone.conf is empty — add a remote or import one first.</string>
+    <string name="config_editor_empty">No config file yet. Add a remote or import an existing rclone.conf first.</string>
+    <string name="config_editor_too_big">That config is too large to edit here (limit 512 KB).</string>
+
+    <!-- Save. -->
+    <string name="config_editor_save">Save</string>
+    <string name="config_editor_save_title">Save this config?</string>
+    <string name="config_editor_save_body">Every remote is re-read from this file, so a mistake changes how all of them connect. A backup of the current file is kept first.</string>
+    <string name="config_editor_saved">Config saved</string>
+
+    <!-- rclone refused the edited file. -->
+    <string name="config_editor_rejected">rclone could not read the edited file, so the save was kept from taking effect. Restore the backup, or fix and save again.</string>
+    <string name="config_editor_restore">Restore backup</string>
+    <string name="config_editor_restored">Backup restored</string>
+    <string name="config_editor_restore_failed">The backup could not be restored either — check the file manually.</string>
+
+</resources>

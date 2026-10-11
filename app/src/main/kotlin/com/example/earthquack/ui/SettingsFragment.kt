@@ -15,6 +15,7 @@ import com.example.earthquack.ui.sub.BatteryActivity
 import com.example.earthquack.ui.sub.FilesCacheActivity
 import com.example.earthquack.ui.sub.PermissionsActivity
 import com.example.earthquack.ui.sub.SecurityActivity
+import com.example.earthquack.ui.sub.TransfersActivity
 
 /**
  * Settings hub.
@@ -43,6 +44,17 @@ class SettingsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        // Transfers sit first: the queue is the one screen users open to
+        // answer "is my download done", and burying it below security and
+        // battery rows made it a destination you had to already know.
+        binding.rowTransfers.apply {
+            rowIcon.setImageResource(R.drawable.ic_eq_transfer)
+            rowIcon.imageTintList = tint(R.color.eq_primary)
+            rowTitle.setText(R.string.settings_transfers)
+            rowSubtitle.setText(R.string.settings_transfers_sub)
+            root.setOnClickListener { open(TransfersActivity::class.java) }
+        }
 
         binding.rowSecurity.apply {
             rowIcon.setImageResource(R.drawable.ic_eq_lock)

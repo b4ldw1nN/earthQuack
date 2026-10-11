@@ -177,6 +177,24 @@
                 app:icon="@drawable/ic_eq_open_new"
                 app:iconSize="16dp" />
 
+            <!--
+                Edit is third, and small on purpose: the form is the way in,
+                and this is the way out when the config says something the
+                form cannot (a combine remote listing a remote that was
+                deleted). One tap to reach, not one tap to stumble into.
+            -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEditConfig"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:layout_marginEnd="@dimen/eq_gap_sm"
+                android:text="@string/storage_edit_config"
+                app:icon="@drawable/ic_eq_doc"
+                app:iconSize="16dp" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnAddRemote"
                 style="@style/Widget.Eq.Button.Outlined"

@@ -8,6 +8,8 @@ import com.example.earthquack.sftp.fs.AndroidFileSystemFactory
 import com.example.earthquack.sftp.fs.requireUsableRoot
 import org.apache.sshd.common.config.keys.PublicKeyEntry
 import org.apache.sshd.common.config.keys.KeyUtils
+import org.apache.sshd.common.config.keys.FilePasswordProvider
+import org.apache.sshd.common.config.keys.loader.KeyPairResourceParser
 import org.apache.sshd.common.keyprovider.KeyPairProvider
 import org.apache.sshd.common.session.Session
 import org.apache.sshd.common.session.SessionListener
@@ -20,6 +22,7 @@ import org.apache.sshd.sftp.server.SftpSubsystemProxy
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
+import org.apache.sshd.common.util.security.SecurityUtils
 import java.security.MessageDigest
 import java.security.PublicKey
 import java.util.concurrent.atomic.AtomicInteger
@@ -400,6 +403,7 @@ class SftpServerEngine(
     /** The recorded host-key fingerprint, for the UI. */
     fun hostKeyFingerprint(): String? = hostKeyStore.fingerprint()
 
+
     private fun buildServer(settings: SftpSettings, root: File, hostKeyFile: Path): SshServer {
         // sshd's user-home resolver is process-global and is installed once, by
         // SshdEnvironment. This class deliberately does not set it: the served
@@ -535,6 +539,26 @@ class SftpServerInstance(
  * server, while `SftpSettingsStore` holds the configuration the user typed.
  * Mixing them would mean regenerating a key means editing settings.
  */
+/**
+ * The host key's OpenSSH public line, read straight off the persisted key
+ * file.
+ *
+ * The private key never leaves the device; this is the half a computer needs
+ * to trust the server (see [HostKeyPairing]). It reads the file rather than
+ * the running server, so it works while nothing is listening — which is
+ * exactly when a user is first setting a computer up.
+ */
+internal fun readHostKeyPublicLine(filesDir: File): String? = runCatching {
+    // Read with sshd's own parser — the same API the identity-key store uses
+    // to load a key file — so this works for whatever provider wrote it.
+    val file = File(filesDir, "sftp_host_key")
+    if (!file.isFile) return null
+    val parser: KeyPairResourceParser = SecurityUtils.getKeyPairResourceParser()
+    val provider = FilePasswordProvider.of(null as String?)
+    val pairs = parser.loadKeyPairs(null, null, provider, file.readBytes().inputStream())
+    pairs.firstOrNull()?.let { HostKeyPairing.publicLine(it.public) }
+}.getOrNull()
+
 class HostKeyStore(context: Context) : SftpHostKeys {
 
     private companion object {
