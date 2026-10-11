@@ -1,53 +1,84 @@
-# EarthQuack — Active Work Tracker
+# EarthQuack — Work Tracker
 
-> Previous multi-agent tasks (SSH terminal grid emulator, Share-as-link, video
-> streaming) are **DONE and pushed** (commit `02915b1`). This tracker now tracks
-> only the current terminal-input work.
+> Multi-agent coordination file. **Edit only your own section.** Each section
+> names its owner. Push when your part is done.
 
-## Current focus: Terminal input UX + back navigation
+Last updated: 2026-10-11 21:30 IST · HEAD `21c5df0` (pushed, build green)
 
-Owner: this session. Do not touch rclone / SFTP / Share-as-link / video code.
+---
 
-### Open issues
-- [ ] **I4 — Verify back-nav fix on device.** Code fixed + APK built; device
-  dropped off ADB before live test. Reconnect phone, then: open Connections →
-  press ← → must return to Services **and** reset the app bar (title + hide
-  Back arrow). Repeat from SFTP/Clipboard and from Terminal.
-- [x] **I1 — Double-tap to type.** Fixed by removing the separate EditText
-  (see I3); terminal taps focus the inline sink once.
-- [x] **I2 — `ls` produced no on-screen response.** `submitInput()` never sent
-  Enter, so the cooked-mode shell waited forever. `commandWithEnter()` now
-  appends CR (0x0D). Regression: `TerminalCommandSubmitTest` 5/5.
-- [x] **I3 — Termux-style inline input.** Implemented (TerminalInputView).
+## Section A — Terminal & app UX (owner: session that did terminal work)
 
-### Findings / decisions
-- **I3 (Termux-style input, DONE):** Replaced the bottom EditText + Send button
-  with a full-width, transparent `TerminalInputView` sink whose soft-keyboard
-  keystrokes are forwarded straight to the shell (PTY echoes them). Two bugs
-  fixed to make it reliable:
-  - **IME desync (only one letter):** the sink consumed `commitText` but never
-    inserted into the editable, so Gboard's cursor diverged from the (empty)
-    field and stopped appending. Fix: let the IME insert normally, siphon each
-    change to the shell via a TextWatcher, then clear the field immediately.
-  - **Focus-steal loop (only one char):** `scrollToBottom()` used
-    `fullScroll(FOCUS_DOWN)`, which *steals focus* to the last focusable view
-    (`terminalLog`) after every echo → next keystrokes went nowhere. Fix: scroll
-    with `scrollTo(0, bottom)` (no focus change).
-  Layout width fixed too (input no longer squeezed next to Send button).
-- **I5 — Back navigation (DONE, needs device confirm).** Root cause: the
-  toolbar Back arrow called `onBackPressedDispatcher.onBackPressed()`, but the
-  app-bar reset lived in the **deprecated `onBackPressed()` override**, which
-  the dispatcher does NOT reliably invoke. So the pushed content popped while
-  the app bar stayed stale ("Connections" + Back arrow), and from a restored
-  state the gesture exited the app. Fix in `MainActivity`: registered a single
-  `OnBackPressedCallback` and extracted shared `popSubScreen()` (pop + restore
-  app bar + transparent content bg). Toolbar arrow, system gesture, and tab
-  reselect all funnel through it, so content and app bar always move together.
-  `compileDebugKotlin` BUILD SUCCESSFUL; APK 52 MB built.
+### DONE — all pushed
 
-### Verifications this session
-- `TerminalCommandSubmitTest` 5/5 · `TerminalGridTest` 20/20 ·
-  `TerminalScreenBufferTest` 40/40 · `compileDebugKotlin` green.
-- Device: V2253 (arm64). **Blocked on I4** — phone fell off ADB
-  (`30fa:0400` gone from `lsusb`); needs physical USB reconnect.
+| Commit | What |
+|---|---|
+| `02915b1` | Fixed-grid VT emulator (`TerminalGrid.kt`, 20/20 JVM tests), Share-as-link v1 (upload-to-Drive flow), range video streaming |
+| `9257d86` | Termux-style inline terminal input (`TerminalInputView`; fixed IME-desync + focus-steal `fullScroll` bug), single-path back navigation (`OnBackPressedCallback` + `popSubScreen()` in MainActivity) |
+| `21c5df0` | Profile row tap → opens Terminal; ⋮ menu → Edit/Files/Delete; terminal no longer auto-connects (opens Disconnected, input disabled until Connect) |
+
+### Device verification (needs user's phone on ADB)
+- Back-nav fix: open Connections → ← must return to Services AND reset app
+  app bar (title + hide Back arrow). Repeat from SFTP/Clipboard/Terminal.
+- Terminal: Connect → type `ls` → output appears; typing must keep working
+  after each echo (was fixed but re-verify on next device session).
+
+### Test status (JVM, last run)
+`TerminalGridTest` 20/20 · `TerminalScreenBufferTest` 40/40 ·
+`TerminalCommandSubmitTest` 5/5 · `RcloneShareLinkTest` 15/15 ·
+`RcloneRemoteManagerTest` 13/13 · `compileDebugKotlin` + `assembleDebug` green.
+
+---
+
+## Section B — Share as Link (owner: session that did terminal work)
+
+### Task: generate link directly at the file's existing remote (NOT started — investigation done)
+
+**Problem:** "Share as link" currently asks for a Drive destination, copies the
+file there (`operations/copyfile`), then links. User wants the link generated
+in place, like `rclone link remote:path/to/file`.
+
+**Confirmed API (rclone v1.75.1, verified against upstream source):**
+- RC method `operations/publiclink` — params `fs` (string), `remote` (string),
+  optional `expire`, `unlink`; returns `{"url": "…"}`. Exactly `rclone link`.
+  Works on files AND folders. Unsupported backends return
+  `"<fs> doesn't support public links"` (from `fs/operations/operations.go`).
+- Docs: https://rclone.org/rc/#operations-publiclink · https://rclone.org/commands/rclone_link/
+
+**Current flow (the thing to change):**
+- `FileBrowserActivity.shareAsLink` (line ~1193) → `pickDriveRemote` (Drive-only
+  picker via `RcloneRemoteManager.driveRemotes()`) → `confirmShareLink` →
+  `runShareLink` → `RcloneShareLink.share()` = list + copyfile + publiclink.
+- Menu item `MENU_SHARE_LINK` only added for files (`!entry.isDir`) — direct
+  linking should offer it for directories too (publiclink supports them).
+- `fs` field (line 107) + `entry.path` = exact src pair needed; entry model:
+  `FileEntry(name, path, isDir, size, mimeType, modified)`.
+- Link-ready dialog already exists (`dialog_share_link.xml`: copy/open/share
+  actions) — reuse it. `showLinkReady()` at line ~1329.
+
+**Plan:**
+1. New `DirectLinkRequest(fs, remote)` + sealed `DirectLinkResult`
+   (Success / Unsupported / NotFound / AuthFailed / Failure) in
+   `storage/RcloneShareLink.kt` (or new file). Single `operations/publiclink`
+   call; parse `{"error":…}` envelope to classify. No copy, ever.
+2. `shareAsLink()` → consent dialog (public-access warning; distinguish
+   "retrieve existing link" vs "change sharing permissions" — publiclink may
+   CREATE a Drive permission) → `runDirectLink` → reuse `showLinkReady`.
+3. Delete destination-picker path for this action; keep upload code intact
+   (download/upload features must stay green).
+4. Tests: exact fs/remote passed; no copyfile/list called; success URL;
+   error classification; existing `RcloneShareLinkTest` 15/15 stays green.
+
+**Constraint:** user's consent dialog must remain — never silently make public.
+
+---
+
+## Section C — SFTP (owner: other agent)
+
+<!-- Agent: fill in your part here. Do not edit Sections A/B. -->
+
+(placeholder — SFTP agent updates this section)
+
+---
+
 
