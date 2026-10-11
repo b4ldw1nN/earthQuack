@@ -62,6 +62,29 @@
     <string name="terminal_send">Send</string>
     <string name="terminal_input_hint">Type command…</string>
     <string name="terminal_title">Terminal: %1$s</string>
+
+    <!-- Terminal status. The four shell states are shown verbatim, because
+         "Connecting…" and "Connected" are the difference between a terminal
+         that works and one that is still trying. -->
+    <string name="terminal_state_disconnected">Disconnected</string>
+    <string name="terminal_state_connecting">Connecting…</string>
+    <string name="terminal_state_connected">Connected</string>
+    <string name="terminal_state_error">Error: %1$s</string>
+
+    <!-- Terminal failures, as reasons rather than as raw sshd text. -->
+    <string name="terminal_error_no_profile">No profile specified</string>
+    <string name="terminal_error_profile_missing">Profile not found</string>
+    <string name="terminal_error_not_connected">The terminal is not connected, so that was not sent.</string>
+    <string name="terminal_error_connection_dropped">the connection dropped</string>
+    <string name="terminal_error_send_failed">The terminal did not accept that: %1$s</string>
+    <!-- A refused shell is not an authentication failure and not a broken
+         connection: the session is authenticated and open, the server just
+         declines this one channel type. -->
+    <string name="terminal_error_shell_refused">The server refused to open a shell for this account. That is normal for an SFTP-only account (ForceCommand internal-sftp, or a shell of nologin); use the file browser instead of the terminal.</string>
+    <string name="terminal_error_pty_refused">The server refused the pseudo-terminal, so it cannot host an interactive session. Check PermitTTY in sshd_config.</string>
+    <string name="terminal_error_shell_timeout">The server did not answer the shell request in time.</string>
+    <string name="terminal_error_shell_failed">The terminal could not be opened.</string>
+    <string name="terminal_error_shell_failed_detail">The terminal could not be opened: %1$s</string>
     <string name="profile_terminal_not_implemented">Terminal not implemented yet</string>
     <string name="profile_files_not_implemented">File browser not implemented yet</string>
 

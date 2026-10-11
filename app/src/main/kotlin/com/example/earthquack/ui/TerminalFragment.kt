@@ -1,57 +1,107 @@
 package com.example.earthquack.ui
 
 import android.graphics.Typeface
-import android.util.Log
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.SpannableStringBuilder
-import android.text.style.BackgroundColorSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
-import android.view.KeyEvent
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.InputMethodManager
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentTerminalBinding
 import com.example.earthquack.ssh.ConnectionProfile
+import com.example.earthquack.ssh.SshConnectResult
 import com.example.earthquack.ssh.SshConnection
+import com.example.earthquack.ssh.SshFailure
 import com.example.earthquack.ssh.SshServices
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * An interactive SSH terminal.
+ *
+ * ## What this is, and what it is not
+ *
+ * A **scrolling log** of what the remote shell wrote, plus an input field to
+ * send it. It is not a terminal emulator: there is no addressable screen, so
+ * full-screen programs (vim, htop, less) draw badly and are explicitly out of
+ * scope. [TerminalScreenBuffer]'s class comment lists exactly which sequences
+ * are honoured and which are only consumed.
+ *
+ * ## Lifecycle
+ *
+ * [TerminalState] carries the shell, the connection and the generation that
+ * guards both, and every path that tears a session down goes through it. Three
+ * things can end a session — the user, a server closing the socket, and the
+ * host activity finishing while the view still exists — and all three must
+ * produce the same end state, or the next session inherits a channel the last
+ * one already closed.
  */
 class TerminalFragment : Fragment() {
 
     private var _binding: FragmentTerminalBinding? = null
     private val binding get() = _binding!!
 
-    private val vtParser = VT100Parser()
+    private val grid = TerminalGrid(INITIAL_ROWS, INITIAL_COLS)
 
-    private var profile: ConnectionProfile? = null
-    private var connection: SshConnection? = null
-    private var shell: SshConnection.ShellChannel? = null
-
-    private var isConnected = false
+    private val state = TerminalState()
 
     /**
-     * Bumped whenever the shell is replaced or torn down.
+     * The coroutine building this session, and the generation it belongs to.
      *
-     * A write started for one shell can otherwise land on an sshd I/O thread and
-     * return its failure after a reconnect has already swapped in a new shell:
-     * the old error would then be reported against a connection that is fine.
-     * Each send records the generation it belongs to and only reports against
-     * the current one.
+     * Tracked because the blocking native call cannot be interrupted by a
+     * coroutine cancel: pressing Disconnect during a connect returns the user
+     * to "Disconnected" immediately, the `withContext(Dispatchers.IO)` block
+     * keeps running, and without this a session nobody is watching has been
+     * created. The generation is what makes the late result discard itself.
      */
-    private var shellGeneration = 0
+    private var sessionJob: Job? = null
+    private var connectGeneration = 0
+
+    /**
+     * True while output is waiting to be drawn.
+     *
+     * The output callback runs on an sshd I/O thread at the shell's speed, not
+     * the display's. Coalescing what arrives inside one frame into one draw is
+     * the difference between a busy `yes` scrolling readably and one that burns
+     * the UI thread's frame budget on `setText` alone.
+     */
+    private val drawPending = AtomicBoolean(false)
+
+    /** The last geometry a window-change was actually sent for. */
+    private var lastRows = 0
+    private var lastCols = 0
+
+    /**
+     * True once the user has scrolled up away from the newest output.
+     *
+     * While it is set, [draw] stops snapping the viewport to the bottom: forcing
+     * `fullScroll(FOCUS_DOWN)` on every frame was what made the terminal look
+     * like it was running away — the viewport was yanked down on each startup
+     * newline regardless of where the user had scrolled to, leaving blank space
+     * above the prompt. It is cleared again the moment the user returns to the
+     * bottom, so live output resumes following.
+     */
+    private var userScrolledUp = false
+
+    /** Total bytes fed to the parser this session; diagnostics only. */
+    private var bytesReceived = 0L
+
+    /** Shell channels opened this session; must be one per connect. Diagnostics. */
+    private var shellChannelsOpened = 0
+
+    private var profile: ConnectionProfile? = null
+
+    private val drawRunnable = Runnable { draw() }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -63,674 +113,675 @@ class TerminalFragment : Fragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        Log.i("TerminalFragment", "onViewCreated called")
         super.onViewCreated(view, savedInstanceState)
+        Log.i(TAG, "onViewCreated")
 
         val profileId = arguments?.getString(ARG_PROFILE_ID)
         if (profileId == null) {
-            showError("No profile specified")
+            showError(getString(R.string.terminal_error_no_profile))
             return
         }
-        val p = SshServices.profiles(requireContext()).get(profileId)
-        if (p == null) {
-            showError("Profile not found")
+        val resolved = SshServices.profiles(requireContext()).get(profileId)
+        if (resolved == null) {
+            showError(getString(R.string.terminal_error_profile_missing))
             return
         }
-        profile = p
+        profile = resolved
 
-        binding.statusText.text = "Disconnected"
-        // binding.subtitleText is not in the binding - using status text only
-        // binding.subtitleText.text = p.endpoint
+        binding.statusText.text = getString(R.string.terminal_state_disconnected)
 
-        // Terminal log: monospace, selectable, scrollable
+        // Terminal log: monospace, selectable, scrollable.
         binding.terminalLog.setTextIsSelectable(true)
         binding.terminalLog.typeface = Typeface.MONOSPACE
         binding.terminalLog.textSize = 13f
         binding.terminalLog.includeFontPadding = false
         binding.inputField.typeface = Typeface.MONOSPACE
 
-        // Input field: intercepts soft keyboard. Both paths end in submitInput(),
-        // which owns the "send and clear" contract; neither clears the field
-        // itself, because a submission that fails must leave its text behind.
-        binding.inputField.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEND || actionId == EditorInfo.IME_ACTION_UNSPECIFIED) {
-                submitInput()
-                true
-            } else false
-        }
+        // The grid answers a device-status report (`\e[6n`) by writing the bytes
+        // back to the shell. Prompts such as fish use it to measure glyph width
+        // and stall for a timeout when it goes unanswered, so answering keeps
+        // startup snappy. The write goes through send(), which resolves the
+        // current shell, so it is a no-op once disconnected.
+        grid.onDeviceReport = { report -> send(report) { } }
 
-        // Connect button
-        binding.btnConnect.setOnClickListener { connect() }
-        binding.btnDisconnect.setOnClickListener { disconnect() }
-        binding.btnSend.setOnClickListener {
-            submitInput()
-            // Dismiss the keyboard: leaving it up covers most of the log,
-            // and a terminal is watched while it works rather than typed
-            // into exclusively.
-            val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                as android.view.inputmethod.InputMethodManager
-            imm.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
-        }
-
-        // Handle orientation/window resize
-        binding.terminalScroll.viewTreeObserver.addOnGlobalLayoutListener {
-            if (isConnected) {
-                val w = binding.terminalLog.width
-                val h = binding.terminalLog.height
-                if (w > 0 && h > 0) {
-                    val cols = maxOf(1, w / (binding.terminalLog.paint.measureText("M").toInt()))
-                    val rows = maxOf(1, h / binding.terminalLog.lineHeight)
-                    resizeShell(rows, cols)
-                }
-            }
-        }
+        wireInput()
+        wireButtons()
+        wireScroll()
+        wireResize()
 
         connect()
     }
 
-    private fun connect() {
-        Log.i("TerminalFragment", "connect() called for profile: ${profile?.name}")
-        val p = profile ?: return
-        lifecycleScope.launch {
-            vtParser.reset()
-            binding.terminalLog.text = ""
-            binding.btnConnect.isEnabled = false
-            binding.statusText.text = "Connecting…"
-
-            val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                SshServices.connectionFactory(requireContext()).connect(p)
-            }
-
-            if (result is com.example.earthquack.ssh.SshConnectResult.Connected) {
-                connection = result.connection
-                openShell()
+    private fun wireInput() {
+        binding.inputField.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND ||
+                actionId == EditorInfo.IME_ACTION_UNSPECIFIED
+            ) {
+                submitInput()
+                true
             } else {
-                val failure = (result as com.example.earthquack.ssh.SshConnectResult.Failed).failure
-                showError(failure.message)
-                binding.btnConnect.isEnabled = true
+                false
             }
         }
     }
 
-    private fun openShell() {
-        val conn = connection ?: return
-        lifecycleScope.launch {
-            var ch: SshConnection.ShellChannel? = null
-            try {
-                // Opening a channel is blocking I/O: it waits for the server to
-                // answer the open request. Doing that on the main thread throws
-                // NetworkOnMainThreadException, which sshd's NIO2 write handler
-                // surfaces as a write-cycle failure, which closes the session —
-                // so the shell dies before it opens and the user sees "the server
-                // refused" for a server that would have said yes. This is the
-                // only reason the terminal ever failed: TCP, key exchange,
-                // authentication and host-key verification all succeeded first.
-                ch = withContext(Dispatchers.IO) {
-                    conn.openShell(
-                        onData = { data, offset, len ->
-                            val text = vtParser.feed(data, offset, len)
-                            // Posted to the TextView, not to the activity: the
-                            // callback runs on an sshd I/O thread that outlives
-                            // the screen, and requireActivity() throws once the
-                            // fragment is detached.
-                            _binding?.terminalLog?.post {
-                                if (_binding != null) appendToLog(text)
-                            }
-                        },
-                        rows = 24,
-                        cols = 80
-                    )
+    private fun wireButtons() {
+        binding.btnConnect.setOnClickListener { connect() }
+        binding.btnDisconnect.setOnClickListener { disconnect() }
+        binding.btnSend.setOnClickListener {
+            submitInput()
+            hideKeyboard()
+        }
+        // Control keys. A soft keyboard has no Ctrl key, so without these an
+        // interactive program can be neither interrupted nor sent a Tab: no
+        // Ctrl+C exists for the shell to react to, no matter how politely the
+        // UI reports that it is connected.
+        CONTROL_KEYS.forEach { (label, bytes) ->
+            binding.controlKeys.addView(
+                com.google.android.material.button.MaterialButton(requireContext()).apply {
+                    text = label
+                    isAllCaps = false
+                    minWidth = 0
+                    minimumWidth = 0
+                    setOnClickListener { sendControl(label, bytes) }
                 }
-                shell = ch
-                isConnected = true
-                // A fresh shell means a fresh input path: nothing carries over
-                // from a previous session, so a reconnect cannot be handed a
-                // transport the last one already closed.
-                shellGeneration++
+            )
+        }
+    }
 
-                requireActivity().runOnUiThread {
-                    if (view == null) return@runOnUiThread
-                    binding.statusText.text = "Connected"
-                    binding.btnConnect.isEnabled = false
-                    binding.btnDisconnect.isEnabled = true
-                    binding.inputField.isEnabled = true
-                    binding.inputField.requestFocus()
+    /**
+     * Watches the terminal's size and keeps the remote PTY in step.
+     *
+     * The listener fires on every layout pass — the keyboard opening, the scroll
+     * view settling, the rotation animation — so the comparison in
+     * [resizeShell] is load-bearing rather than an optimisation.
+     */
+    private fun wireResize() {
+        binding.terminalScroll.viewTreeObserver.addOnGlobalLayoutListener {
+            if (state.isConnected) {
+                val view = binding.terminalScroll
+                // Measure the fixed viewport box, never the growing content
+                // TextView. terminalLog wraps its content: when the remote
+                // redraws a prompt padded to the column count we last sent, the
+                // unbreakable prompt line makes the TextView measure wider than
+                // the screen, and feeding that width straight back as more
+                // columns asked the shell for a few more columns each pass — an
+                // unbounded feedback loop (observed: cols climbing 327→432…
+                // forever) that flooded the PTY with window-change requests and
+                // dragged the prompt down the screen. The scroll view's own box
+                // is the real viewport and does not grow with content.
+                val viewportW = view.width - view.paddingLeft - view.paddingRight
+                val viewportH = view.height - view.paddingTop - view.paddingBottom
+                val log = binding.terminalLog
+                // Font metrics come from the log's paint; they are stable and
+                // unrelated to how wide the content currently is.
+                val cell = log.paint.measureText("M")
+                val line = log.lineHeight
+                if (viewportW > 0 && viewportH > 0 && cell > 0f && line > 0) {
+                    resizeShell(rows = viewportH / line, cols = (viewportW / cell).toInt())
+                }
+            }
+        }
+    }
+
+    // ── connect ──────────────────────────────────────────────────────────────
+
+    private fun connect() {
+        val target = profile ?: return
+        // A second connect while one is running would leak the first session:
+        // nothing waits on it and nothing closes it.
+        sessionJob?.cancel()
+        // Anything still open is replaced, not stacked. Reconnecting without
+        // this left the previous session alive until GC.
+        state.close()
+        val generation = ++connectGeneration
+        binding.btnConnect.isEnabled = false
+        binding.btnDisconnect.isEnabled = false
+        showStatus(getString(R.string.terminal_state_connecting))
+
+        sessionJob = lifecycleScope.launch {
+            resetTerminal()
+            // A fresh session starts following again: whatever the user was
+            // reading on the previous connection must not pin the new one away
+            // from its prompt.
+            userScrolledUp = false
+
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    SshServices.connectionFactory(requireContext()).connect(target)
                 }
             } catch (e: CancellationException) {
-                // The screen went away while the channel was opening: nothing to
-                // report, and a half-open channel must not be left behind.
-                ch?.close()
                 throw e
             } catch (e: Throwable) {
-                Log.e("TerminalFragment", "Failed to open shell", e)
-                // The reason comes from SshConnection, which knows what actually
-                // happened. Guessing again here from keywords produced "the server
-                // refused the shell" for what was really a client-side bug.
-                val detail = e.cause?.message?.takeIf { it.isNotBlank() } ?: e.message
-                requireActivity().runOnUiThread {
-                    if (view == null) return@runOnUiThread
-                    showError(detail ?: "The terminal could not be opened.")
+                // The factory returns failures as data; reaching here means the
+                // failure was raised before it could, which is still something
+                // the user should see rather than a silent "Disconnected".
+                Log.e(TAG, "connect raised", e)
+                SshConnectResult.Failed(SshFailure.Unexpected(causeOf(e)))
+            }
+
+            // The user disconnected, or pressed Connect again, while this was
+            // in flight. The session is real but nobody wants it.
+            if (generation != connectGeneration) {
+                (result as? SshConnectResult.Connected)?.connection?.close()
+                return@launch
+            }
+
+            when (result) {
+                is SshConnectResult.Connected -> {
+                    state.adopt(result.connection)
+                    openShell(generation)
+                }
+                is SshConnectResult.Failed -> {
+                    showError(result.failure.message)
                 }
             }
         }
     }
 
     /**
-     * Reads the input field, sends it, and clears it *only* if the send was
-     * accepted.
+     * Opens a shell on the current connection.
      *
-     * The order matters. Clearing first is what made the old transport look
-     * broken: the field emptied, and the send then failed on a queue that
-     * disconnect had already closed — with the result discarded, so nothing
-     * anywhere recorded that the command never left the device.
+     * The channel open is blocking I/O: it waits for the server to answer, and
+     * doing it on the main thread throws [android.os.NetworkOnMainThreadException]
+     * which sshd's NIO2 write handler surfaces as a write-cycle failure that
+     * closes the session — so the shell dies before it opens. Everything here
+     * runs on IO; only the view work comes back to the main thread.
      */
-    private fun submitInput() {
-        val text = binding.inputField.text.toString()
-        if (text.isEmpty()) return
-        sendToShell(text)
+    private fun openShell(generation: Int) {
+        val conn = state.connection ?: return
+        sessionJob = lifecycleScope.launch {
+            var channel: SshConnection.ShellChannel? = null
+            try {
+                channel = withContext(Dispatchers.IO) {
+                    shellChannelsOpened++
+                    Log.i(TAG, "opening shell channel #$shellChannelsOpened " +
+                        "(generation $generation)")
+                    conn.openShell(
+                        // The handler is registered before the open returns: the
+                        // server can write before the caller has touched the
+                        // channel, and dropping the first bytes would look like
+                        // a shell that produced nothing.
+                        onData = { data, offset, len -> onShellData(data, offset, len) },
+                        rows = INITIAL_ROWS,
+                        cols = INITIAL_COLS
+                    )
+                }
+                if (generation != connectGeneration) {
+                    // Disconnected while the channel was opening.
+                    channel.close()
+                    return@launch
+                }
+                state.adopt(channel)
+                markConnected()
+            } catch (e: CancellationException) {
+                // The screen went away mid-open: nothing to report, and the
+                // half-open channel must not be left behind.
+                channel?.close()
+                throw e
+            } catch (e: Throwable) {
+                Log.e(TAG, "could not open a shell", e)
+                showError(describeShellFailure(e))
+            }
+        }
     }
 
     /**
-     * Sends [text] as one command, terminated by the newline the shell needs to
-     * run it.
+     * Output from the remote shell, on an sshd I/O thread.
      *
-     * The blocking write happens on [Dispatchers.IO]; the main thread only does
-     * view work. [target] is captured by value, so a disconnect or reconnect
-     * that clears [shell] mid-flight cannot make this write reach a channel the
-     * user has moved on from — it either lands on the shell it was meant for, or
-     * it fails and says so.
+     * Everything here is bounded: the buffer caps what it retains, the display
+     * caps what it holds, and the draw is coalesced. The view is reached through
+     * the view's own handler, so a callback that outlives the screen cannot
+     * touch a destroyed one.
      */
-    private fun sendToShell(text: String) {
-        val target = shell
-        if (target == null || !target.isOpen) {
-            // Reporting here rather than dropping: an input field that accepts
-            // keystrokes for a shell that is gone is the whole bug.
-            Log.w(TAG, "not sending ${text.length} chars — no open shell channel")
-            showInputError("The terminal is not connected, so that was not sent.")
+
+    /** Throttle for the periodic byte-flow log: one line at most this often. */
+    private var lastByteFlowLogAt = 0L
+
+    /** How many startup feeds we've dumped (first few only). */
+    private var feedDumpCount = 0
+
+    private fun onShellData(data: ByteArray, offset: Int, len: Int) {
+        bytesReceived += len
+        // Throttled byte-flow heartbeat: proves whether the remote keeps
+        // sending (a runaway session) or output stopped (a UI-only loop).
+        // Content is never logged — only counts and timing.
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastByteFlowLogAt >= 500L) {
+            lastByteFlowLogAt = now
+            Log.i(TAG, "shell data: session bytes=$bytesReceived, this feed=$len")
+        }
+        // One-shot escaped dump of the first feed. This is the pre-command
+        // shell banner/prompt only (no user input yet), so it carries no
+        // secrets; it is the only way to tell genuine remote newlines from
+        // newlines the parser manufactures out of escape sequences.
+        if (feedDumpCount < 5) {
+            feedDumpCount++
+            val sb = StringBuilder(len * 4)
+            var i = offset
+            val end = offset + len
+            while (i < end) {
+                val b = data[i].toInt() and 0xFF
+                i++
+                when {
+                    b == 0x1B -> sb.append("\\e")
+                    b == 0x0A -> sb.append("\\n")
+                    b == 0x0D -> sb.append("\\r")
+                    b == 0x09 -> sb.append("\\t")
+                    b in 0x20..0x7E -> sb.append(b.toChar())
+                    else -> sb.append(String.format("\\x%02x", b))
+                }
+            }
+            Log.i(TAG, "feed #$feedDumpCount (len=$len): $sb")
+        }
+        // Feed the fixed-grid emulator. It owns cursor addressing, carriage
+        // returns, erases and scrollback internally, so there is no per-frame
+        // correction dance here — one feed, one coalesced draw.
+        try {
+            grid.feed(data, offset, len)
+        } catch (e: Throwable) {
+            // A parser failure must not take the session down with it. Losing a
+            // frame of output is recoverable; a dead terminal is not.
+            Log.w(TAG, "parser dropped $len bytes", e)
             return
         }
-        val generation = shellGeneration
-        val payload = (text + "\n").toByteArray(Charsets.UTF_8)
-        lifecycleScope.launch {
-            val sent = withContext(Dispatchers.IO) {
-                runCatching { target.write(payload) }
-            }
-            if (sent.isSuccess) {
-                if (_binding != null) binding.inputField.text.clear()
-            } else if (generation == shellGeneration && view != null) {
-                // Length and class only: the payload is user input and may hold
-                // a password typed into a terminal command.
-                val error = sent.exceptionOrNull()
-                Log.w(TAG, "shell write of ${payload.size} bytes failed: ${error?.javaClass?.simpleName}")
-                showInputError(
-                    "The terminal did not accept that: ${error?.message ?: "the connection dropped"}"
-                )
-            }
+        requestDraw()
+    }
+
+    private fun requestDraw() {
+        if (drawPending.compareAndSet(false, true)) {
+            _binding?.terminalLog?.post(drawRunnable)
+        }
+        // If one post is already in flight the runnable runs once and takes
+        // everything, so nothing is dropped and nothing is drawn twice.
+    }
+
+    /**
+     * Puts the accumulated text on screen.
+     *
+     * One `setText` per frame rather than per byte: a TextView rebuilds its
+     * layout from the whole of its text, so a busy shell used to make every
+     * frame slower than the last.
+     *
+     * The scroll is *conditional*. Snapping to the bottom on every frame — the
+     * old `fullScroll(FOCUS_DOWN)` — fought the user: scrolling up to read
+     * something was undone by the next newline, and with the startup blank lines
+     * the viewport looked like it was sliding down on its own. It now follows
+     * only when the user is already at the bottom, and leaves their position
+     * alone otherwise.
+     */
+    private fun draw() {
+        drawPending.set(false)
+        val log = _binding?.terminalLog ?: return
+        // One setText per frame from the whole grid, trailing blank rows trimmed
+        // so the prompt is the last line and auto-follow pins it to the bottom.
+        val rows = grid.renderTrimmed()
+        log.text = rows.toScreenSpan()
+        val rendered = rows.sumOf { line -> line.sumOf { it.text.length } }
+        Log.i(TAG, "drew $rendered chars over ${rows.size} lines " +
+            "(session bytes=$bytesReceived), autoscroll=${!userScrolledUp}")
+        scrollToBottom()
+    }
+
+    /**
+     * Scrolls to the newest output, but only when the user is already there.
+     *
+     * [userScrolledUp] is maintained by the scroll listener wired in
+     * [wireScroll], so a deliberate scroll up is respected and a return to the
+     * bottom re-arms following. `post` defers the scroll until after the new
+     * text has been laid out, otherwise the child is not yet tall enough and the
+     * scroll clamps short of the bottom.
+     */
+    private fun scrollToBottom() {
+        if (userScrolledUp) return
+        binding.terminalScroll.post {
+            if (userScrolledUp) return@post
+            binding.terminalScroll.fullScroll(View.FOCUS_DOWN)
         }
     }
 
     /**
-     * Sends PTY size changes off the main thread.
+     * Tracks whether the user has scrolled away from the newest output.
      *
-     * sshd's sendWindowChange writes a channel request packet immediately. The
-     * layout listener runs on Android's main thread, so doing the resize inline
-     * can trip NetworkOnMainThreadException and close the shell before input is
-     * ever sent.
+     * A small slack absorbs the sub-pixel settling of a NestedScrollView so a
+     * user resting at the bottom is not treated as having scrolled up; only a
+     * deliberate move up sets [userScrolledUp] and stops [draw] from following.
+     */
+    private fun wireScroll() {
+        binding.terminalScroll.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            if (scrollY == oldScrollY) return@setOnScrollChangeListener
+            val child = binding.terminalScroll.getChildAt(0) ?: return@setOnScrollChangeListener
+            val distanceFromBottom = child.height - (scrollY + binding.terminalScroll.height)
+            val wasUp = userScrolledUp
+            userScrolledUp = !shouldFollowOutput(distanceFromBottom, NEAR_BOTTOM_SLACK_PX)
+            if (wasUp != userScrolledUp) {
+                Log.d(TAG, "scroll ${scrollY}px, ${distanceFromBottom}px from bottom -> " +
+                    "follow=${!userScrolledUp}")
+            }
+        }
+    }
+
+    private fun markConnected() {
+        showStatus(getString(R.string.terminal_state_connected))
+        binding.btnConnect.isEnabled = false
+        binding.btnDisconnect.isEnabled = true
+        binding.inputField.isEnabled = true
+        binding.inputField.requestFocus()
+    }
+
+    private fun resetTerminal() {
+        grid.reset()
+        _binding?.terminalLog?.text = ""
+        bytesReceived = 0
+        feedDumpCount = 0
+    }
+
+    // ── input ────────────────────────────────────────────────────────────────
+
+    private fun submitInput() {
+        val text = binding.inputField.text?.toString().orEmpty()
+        if (text.isEmpty()) return
+        send(text.toByteArray(Charsets.UTF_8)) { binding.inputField.text?.clear() }
+    }
+
+    /**
+     * Sends a control byte.
+     *
+     * The bytes go out through the same write path as a command, so they share
+     * its ordering and its failure handling; only the source differs.
+     */
+    private fun sendControl(label: String, bytes: ByteArray) {
+        Log.i(TAG, "sending control key $label")
+        send(bytes) { /* nothing to clear: this did not come from the field */ }
+    }
+
+    /**
+     * Writes [payload] to the shell, off the main thread.
+     *
+     * The channel and the generation are both captured by value, so a
+     * disconnect or reconnect that lands mid-flight cannot make this write
+     * either reach a channel the user has moved on from, or report the old
+     * failure against a healthy new session.
+     */
+    private fun send(payload: ByteArray, onSent: () -> Unit) {
+        val target = state.shell
+        if (target == null || !target.isOpen) {
+            // Reported rather than dropped: an input field that accepts
+            // keystrokes for a shell that is gone is the whole bug.
+            showInputError(getString(R.string.terminal_error_not_connected))
+            return
+        }
+        val generation = state.shellGeneration
+        lifecycleScope.launch {
+            val sent = withContext(Dispatchers.IO) { runCatching { target.write(payload) } }
+            if (sent.isFailure) {
+                if (generation == state.shellGeneration) {
+                    val error = sent.exceptionOrNull()
+                    showInputError(
+                        getString(
+                            R.string.terminal_error_send_failed,
+                            error?.message ?: getString(R.string.terminal_error_connection_dropped)
+                        )
+                    )
+                }
+                return@launch
+            }
+            // The field is cleared only once the bytes were taken. Clearing
+            // first is what made the previous transport look silently broken:
+            // the field emptied, the send then failed, and nothing anywhere
+            // recorded that the command never left the device.
+            if (_binding != null) onSent()
+        }
+    }
+
+    /**
+     * Sends a PTY size change, off the main thread, and only when it changed.
+     *
+     * sshd's `sendWindowChange` writes a channel request immediately, so doing
+     * it inline from a layout listener can throw
+     * [android.os.NetworkOnMainThreadException] and close the shell.
+     *
+     * The comparison is the other half: the layout listener fires on every
+     * pass, and sending an identical window-change for each one is a burst of
+     * channel requests that some servers answer slowly, which is exactly the
+     * "resizing the terminal kills the shell" report.
      */
     private fun resizeShell(rows: Int, cols: Int) {
-        val target = shell ?: return
+        val target = state.shell ?: return
         if (!target.isOpen) return
-        val generation = shellGeneration
+        if (rows == lastRows && cols == lastCols) return
+        lastRows = rows
+        lastCols = cols
+        val generation = state.shellGeneration
         lifecycleScope.launch(Dispatchers.IO) {
-            val resized = runCatching {
-                if (generation == shellGeneration && target.isOpen) {
+            val applied = runCatching {
+                if (generation == state.shellGeneration && target.isOpen) {
                     target.resize(rows, cols)
+                    true
+                } else {
+                    false
                 }
             }
-            if (resized.isFailure && generation == shellGeneration) {
-                Log.w(TAG, "terminal resize to ${rows}x${cols} failed", resized.exceptionOrNull())
+            if (applied.isFailure) {
+                Log.w(TAG, "resize to ${rows}x$cols failed", applied.exceptionOrNull())
+            } else if (applied.getOrNull() == true) {
+                Log.i(TAG, "resized to ${rows}x$cols")
             }
         }
     }
 
+    // ── disconnect ───────────────────────────────────────────────────────────
+
     private fun disconnect() {
-        isConnected = false
-        // Retire the shell before closing it, so a write that is already on
-        // Dispatchers.IO is seen as belonging to the previous session and is
-        // not reported against whatever the next one opens.
-        shellGeneration++
-        val dying = shell
-        shell = null
-        dying?.close()
-        connection?.close()
-        connection = null
-        // Repeated disconnects are safe: close() is idempotent on both the
-        // shell channel and the connection, and every field is already null.
-        if (view != null) {
-            binding.statusText.text = "Disconnected"
-            binding.btnConnect.isEnabled = true
-            binding.btnDisconnect.isEnabled = false
-            binding.inputField.isEnabled = false
-        }
+        // The connect coroutine is cancelled before the state is cleared, so
+        // its result is discarded when it lands rather than opening a session
+        // after the user has already left.
+        sessionJob?.cancel()
+        sessionJob = null
+        connectGeneration++
+        state.close()
+        showStatus(getString(R.string.terminal_state_disconnected))
+        binding.btnConnect.isEnabled = true
+        binding.btnDisconnect.isEnabled = false
+        binding.inputField.isEnabled = false
     }
 
-    private fun appendToLog(spanned: CharSequence) {
-        val log = binding.terminalLog
-        // The TextView's text is not necessarily a SpannableStringBuilder:
-        // `setTextIsSelectable(true)` makes it a SpannableString, so casting
-        // straight to the builder threw ClassCastException on the first byte of
-        // output — which killed the app the moment a shell finally opened.
-        // Append onto a builder that is built from whatever is there.
-        val current = when (val existing = log.text) {
-            is SpannableStringBuilder -> existing
-            else -> SpannableStringBuilder(existing)
-        }
-        current.append(spanned)
-        log.text = current
-        binding.terminalScroll.fullScroll(View.FOCUS_DOWN)
+    override fun onDestroyView() {
+        // The view is going away, so nothing may be touched afterwards, and
+        // every coroutine in lifecycleScope is cancelled by the framework. That
+        // is what stops the last write from reaching a channel nothing is
+        // watching, and what stops a connect that lands after the screen is
+        // gone from opening a session nobody closes.
+        sessionJob?.cancel()
+        sessionJob = null
+        state.close()
+        _binding = null
+        super.onDestroyView()
     }
 
-    private fun showError(msg: String) {
-        binding.statusText.text = "Error: $msg"
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    private fun showStatus(message: String) {
+        if (_binding == null) return
+        binding.statusText.text = message
+    }
+
+    /** Reports a failure in connecting or opening the shell. */
+    private fun showError(message: String) {
+        showStatus(getString(R.string.terminal_state_error, message))
         binding.btnConnect.isEnabled = true
     }
 
     /**
      * Reports a send that did not happen.
      *
-     * Separate from [showError] on purpose: the field keeps its text, so the
-     * difference between "the command ran and produced nothing" and "the command
-     * never left the device" has to be visible in the status line.
+     * Separate from [showError] because the field keeps its text: the
+     * difference between "the command ran and produced nothing" and "the
+     * command never left the device" has to be visible.
      */
-    private fun showInputError(msg: String) {
-        if (_binding == null) return
-        binding.statusText.text = "Error: $msg"
+    private fun showInputError(message: String) {
+        showStatus(getString(R.string.terminal_state_error, message))
     }
 
-    override fun onDestroyView() {
-        // The view is going away, so no view may be touched afterwards — and
-        // every coroutine in lifecycleScope is cancelled by the framework, which
-        // is what stops the last write from reaching a channel nothing is
-        // watching any more.
-        disconnect()
-        _binding = null
-        super.onDestroyView()
+    private fun hideKeyboard() {
+        val context = context ?: return
+        val manager = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+            as? InputMethodManager ?: return
+        manager.hideSoftInputFromWindow(binding.inputField.windowToken, 0)
+    }
+
+    /**
+     * Turns a failed shell-open into something the user can act on.
+     *
+     * A refused shell is not an authentication failure and not a broken
+     * connection: the session is authenticated and open, the server simply
+     * declines this one channel type. Saying so is the point — the same session
+     * may still serve SFTP, and telling the user to check their password sends
+     * them looking in exactly the wrong place.
+     */
+    private fun describeShellFailure(error: Throwable): String {
+        val detail = (generateSequence(error) { it.cause }.take(6))
+            .mapNotNull { it.message?.takeIf { m -> m.isNotBlank() } }
+            .joinToString(": ")
+            .take(MAX_DETAIL)
+        return when {
+            detail.contains("admin", true) ||
+                detail.contains("prohibited", true) ||
+                detail.contains("ForceCommand", true) ||
+                detail.contains("shell request", true) ||
+                detail.contains("shell channel", true) ->
+                getString(R.string.terminal_error_shell_refused)
+            detail.contains("pty", true) || detail.contains("pseudo-terminal", true) ->
+                getString(R.string.terminal_error_pty_refused)
+            detail.contains("timeout", true) ->
+                getString(R.string.terminal_error_shell_timeout)
+            detail.isBlank() -> getString(R.string.terminal_error_shell_failed)
+            else -> getString(R.string.terminal_error_shell_failed_detail, detail)
+        }
+    }
+
+    /** The deepest message in a throwable, for a failure sshd wrapped. */
+    private fun causeOf(e: Throwable): String {
+        var current: Throwable? = e
+        repeat(8) {
+            current ?: return@repeat
+            val message = current.message?.takeIf { m -> m.isNotBlank() }
+            if (message != null) return message
+            current = current.cause
+        }
+        return e.javaClass.simpleName
     }
 
     companion object {
         const val TAG = "TerminalFragment"
         const val ARG_PROFILE_ID = "profile_id"
 
-        fun newInstance(profileId: String): TerminalFragment {
-            return TerminalFragment().apply {
+        /** The shell's geometry before the first layout pass tells us the real one. */
+        private const val INITIAL_ROWS = 24
+        private const val INITIAL_COLS = 80
+
+        /**
+         * How much styled text the TextView holds.
+         *
+         * The parser's own cap is larger; this one bounds layout cost, because a
+         * TextView rebuilds its layout from the whole of its text on every
+         * setText. Without it a long-running command makes the UI progressively
+         * less responsive rather than merely scrolling fast.
+         */
+        private const val DISPLAY_CAP = 48 * 1024
+
+        /** sshd's error text is not bounded; a status row is not a log file. */
+        private const val MAX_DETAIL = 160
+
+        /**
+         * How close to the bottom (px) still counts as "following".
+         *
+         * A NestedScrollView settles a fraction of a pixel short of the true
+         * bottom, so an exact `== 0` test would flicker the follow state on
+         * every frame. A line or two of slack absorbs that without letting a
+         * deliberate scroll up be mistaken for resting at the bottom.
+         */
+        private const val NEAR_BOTTOM_SLACK_PX = 24
+
+        /**
+         * Control keys, in the order they are shown.
+         *
+         * Ctrl+C is first because it is the one without which an interactive
+         * program cannot be stopped at all — the shell never sees it, so there
+         * is nothing to interrupt and no error to explain.
+         */
+        val CONTROL_KEYS: LinkedHashMap<String, ByteArray> = linkedMapOf(
+            "C-c" to byteArrayOf(3),
+            "C-d" to byteArrayOf(4),
+            "C-z" to byteArrayOf(26),
+            "Tab" to byteArrayOf(9),
+            "Esc" to byteArrayOf(27),
+            "↑" to byteArrayOf(27, '['.code.toByte(), 'A'.code.toByte()),
+            "↓" to byteArrayOf(27, '['.code.toByte(), 'B'.code.toByte())
+        )
+
+        fun newInstance(profileId: String): TerminalFragment =
+            TerminalFragment().apply {
                 arguments = Bundle().apply { putString(ARG_PROFILE_ID, profileId) }
             }
-        }
     }
 }
 
 /**
- * Minimal VT100/ANSI parser → Spanned.
+ * The shell, the connection, and the generation that guards both.
+ *
+ * ## Why a class and not three fields
+ *
+ * Every bug in the previous version was an ordering bug. A write launched for
+ * one shell landed on an sshd I/O thread and reported its failure after a
+ * reconnect had swapped in a new shell, so a healthy connection looked broken.
+ * The counter here is what makes a send idempotent against that: each send
+ * records the shell it belongs to, and only reports against the current one.
+ *
+ * This is also the single place a session is closed, so the three ways a session
+ * ends — the user disconnecting, the server closing the socket, and the view
+ * being destroyed — cannot leave one path half-done.
  */
-class VT100Parser {
+class TerminalState {
 
-    private enum class State { GROUND, ESC, CSI, OSC, OSC_STRING, CHARSET }
+    /** Bumped whenever the shell is replaced or torn down. */
+    var shellGeneration = 0
+        private set
 
-    private var state = State.GROUND
-    private val params = mutableListOf<Int>()
-    private var paramBuf = ""
-    private var intermediate = 0
-    private val output = SpannableStringBuilder()
+    @Volatile
+    private var shellRef: SshConnection.ShellChannel? = null
 
-    /**
-     * A multi-byte sequence split across two reads, held until it completes.
-     *
-     * sshd hands over whatever arrived in one TCP read, which can end in the
-     * middle of a UTF-8 sequence. Decoding per read would then turn the second
-     * half into two replacement characters — gibberish in the log, with no
-     * fault on the wire.
-     */
-    private var pendingUtf8: ByteArray? = null
+    @Volatile
+    private var connectionRef: SshConnection? = null
 
-    private var currentFg: Int? = null
-    private var currentBg: Int? = null
-    private var bold = false
-    private var underline = false
-    private var reverse = false
-    private var concealed = false
+    /** True while the connection is open and could still host a shell. */
+    val isConnected: Boolean get() = connectionRef?.isOpen == true
 
-    fun reset() {
-        state = State.GROUND
-        params.clear()
-        paramBuf = ""
-        intermediate = 0
-        output.clear()
-        pendingUtf8 = null
-        currentFg = null
-        currentBg = null
-        bold = false
-        underline = false
-        reverse = false
-        concealed = false
+    val shell: SshConnection.ShellChannel? get() = shellRef
+
+    val connection: SshConnection? get() = connectionRef
+
+    /** Adopts a freshly connected session and bumps the generation. */
+    fun adopt(connection: SshConnection) {
+        shellRef = null
+        connectionRef = connection
+        shellGeneration++
     }
 
-    /**
-     * Feeds raw bytes, returns styled text ready to append.
-     *
-     * The result is the slice of the parser's own accumulator that this call
-     * produced, from [pendingStart] to its new length — never a fresh empty
-     * builder. The previous version returned a `local` buffer that nothing ever
-     * wrote to, while every helper appended to `output`, so the terminal
-     * parsed and stored all of a shell's output and then displayed none of it.
-     * The connection stayed established and the screen stayed blank, which is
-     * exactly what was observed.
-     */
-    fun feed(data: ByteArray, offset: Int, len: Int): android.text.Spanned {
-        val pendingStart = output.length
-        var i = offset
-        val end = offset + len
-        while (i < end) {
-            val b = data[i].toInt() and 0xFF
-            i++
-
-            if (state == State.GROUND && handleGroundByte(b)) {
-                continue
-            }
-
-            when (state) {
-                State.GROUND -> when (b) {
-                    0x1B -> state = State.ESC // ESC
-                    0x07 -> { /* BEL */ }
-                    0x08 -> backspace()
-                    0x0A -> newline() // LF
-                    0x0D -> { /* CR - ignored */ }
-                    0x0C -> clearScreen() // FF
-                    0x09 -> append('\t') // TAB
-                    else -> append(b.toChar())
-                }
-                State.ESC -> when (b) {
-                    0x5B -> { state = State.CSI; params.clear(); paramBuf = ""; intermediate = 0 } // [
-                    0x5D -> { state = State.OSC; paramBuf = "" } // ]
-                    0x28, 0x29, 0x2A, 0x2B, 0x2D, 0x2E, 0x2F -> state = State.CHARSET
-                    0x37 -> state = State.GROUND // DECSC - save cursor
-                    0x38 -> state = State.GROUND // DECRC - restore cursor
-                    0x63 -> { reset() } // RIS
-                    else -> { state = State.GROUND; append(b.toChar()) }
-                }
-                State.CSI -> when (b) {
-                    in 0x30..0x39 -> paramBuf += b.toChar() // digit
-                    0x3B -> { // ;
-                        params.add(paramBuf.toIntOrNull() ?: 0)
-                        paramBuf = ""
-                    }
-                    in 0x3A..0x3F -> intermediate = b // : ; < = > ?
-                    in 0x40..0x7E -> { // @ A..Z [ \ ] ^ _ ` a..z { | } ~
-                        params.add(paramBuf.toIntOrNull() ?: 0)
-                        handleCSI(b.toChar())
-                        state = State.GROUND
-                    }
-                    else -> { state = State.GROUND }
-                }
-                State.OSC -> when (b) {
-                    0x1B -> state = State.OSC_STRING // ESC inside OSC
-                    0x07 -> { state = State.GROUND; paramBuf = "" } // BEL terminates OSC
-                    in 0x08..0x0C, in 0x0E..0x1F -> { /* ignore control */ }
-                    else -> paramBuf += b.toChar()
-                }
-                State.OSC_STRING -> when (b) {
-                    0x5C -> { state = State.GROUND; paramBuf = "" } // ST
-                    0x07 -> { state = State.GROUND; paramBuf = "" } // BEL
-                    else -> state = State.OSC
-                }
-                State.CHARSET -> state = State.GROUND
-            }
-        }
-        // Return only what this call produced. A substring of `output` carries the
-        // spans set while those bytes were parsed, because the spans are
-        // recorded over exactly these positions.
-        return if (output.length > pendingStart) {
-            SpannableStringBuilder(output, pendingStart, output.length)
-        } else {
-            SpannableStringBuilder()
-        }
+    /** Adopts a freshly opened shell and bumps the generation. */
+    fun adopt(shell: SshConnection.ShellChannel) {
+        shellRef = shell
+        shellGeneration++
     }
 
-    private fun handleCSI(finalChar: Char) {
-        val cmd = finalChar
-        val p = params
-        val first = p.firstOrNull() ?: 1
-        when (cmd) {
-            'm' -> handleSGR(p) // SGR
-            'H', 'f' -> { /* CUP/HVP - cursor position */ }
-            'J' -> when (first) { 2 -> clearScreen(); else -> { } } // ED
-            'K' -> { /* EL - erase in line */ }
-            'A' -> { /* CUU - cursor up */ }
-            'B' -> { /* CUD - cursor down */ }
-            'C' -> { /* CUF - cursor forward */ }
-            'D' -> { /* CUB - cursor back */ }
-            'h', 'l' -> { /* SM/RM - set/reset mode */ }
-            'c' -> { /* DA - device attributes */ }
-            'n' -> { /* DSR - device status report */ }
-            else -> { /* unhandled */ }
-        }
-    }
-
-    private fun handleSGR(params: List<Int>) {
-        var i = 0
-        while (i < params.size) {
-            when (val p = params[i].toInt()) {
-                0 -> { // reset
-                    currentFg = null; currentBg = null; bold = false; underline = false; reverse = false; concealed = false
-                }
-                1 -> bold = true
-                2 -> { /* faint */ }
-                3 -> { /* italic */ }
-                4 -> underline = true
-                7 -> reverse = true
-                8 -> concealed = true
-                22 -> bold = false
-                24 -> underline = false
-                27 -> reverse = false
-                28 -> concealed = false
-                in 30..37 -> currentFg = p - 30 // standard fg
-                39 -> currentFg = null
-                in 40..47 -> currentBg = p - 40 // standard bg
-                49 -> currentBg = null
-                in 90..97 -> currentFg = p - 90 + 8 // bright fg
-                in 100..107 -> currentBg = p - 100 + 8 // bright bg
-                38 -> { // extended fg
-                    if (i + 1 < params.size && params[i + 1] == 5) {
-                        currentFg = params[i + 2]; i += 2
-                    } else if (i + 1 < params.size && params[i + 1] == 2) {
-                        // RGB - not implemented
-                        i += 4
-                    }
-                }
-                48 -> { // extended bg
-                    if (i + 1 < params.size && params[i + 1] == 5) {
-                        currentBg = params[i + 2]; i += 2
-                    } else if (i + 1 < params.size && params[i + 1] == 2) {
-                        i += 4
-                    }
-                }
-            }
-            i++
-        }
-    }
-
-    // Output helpers
-
-    private fun append(c: Char) {
-        if (concealed) return
-        val start = output.length
-        output.append(c)
-        applyAttributes(start, output.length)
-    }
-
-    private fun append(text: String) {
-        if (concealed) return
-        val start = output.length
-        output.append(text)
-        applyAttributes(start, output.length)
-    }
-
-    /**
-     * Handles printable/control bytes while in GROUND state.
-     *
-     * Returns true when the byte was consumed. UTF-8 is accumulated byte by byte
-     * so a prompt marker, emoji, or non-Latin filename split across TCP reads is
-     * decoded as one character instead of mojibake.
-     */
-    private fun handleGroundByte(b: Int): Boolean {
-        val carried = pendingUtf8
-        if (carried != null) {
-            if (isUtf8Continuation(b)) {
-                val bytes = carried + byteArrayOf(b.toByte())
-                if (bytes.size == utf8SequenceLength(bytes[0].toInt() and 0xFF)) {
-                    pendingUtf8 = null
-                    append(decodeUtf8(bytes))
-                } else {
-                    pendingUtf8 = bytes
-                }
-                return true
-            }
-
-            pendingUtf8 = null
-            append(decodeUtf8(carried))
-        }
-
-        return when (b) {
-            0x9B -> {
-                state = State.CSI
-                params.clear()
-                paramBuf = ""
-                intermediate = 0
-                true
-            }
-            0x9D -> {
-                state = State.OSC
-                paramBuf = ""
-                true
-            }
-            0x1B -> {
-                state = State.ESC
-                true
-            }
-            0x07 -> true // BEL
-            0x08 -> {
-                backspace()
-                true
-            }
-            0x0A -> {
-                newline()
-                true
-            }
-            0x0D -> true // CR
-            0x0C -> {
-                clearScreen()
-                true
-            }
-            0x09 -> {
-                append('\t')
-                true
-            }
-            in 0x00..0x1F -> true
-            in 0x20..0x7E -> {
-                append(b.toChar())
-                true
-            }
-            else -> {
-                if (isUtf8Lead(b)) {
-                    pendingUtf8 = byteArrayOf(b.toByte())
-                } else {
-                    append("\uFFFD")
-                }
-                true
-            }
-        }
-    }
-
-    private fun decodeUtf8(bytes: ByteArray): String =
-        String(bytes, Charsets.UTF_8)
-
-    private fun isUtf8Lead(b: Int): Boolean =
-        b in 0xC2..0xF4
-
-    private fun isUtf8Continuation(b: Int): Boolean =
-        b in 0x80..0xBF
-
-    private fun utf8SequenceLength(lead: Int): Int = when (lead) {
-        in 0xC2..0xDF -> 2
-        in 0xE0..0xEF -> 3
-        in 0xF0..0xF4 -> 4
-        else -> 1
-    }
-
-    private fun applyAttributes(start: Int, end: Int) {
-        if (start >= end) return
-        val fg = currentFg?.let { ansiToColor(it, true) }
-        val bg = currentBg?.let { ansiToColor(it, false) }
-        if (fg != null) output.setSpan(ForegroundColorSpan(fg), start, end, android.text.Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-        if (bg != null) output.setSpan(BackgroundColorSpan(bg), start, end, android.text.Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-        if (bold) output.setSpan(StyleSpan(Typeface.BOLD), start, end, android.text.Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-        if (underline) output.setSpan(StyleSpan(Typeface.ITALIC), start, end, android.text.Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-        if (reverse) {
-            // swap fg/bg for reverse
-        }
-    }
-
-    private fun ansiToColor(idx: Int, isFg: Boolean): Int {
-        val colors = if (isFg) {
-            intArrayOf(
-                0xFF1E1E1E.toInt(), 0xFFCC0000.toInt(), 0xFF4E9A06.toInt(), 0xFFC4A000.toInt(), // 0-3
-                0xFF3465A4.toInt(), 0xFF75507B.toInt(), 0xFF06989A.toInt(), 0xFFD3D7CF.toInt(), // 4-7
-                0xFF555753.toInt(), 0xFFEF2929.toInt(), 0xFF8AE234.toInt(), 0xFFFCE94F.toInt(), // 8-11
-                0xFF729FCF.toInt(), 0xFFAD7FA8.toInt(), 0xFF34E2E2.toInt(), 0xFFEEEEEC.toInt()  // 12-15
-            )
-        } else {
-            intArrayOf(
-                0xFF000000.toInt(), 0xFF800000.toInt(), 0xFF008000.toInt(), 0xFF808000.toInt(),
-                0xFF000080.toInt(), 0xFF800080.toInt(), 0xFF008080.toInt(), 0xFFC0C0C0.toInt(),
-                0xFF808080.toInt(), 0xFFFF0000.toInt(), 0xFF00FF00.toInt(), 0xFFFFFF00.toInt(),
-                0xFF0000FF.toInt(), 0xFFFF00FF.toInt(), 0xFF00FFFF.toInt(), 0xFFFFFFFF.toInt()
-            )
-        }
-        return colors[idx.coerceIn(0, colors.size - 1)]
-    }
-
-    private fun backspace() {
-        if (output.length > 0) output.delete(output.length - 1, output.length)
-    }
-
-    private fun newline() {
-        append('\n')
-    }
-
-    private fun clearScreen() {
-        output.clear()
-    }
-}
-
-/**
- * Wrapper that passes all input through to the shell channel.
- */
-class TerminalInputConnection(view: View, private val onCommit: (String) -> Unit) :
-    InputConnectionWrapper(view.onCreateInputConnection(EditorInfo()), false) {
-
-    override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-        text?.let { onCommit(it.toString()) }
-        return true
-    }
-
-    override fun sendKeyEvent(event: KeyEvent): Boolean {
-        return super.sendKeyEvent(event)
-    }
-
-    override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-        if (beforeLength > 0 && afterLength == 0) {
-            onCommit("\u0008")
-            return true
-        }
-        return super.deleteSurroundingText(beforeLength, afterLength)
+    /** Closes everything. Idempotent, and safe from any thread. */
+    fun close() {
+        shellGeneration++
+        val dyingShell = shellRef
+        shellRef = null
+        val conn = connectionRef
+        connectionRef = null
+        dyingShell?.close()
+        conn?.close()
     }
 }

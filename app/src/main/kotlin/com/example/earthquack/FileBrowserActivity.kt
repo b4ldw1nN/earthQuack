@@ -31,6 +31,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.ActivityFileBrowserBinding
+import com.example.earthquack.databinding.DialogShareLinkBinding
 import com.example.earthquack.storage.DirectoryListingCache
 import com.example.earthquack.storage.DownloadCache
 import com.example.earthquack.storage.DownloadVerification
@@ -43,11 +44,16 @@ import com.example.earthquack.storage.RcloneEngine
 import com.example.earthquack.storage.RcloneException
 import com.example.earthquack.storage.RcloneFileTransfer
 import com.example.earthquack.storage.RcloneRemoteManager
+import com.example.earthquack.storage.RcloneShareLink
+import com.example.earthquack.storage.ShareLinkRequest
+import com.example.earthquack.storage.ShareLinkResult
 import com.example.earthquack.ui.FileEntry
 import com.example.earthquack.ui.FileEntryAdapter
 import com.example.earthquack.ui.FileOpener
 import com.example.earthquack.ui.FilePreviewActivity
 import com.example.earthquack.ui.OpenTarget
+import com.example.earthquack.ui.PreviewKind
+import com.example.earthquack.ui.VideoPlayerActivity
 import com.example.earthquack.ui.formatModified
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
@@ -156,8 +162,31 @@ class FileBrowserActivity : AppCompatActivity() {
     /** Set when the tap asked to save the file out of the app's cache. */
     private var savePending: FileEntry? = null
 
+    /**
+     * Launches the remote-video player, and takes back the one outcome that
+     * matters: the stream was not possible and the user asked for a download.
+     *
+     * A registered launcher rather than `startActivityForResult`, matching
+     * [saveLauncher]: the result is only acted on once, here, and there is no
+     * window in which a double tap could produce two downloads.
+     */
+    private val streamLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val entry = streamPending
+        streamPending = null
+        if (result.resultCode == VideoPlayerActivity.RESULT_DOWNLOAD && entry != null) {
+            // Streaming did not work out; the download path is the fallback,
+            // and it must not try to stream again first.
+            openFile(entry, allowStreaming = false)
+        }
+    }
+
     /** Where the picked save URI lands while [saveLauncher] runs. */
     private var pendingSavePath: String? = null
+
+    /** The entry whose stream failed, waiting for the fallback download. */
+    private var streamPending: FileEntry? = null
 
     /**
      * Picks where a downloaded file is saved.
@@ -323,8 +352,12 @@ class FileBrowserActivity : AppCompatActivity() {
      * The whole transfer runs in one [lifecycleScope] coroutine, so leaving the
      * screen cancels it (and the partial file with it) rather than leaving a
      * native RPC running against a finished activity.
+     *
+     * @param allowStreaming false when the tap came from the stream screen's
+     *   "download instead" button, so a file that could not be played is not
+     *   pointed back at the player that just failed to play it.
      */
-    private fun openFile(entry: FileEntry) {
+    private fun openFile(entry: FileEntry, allowStreaming: Boolean = true) {
         val rpc = engine
         if (rpc == null) {
             toast(getString(R.string.state_unavailable))
@@ -344,6 +377,29 @@ class FileBrowserActivity : AppCompatActivity() {
             return
         }
 
+        // A remote video with nothing cached is the one case where downloading
+        // before watching is the wrong trade: a 2 GB film would have to arrive
+        // in full before the first frame. It is streamed instead, from the
+        // remote, over a loopback range server. Everything else — image, audio,
+        // PDF, and every file already on disk — keeps taking the route below,
+        // unchanged.
+        if (allowStreaming && opener.previewKind(displayName, entry.mimeType) ==
+            PreviewKind.VIDEO
+        ) {
+            Log.i(TAG, "streaming ${entry.name} instead of downloading it")
+            streamPending = entry
+            streamLauncher.launch(
+                VideoPlayerActivity.intent(
+                    this@FileBrowserActivity,
+                    fs,
+                    entry.path,
+                    entry.size,
+                    displayName,
+                    entry.mimeType
+                )
+            )
+            return
+        }
 
         val request = planner.request(
             srcFs = fs,
@@ -1060,6 +1116,15 @@ class FileBrowserActivity : AppCompatActivity() {
             .isEnabled = !busy
         menu.menu.add(Menu.NONE, MENU_SAVE, order++, getString(R.string.files_save_to_device))
             .isEnabled = !busy
+        // "Share as link" only makes sense for a file, and only when no transfer
+        // is already running: it issues its own rclone copy, which must not race
+        // the download progress bar. Directories are refused here rather than
+        // deep in the share code, so the action never appears where it cannot work.
+        if (!entry.isDir) {
+            menu.menu.add(
+                Menu.NONE, MENU_SHARE_LINK, order++, getString(R.string.files_share_link)
+            ).isEnabled = !busy
+        }
         menu.menu.add(Menu.NONE, MENU_COPY_PATH, order++, getString(R.string.files_copy_path))
         menu.menu.add(Menu.NONE, MENU_DELETE, order++, getString(R.string.files_delete))
 
@@ -1071,6 +1136,10 @@ class FileBrowserActivity : AppCompatActivity() {
                 }
                 MENU_SHARE -> {
                     if (transferring == null) shareFile(entry)
+                    true
+                }
+                MENU_SHARE_LINK -> {
+                    if (transferring == null) shareAsLink(entry)
                     true
                 }
                 MENU_SAVE -> {
@@ -1105,6 +1174,261 @@ class FileBrowserActivity : AppCompatActivity() {
         sharePending = entry
         openFile(entry)
     }
+
+    // ── Share as link ─────────────────────────────────────────────────────────
+
+    /**
+     * Publishes [entry] to a Google Drive remote as a public "anyone with the
+     * link" share, then shows the URL.
+     *
+     * All the business logic lives in [RcloneShareLink]; this method is only the
+     * Android shell — pick a Drive remote, confirm the public-access warning, run
+     * the share off the main thread, and render the three possible outcomes. The
+     * sequence is: [pickDriveRemote] → [confirmShareLink] → [runShareLink].
+     *
+     * It reuses the existing configured remotes and the existing [RcloneEngine];
+     * there is no second rclone, no second Drive OAuth flow, and no credential is
+     * ever read or logged here.
+     */
+    private fun shareAsLink(entry: FileEntry) {
+        val rpc = engine ?: run {
+            toast(getString(R.string.state_unavailable))
+            return
+        }
+        pickDriveRemote(entry, rpc)
+    }
+
+    /**
+     * Asks which configured Drive remote to upload to, then confirms.
+     *
+     * Drive remotes are discovered with `config/dump` (the only call that reveals
+     * a remote's `type`); an empty result means the user has no Drive remote and
+     * is told how to add one rather than being shown an empty picker.
+     */
+    private fun pickDriveRemote(entry: FileEntry, rpc: RcloneEngine) {
+        lifecycleScope.launch {
+            val drives = try {
+                withContext(Dispatchers.IO) {
+                    RcloneRemoteManager(rpc).driveRemotes()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "could not list drive remotes: ${e.javaClass.simpleName}")
+                emptyList()
+            }
+
+            if (drives.isEmpty()) {
+                toast(getString(R.string.files_share_link_no_drive))
+                return@launch
+            }
+            if (drives.size == 1) {
+                confirmShareLink(entry, rpc, drives.first())
+                return@launch
+            }
+
+            MaterialAlertDialogBuilder(this@FileBrowserActivity)
+                .setTitle(R.string.files_share_link_pick_remote)
+                .setItems(drives.toTypedArray()) { _, which ->
+                    confirmShareLink(entry, rpc, drives[which])
+                }
+                .setNegativeButton(R.string.action_dismiss, null)
+                .show()
+        }
+    }
+
+    /**
+     * The explicit consent step before anything is made public.
+     *
+     * A public link is not reversible by this app, so the warning states plainly
+     * that anyone with the link may access the file. It names the destination so
+     * the choice is informed, and the confirm button repeats the verb.
+     */
+    private fun confirmShareLink(entry: FileEntry, rpc: RcloneEngine, driveName: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.files_share_link_confirm_title)
+            .setMessage(
+                getString(
+                    R.string.files_share_link_confirm,
+                    entry.name.ifBlank { entry.path.substringAfterLast('/') },
+                    driveName
+                )
+            )
+            .setNegativeButton(R.string.action_dismiss, null)
+            .setPositiveButton(R.string.files_share_link_confirm_action) { _, _ ->
+                runShareLink(entry, rpc, driveName)
+            }
+            .show()
+    }
+
+    /**
+     * Runs the share on an IO coroutine and renders the outcome.
+     *
+     * The share is guarded the same way a download is: one at a time, so two
+     * public links cannot be created for one file from a double tap. Progress is
+     * indeterminate — a determinate figure would need rclone's async job API,
+     * which this embedded build does not link — and a cancel button is offered,
+     * which cancels the coroutine (the native copy cannot be interrupted, so the
+     * UI stops immediately and the result is discarded when it lands, exactly as
+     * [cancelDownload] does).
+     */
+    private fun runShareLink(entry: FileEntry, rpc: RcloneEngine, driveName: String) {
+        val displayName = entry.name.ifBlank { entry.path.substringAfterLast('/') }
+        val request = ShareLinkRequest(
+            srcFs = fs,
+            srcRemote = entry.path,
+            dstFs = "$driveName:",
+            dstFolder = "",
+            fileName = displayName
+        )
+
+        transferring = entry
+        binding.progress.isVisible = true
+        binding.progress.isIndeterminate = true
+        binding.btnCancel.isVisible = true
+        binding.appbar.subtitle.text = getString(R.string.files_share_link_uploading)
+        cancelled = false
+
+        downloadJob = lifecycleScope.launch {
+            try {
+                val result = RcloneShareLink(rpc).share(request)
+                if (cancelled) {
+                    toast(getString(R.string.files_share_link_cancelled))
+                } else {
+                    when (result) {
+                        is ShareLinkResult.Success ->
+                            showLinkReady(result.url, displayName)
+                        is ShareLinkResult.UploadedNoLink ->
+                            showUploadedNoLink(displayName, driveName, result.detail)
+                        is ShareLinkResult.Failure ->
+                            toast(getString(R.string.files_share_link_failed, displayName))
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "share as link failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_share_link_failed, displayName))
+            } finally {
+                transferring = null
+                binding.progress.isVisible = false
+                binding.progress.isIndeterminate = true
+                binding.btnCancel.isVisible = false
+                binding.appbar.subtitle.text = fullPath()
+            }
+        }
+    }
+
+    /**
+     * Shows the generated URL with copy, open and Android-share actions.
+     *
+     * The URL is not a secret — that is the whole point of a public link — but it
+     * is only ever shown here and copied on an explicit tap; it is never logged,
+     * put in a notification, or written to storage.
+     */
+    private fun showLinkReady(url: String, displayName: String) {
+        val view = layoutInflater.inflate(R.layout.dialog_share_link, null, false)
+        val binding = DialogShareLinkBinding.bind(view)
+        binding.linkText.text = url
+        binding.linkWarning.setText(R.string.files_share_link_warning)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.files_share_link_ready_title)
+            .setView(view)
+            .setPositiveButton(R.string.action_dismiss, null)
+            .create()
+
+        binding.btnCopyLink.setOnClickListener { copyToClipboard(url) }
+        binding.btnOpenLink.setOnClickListener { openUrl(url) }
+        binding.btnShareLink.setOnClickListener { shareUrl(url, displayName) }
+        dialog.show()
+    }
+
+    /**
+     * The partial state: the file is on Drive, but no public link exists.
+     *
+     * Reported honestly rather than as a bare failure, because the upload did
+     * succeed and the file is reachable by its owner. A "Retry link" action
+     * re-runs only the link step against the file already on Drive.
+     */
+    private fun showUploadedNoLink(displayName: String, driveName: String, detail: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.files_share_link_no_link_title)
+            .setMessage(
+                getString(
+                    R.string.files_share_link_no_link,
+                    displayName,
+                    driveName,
+                    detail
+                )
+            )
+            .setNegativeButton(R.string.action_dismiss, null)
+            .setPositiveButton(R.string.files_share_link_retry) { _, _ ->
+                retryLinkOnly(driveName, displayName)
+            }
+            .show()
+    }
+
+    /**
+     * Re-runs only [RcloneShareLink]'s link step against a file already on Drive.
+     *
+     * Used after an "uploaded but no link" partial result: the copy is there, so
+     * only `operations/publiclink` needs to run again. The destination path is
+     * rebuilt with the same join rule the share used, so a plain (uncollided)
+     * name addresses the copy that was just made.
+     */
+    private fun retryLinkOnly(driveName: String, displayName: String) {
+        val rpc = engine ?: return
+        val dstRemote = RcloneShareLink.joinDestination("", displayName)
+        binding.progress.isVisible = true
+        lifecycleScope.launch {
+            try {
+                val reply = withContext(Dispatchers.IO) {
+                    rpc.call(
+                        "operations/publiclink",
+                        JSONObject().put("fs", "$driveName:").put("remote", dstRemote)
+                    )
+                }
+                val url = reply.optString("url").trim()
+                if (url.isEmpty()) {
+                    toast(getString(R.string.files_share_link_failed, displayName))
+                } else {
+                    showLinkReady(url, displayName)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "retry link failed: ${e.javaClass.simpleName}")
+                toast(getString(R.string.files_share_link_failed, displayName))
+            } finally {
+                binding.progress.isVisible = false
+            }
+        }
+    }
+
+    /** Opens [url] in the user's browser via the system chooser. */
+    private fun openUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        } catch (e: ActivityNotFoundException) {
+            toast(getString(R.string.files_share_link_open_failed))
+        }
+    }
+
+    /** Puts [url] on the Android share sheet as plain text. */
+    private fun shareUrl(url: String, displayName: String) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, url)
+            putExtra(Intent.EXTRA_TITLE, displayName)
+        }
+        try {
+            startActivity(Intent.createChooser(send, getString(R.string.files_share_link_share)))
+        } catch (e: ActivityNotFoundException) {
+            toast(getString(R.string.files_share_link_open_failed))
+        }
+    }
+
 
     /** Saves the file into Downloads using the system document picker. */
     private fun saveFileToDownloads(entry: FileEntry) {
@@ -1411,6 +1735,9 @@ class FileBrowserActivity : AppCompatActivity() {
         private const val MENU_SAVE = 9
         private const val MENU_COPY_PATH = 3
         private const val MENU_DELETE = 10
+
+        /** "Share as link" — upload to a Drive remote and return a public URL. */
+        private const val MENU_SHARE_LINK = 11
         private const val MENU_LOCATION = 4
         private const val MENU_SHARED = 8
         private const val MENU_INTERNAL = 5

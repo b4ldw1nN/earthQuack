@@ -499,10 +499,20 @@ class SshConnection(
          *
          * This is direct SSH channel I/O, so callers must not invoke it from the
          * Android main thread.
+         *
+         * [rows] and [cols] are clamped because the caller derives them from
+         * measured pixels: a view that has not been laid out yet reports 0, and
+         * a window-change for a zero-byte terminal is one some servers answer
+         * by closing the channel — the "resizing kills the shell" report.
          */
         fun resize(rows: Int, cols: Int) {
             if (channel is ChannelShell && channel.isOpen && !channel.isClosing) {
-                (channel as ChannelShell).sendWindowChange(rows, cols, 0, 0)
+                channel.sendWindowChange(
+                    rows.coerceIn(MIN_ROWS, MAX_ROWS),
+                    cols.coerceIn(MIN_COLS, MAX_COLS),
+                    0,
+                    0
+                )
             }
         }
 
@@ -541,6 +551,18 @@ class SshConnection(
 
     private companion object {
         const val CHANNEL_OPEN_TIMEOUT_MS = 20_000L
+
+        /**
+         * Bounds for a window-change request.
+         *
+         * The shell is sized from measured pixels, and a view that has not been
+         * laid out yet reports 0. Sending 0 to a server is not a no-op: some
+         * treat it as a request to close the channel.
+         */
+        const val MIN_ROWS = 1
+        const val MAX_ROWS = 10_000
+        const val MIN_COLS = 1
+        const val MAX_COLS = 10_000
         const val DEFAULT_RETAIN_LIMIT = 1024 * 1024
 
         val WAIT_FOR_CHANNEL_EVENTS: Set<ClientChannelEvent> = setOf(

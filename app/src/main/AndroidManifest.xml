@@ -169,6 +169,20 @@
             android:label="@string/files_preview_title" />
 
         <!--
+            Streams one remote video through a loopback range server (see
+            RangeHttpServer) rather than downloading the whole file first.
+
+            Not exported: it is only ever started from this app, and the only
+            thing it can reach is the app's own rclone. It is not singleTask,
+            because rotation recreates it and that is handled by saving the
+            playback position instead of by freezing the lifecycle.
+        -->
+        <activity
+            android:name=".ui.VideoPlayerActivity"
+            android:exported="false"
+            android:label="@string/files_stream_title" />
+
+        <!--
             Serves downloaded remote files to viewer apps.
 
             Required because the download lands in cache, and handing a

@@ -27,6 +27,12 @@ class RcloneRemoteManager(private val engine: RcloneEngine) {
         const val OP_UPDATE = "config/update"
         const val OP_DELETE = "config/delete"
         const val OP_PROVIDERS = "config/providers"
+
+        /** Dumps the whole config, secrets redacted by rclone. */
+        const val OP_DUMP = "config/dump"
+
+        /** The backend type whose remotes can host a public link share. */
+        const val TYPE_DRIVE = "drive"
     }
 
     /**
@@ -181,6 +187,35 @@ class RcloneRemoteManager(private val engine: RcloneEngine) {
 
     /** Names of every backend this build can configure. */
     suspend fun providerNames(): List<String> = providers().map { it.name }
+
+    /**
+     * Names of every configured remote whose backend is Google Drive.
+     *
+     * The "Share as link" workflow needs a Drive destination, and it must not
+     * offer a remote that cannot produce a public link. `config/listremotes`
+     * returns only names, so it cannot tell a Drive remote from an SFTP one;
+     * `config/dump` returns each remote's `type`, which is the discriminator.
+     *
+     * rclone redacts secrets in `config/dump`, so reading `type` here exposes
+     * nothing sensitive — and only the `type` field is ever read. An unreadable
+     * or empty config yields an empty list, which the caller renders as "no
+     * Drive remote configured" rather than an error.
+     */
+    suspend fun driveRemotes(): List<String> {
+        val reply = engine.call(OP_DUMP)
+        // config/dump is { "<name>": { "type": "drive", … }, … }: one object per
+        // remote, keyed by name, at the top level. Iterate keys, not a "remotes"
+        // array — that is the array form config/listremotes uses, and the two
+        // must not be conflated.
+        val names = mutableListOf<String>()
+        for (name in reply.keys()) {
+            val section = reply.optJSONObject(name) ?: continue
+            if (section.optString("type").equals(TYPE_DRIVE, ignoreCase = true)) {
+                names.add(name)
+            }
+        }
+        return names.sortedBy { it.lowercase() }
+    }
 
     private fun firstString(o: JSONObject, vararg keys: String): String {
         for (k in keys) {

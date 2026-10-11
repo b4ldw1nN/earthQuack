@@ -80,6 +80,17 @@ dependencies {
     // discarded as "no binding".
     implementation(libs.slf4j.simple)
 
+    // ── Video streaming ─────────────────────────────────────────────────────
+    // AndroidX Media3 / ExoPlayer. Only what the player actually needs is
+    // declared: the core engine, the HTTP data source (which is what issues
+    // the Range requests RangeHttpServer answers), and the UI PlayerView.
+    // media3-common/decoder/extractor/container come in transitively.
+    // No HLS/DASH modules, because the server serves one file with byte
+    // ranges — adaptive streaming is not what this is.
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.datasource)
+    implementation(libs.media3.ui)
+
     // The gomobile/rclone binding, built by rclone-android/ (see its README).
     // Resolved via the flatDir repository in settings.gradle.kts so that AGP
     // unpacks jniLibs/arm64-v8a/libgojni.so into the APK. A plain

@@ -109,10 +109,32 @@ The pairs differ per method, and rclone reports a mismatch as a confusing
 | `operations/copyfile` | `srcFs`, `srcRemote`, `dstFs`, `dstRemote` |
 | `operations/movefile` | `srcFs`, `srcRemote`, `dstFs`, `dstRemote` |
 | `operations/deletefile` | `fs`, `remote` = **full file path within fs** (no `dst_file`) |
+| `earthquack/read` | `srcFs`, `srcRemote`, `offset`, `length` |
 
 `operations/deletefile` is the counter-intuitive one: `fs/operations/rc.go`
 does `f.NewObject(ctx, remote)`, so `remote` is the whole path to the object
 and there is no `dst_file` parameter at all.
+
+## The one EarthQuack-owned method: `earthquack/read`
+
+Not an upstream method. It exists because nothing in the linked RC surface can
+read a byte range — every data path there is whole-object, `core/command`
+re-executes `os.Executable()` (which an Android process does not have), and
+`rclone serve http`/`mount` live in `cmd/` and are not linked in. It is the
+only reason a remote video can be streamed instead of downloaded in full; see
+`docs/rclone-file-download.md` §6.1.
+
+| | |
+|---|---|
+| params | `srcFs` (`drive:`), `srcRemote` (`films/clip.mp4`), `offset`, `length` |
+| reply | `length`, `data` (base64), `size` (-1 when unknown), `eof` |
+| cap | one read is at most 8 MiB |
+| semantics | `Object.Open` with `&fs.SeekOption{Offset}` — a **mandatory** option, so a backend that cannot honour a range fails the call instead of streaming the rest of the file |
+
+It is purely additive: no upstream method's behaviour changes, and the gomobile
+API surface is still `Initialize`/`RPC`/`Shutdown`. Both sides are tested — Go in
+`rclone/read_test.go` through `librclone.RPC` against a local backend, Kotlin in
+`app/src/test/.../storage/RcloneRangeSourceTest.kt` against a fake bridge.
 
 Two remote-name forms exist:
 

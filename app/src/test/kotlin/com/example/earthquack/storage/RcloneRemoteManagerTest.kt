@@ -299,4 +299,44 @@ class RcloneRemoteManagerTest {
         assertTrue(manager(bridge).deleteRemote("neverexisted"))
         assertEquals("neverexisted", bridge.body("config/delete")!!.getString("name"))
     }
+
+    // ── Drive-remote filter (Share as link) ───────────────────────────────────
+
+    /**
+     * `config/dump` is a map keyed by remote name, each value carrying a `type`.
+     * `driveRemotes` must pick out only the Drive ones and ignore the rest.
+     */
+    @Test
+    fun `driveRemotes keeps only remotes whose type is drive`() = runBlocking {
+        val dump = """
+            {
+              "gdrive": { "type": "drive", "token": "***" },
+              "mybox":  { "type": "box" },
+              "backup": { "type": "sftp", "host": "example.com" },
+              "photos": { "type": "drive" }
+            }
+        """.trimIndent()
+        val bridge = RecordingBridge(replies = mapOf("config/dump" to dump))
+
+        val result = manager(bridge).driveRemotes()
+
+        assertEquals(listOf("gdrive", "photos"), result)
+        // Only config/dump is read; nothing about the config is written.
+        assertEquals(1, bridge.count("config/dump"))
+    }
+
+    @Test
+    fun `driveRemotes is empty when no remote is drive`() = runBlocking {
+        val dump = """{ "a": { "type": "sftp" }, "b": { "type": "box" } }"""
+        val bridge = RecordingBridge(replies = mapOf("config/dump" to dump))
+
+        assertEquals(emptyList<String>(), manager(bridge).driveRemotes())
+    }
+
+    @Test
+    fun `driveRemotes is empty for an empty config`() = runBlocking {
+        val bridge = RecordingBridge(replies = mapOf("config/dump" to "{}"))
+
+        assertEquals(emptyList<String>(), manager(bridge).driveRemotes())
+    }
 }
