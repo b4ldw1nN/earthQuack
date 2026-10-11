@@ -3,11 +3,11 @@
      absent, they arrive in a later screen. -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Terminal -->
+    <!-- Edit -->
     <item
-        android:id="@+id/menu_terminal"
-        android:title="@string/profiles_terminal"
-        android:icon="@drawable/ic_eq_terminal" />
+        android:id="@+id/menu_edit"
+        android:title="@string/profiles_edit"
+        android:icon="@drawable/ic_eq_open_new" />
 
     <!-- Files -->
     <item

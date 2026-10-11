@@ -147,8 +147,10 @@ class TerminalFragment : Fragment() {
         wireButtons()
         wireScroll()
         wireResize()
-
-        connect()
+        // No auto-connect: the terminal opens in a disconnected state and the
+        // user connects explicitly with the Connect button. This matches the
+        // layout's initial state (Disconnected status, Connect enabled,
+        // Disconnect and input disabled).
     }
 
     private fun wireInput() {

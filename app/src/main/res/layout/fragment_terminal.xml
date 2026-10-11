@@ -139,6 +139,7 @@
             android:layout_height="wrap_content"
             android:minHeight="44dp"
             android:background="@android:color/transparent"
+            android:enabled="false"
             android:fontFamily="monospace"
             android:textSize="14sp"
             android:textColor="@android:color/transparent"

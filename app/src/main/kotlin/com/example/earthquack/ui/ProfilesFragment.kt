@@ -47,7 +47,7 @@ class ProfilesFragment : Fragment() {
 
 
     private val adapter = ProfilesAdapter(
-        onOpen = { profile -> editProfile(profile) },
+        onOpen = { profile -> openTerminal(profile) },
         onOverflow = { view, profile -> showRowMenu(view, profile) }
     )
 
@@ -136,8 +136,8 @@ class ProfilesFragment : Fragment() {
             inflate(R.menu.profile_row_menu)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
-                    R.id.menu_terminal -> {
-                        openTerminal(profile)
+                    R.id.menu_edit -> {
+                        editProfile(profile)
                         true
                     }
                     R.id.menu_files -> {
