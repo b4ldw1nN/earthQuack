@@ -68,6 +68,8 @@ dependencies {
     implementation(libs.lifecycle.service)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // Chrome Custom Tabs — opens the embedded Tailscale login URL (Phase 1).
+    implementation(libs.browser)
 
     // ── SSH / SFTP ──────────────────────────────────────────────────────────
     // Apache MINA SSHD. sshd-core carries both the client (SshClient) and the
