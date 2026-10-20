@@ -63,7 +63,7 @@ cd "$SHIM_DIR"
 #
 # `go build -mod=mod` resolves only what is actually imported, which is all a
 # gomobile build needs. Seconds instead of hanging on the module proxy.
-go build -mod=mod ./rclone/
+go build -mod=mod ./rclone/ ./tailscale/
 
 # gomobile requires the x/mobile tool dependency to be present in the module.
 go get -tool golang.org/x/mobile/cmd/gobind
@@ -95,7 +95,8 @@ for target in ${TARGETS//,/ }; do
         -javapkg="$JAVAPKG" \
           -ldflags="-w -s" \
         -o "$abi_out" \
-        ./rclone
+        ./rclone \
+        ./tailscale
 done
 
 echo "==> Built $OUT_AAR"

@@ -55,6 +55,9 @@ android {
         resources {
             excludes += "META-INF/DEPENDENCIES"
         }
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
