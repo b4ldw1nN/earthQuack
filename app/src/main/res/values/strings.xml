@@ -95,6 +95,16 @@
     <string name="connections_ipv4">IP (v4)</string>
     <string name="connections_peers">Peers</string>
     <string name="connections_scan">Scan for Devices</string>
+
+    <!-- Exit node (embedded Tailscale Phase 3) -->
+    <string name="connections_exit_node_section">Exit node</string>
+    <string name="exit_node_picker_title">Route internet through</string>
+    <string name="exit_node_none">None (direct)</string>
+    <string name="exit_node_change">Change</string>
+    <string name="exit_node_offline">%1$s (offline)</string>
+    <string name="exit_node_cleared">Exit node cleared — traffic goes direct</string>
+    <string name="exit_node_set">Routing all tailnet traffic through %1$s</string>
+    <string name="exit_node_failed">Could not change exit node</string>
     <string name="connections_discovered">Discovered Devices</string>
 
     <!-- Connection profiles (Phase 7) -->

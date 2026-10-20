@@ -14,7 +14,28 @@ Last updated: 2026-10-21 · branch: `feature/tailscale-embedded` (owner: tailsca
 foundation phases sequentially; later phases may be claimed by other agents
 on other branches.
 
-### Status: Phase 1 DONE — browser login + state store ✅
+### Status: Phase 3 DONE — exit nodes ✅
+
+**Phase 3 — DONE this session**
+- Go shim: `Peers()` now reports `exit_node_option` / `exit_node` per peer.
+  (Investigated an ID-space concern: `ipnstate.PeerStatus.ID` is already a
+  `tailcfg.StableNodeID`, so the original `string(p.ID)` was correct —
+  documented in-code; no behavioural change there.)
+- `tailscale/TailnetPeer.kt` — peer model + tolerant JSON parsing
+  (entries without id skipped, malformed input → empty list).
+- `tailscale/ExitNodeManager.kt` — availableExitNodes (filtered to
+  exit-capable, current first, then alphabetical; offline kept but
+  labelable), setExitNode (null clears with "", backend errors surfaced as
+  IllegalStateException), currentExitNode (by isExitNode flag). Gomobile
+  behind `ExitNodeControl` → JVM-testable.
+- UI: "Exit node" section in ConnectionsFragment (`fragment_connections.xml`
+  + strings). Hidden unless the tsnet node is Running — the fragment starts
+  the node via TailscaleAuthManager when enrolled. Single-choice dialog:
+  None + exit-capable peers, offline ones labelled, current pre-selected.
+- Tests: `ExitNodeManagerTest` 11/11 green; full suite + assembleDebug green;
+  AAR rebuilt with new shim (verified class + native methods via javap).
+
+**Phase 1 — DONE** (commit `c7e2873`)
 
 **Phase 0 — DONE** (commit `0f5bdf0`)
 - `rclone-android/tailscale/tailscale.go` — full tsnet gomobile shim.
@@ -53,8 +74,8 @@ wiring into OkHttp / MINA SSHD / rclone.
 |---|---|
 | 0 Go shim + AAR | **done** (verified: go build + merged AAR) |
 | 1 Browser login + state store | **done** (verified: 15 JVM tests, assembleDebug) |
-| 2 TailscaleEngine + SOCKS5 | next |
-| 3 Exit nodes | not started |
+| 2 TailscaleEngine + SOCKS5 | not started (skipped by request; other agent may claim) |
+| 3 Exit nodes | **done** (verified: 11 JVM tests, assembleDebug, AAR rebuilt) |
 | 4 Taildrop | not started |
 | 5 Taildrive | not started |
 | 6 Serve & Funnel | not started |
@@ -68,6 +89,9 @@ wiring into OkHttp / MINA SSHD / rclone.
 - Phase 1 flow: fresh install → tap login → Custom Tab opens → log in →
   app state reaches Running (tab dismisses). Then force-stop + relaunch:
   must join silently with no UI.
+- Phase 3: enrolled device → open Connections → exit-node card appears →
+  pick a peer → traffic routes through it (verify via an external IP
+  check); pick None → clears.
 
 ### Files this agent owns
 - `rclone-android/tailscale/**`

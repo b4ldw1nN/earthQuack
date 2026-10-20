@@ -16,6 +16,12 @@ import com.example.earthquack.databinding.ItemSettingsRowBinding
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.state.TailnetStatus
+import com.example.earthquack.tailscale.ExitNodeManager
+import com.example.earthquack.tailscale.NativeExitNodeControl
+import com.example.earthquack.tailscale.TailnetPeer
+import com.example.earthquack.tailscale.TailscaleAuthManager
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleStateStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,6 +56,12 @@ class ConnectionsFragment : Fragment() {
 
     private lateinit var statusProvider: SystemStatusProvider
     private lateinit var tailnet: TailnetStatus
+
+    /** Exit-node selection (embedded Tailscale Phase 3). Node must be Running. */
+    private lateinit var exitNodes: ExitNodeManager
+
+    /** Drives the embedded node to Running so the exit-node picker has something to talk to. */
+    private lateinit var authManager: TailscaleAuthManager
 
     private val mainActivity: MainActivity? get() = activity as? MainActivity
 
@@ -96,6 +108,140 @@ class ConnectionsFragment : Fragment() {
         binding.btnScan.setOnClickListener { scan() }
         binding.btnUse.setOnClickListener { applySelection() }
         binding.btnManualAddress.setOnClickListener { promptManualAddress() }
+
+        val store = TailscaleStateStore(requireContext())
+        exitNodes = ExitNodeManager(NativeExitNodeControl)
+        authManager = TailscaleAuthManager(store)
+        binding.btnChangeExitNode.setOnClickListener { pickExitNode() }
+
+        observeTailscaleNode()
+    }
+
+    /**
+     * Starts the embedded tsnet node (silently when already enrolled) and
+     * shows the exit-node section once it reports Running.
+     *
+     * The picker is hidden, not disabled, until then: exit-node selection
+     * requires a live node, and a visible control that cannot work is worse
+     * than an absent one. Non-enrolled users get nothing here until the
+     * browser-login flow has run — that UI belongs to the auth screen.
+     */
+    private fun observeTailscaleNode() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            // Re-render on every state change; cheap, and it keeps the card
+            // in sync when the node drops out from under the screen.
+            launch {
+                authManager.state.collect { state ->
+                    if (state is TailscaleLoginState.Running) renderExitNodeSection()
+                    else hideExitNodeSection()
+                }
+            }
+
+            if (TailscaleStateStore(requireContext()).isEnrolled()) {
+                // Enrolled: tsnet joins the tailnet with no user action and
+                // no login UI. startLogin() is the only entry point that
+                // brings the node up (Phase 2's engine will supersede it).
+                authManager.startLogin()
+            }
+        }
+    }
+
+    private fun hideExitNodeSection() {
+        if (_binding == null) return
+        binding.headerExitNode.visibility = View.GONE
+        binding.cardExitNode.visibility = View.GONE
+    }
+
+    /** Loads exit-node-capable peers and renders the current choice. */
+    private fun renderExitNodeSection() {
+        if (_binding == null) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (current, available) = try {
+                withContext(Dispatchers.IO) {
+                    exitNodes.currentExitNode() to exitNodes.availableExitNodes()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The node can go Stopped between the state emission and this
+                // read. An unreadable picker is an absent one.
+                hideExitNodeSection()
+                return@launch
+            }
+
+            // No exit-node-capable peer and none selected: the section would
+            // offer a dialog with only "None" in it. Say so by hiding it.
+            if (available.isEmpty() && current == null) {
+                hideExitNodeSection()
+                return@launch
+            }
+
+            binding.headerExitNode.visibility = View.VISIBLE
+            binding.cardExitNode.visibility = View.VISIBLE
+            binding.textExitNodeValue.text = current?.name
+                ?: getString(R.string.exit_node_none)
+        }
+    }
+
+    /**
+     * The picker: "None" plus every exit-node-capable peer, current one
+     * pre-selected. Offline peers stay listed but are labelled — the only
+     * approved exit node being temporarily down is a real situation, and
+     * hiding it would leave the user with no way to select it.
+     */
+    private fun pickExitNode() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (current, available) = try {
+                withContext(Dispatchers.IO) {
+                    exitNodes.currentExitNode() to exitNodes.availableExitNodes()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), R.string.exit_node_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val labels = mutableListOf(getString(R.string.exit_node_none))
+            available.forEach { peer ->
+                labels += if (peer.online) peer.name
+                else getString(R.string.exit_node_offline, peer.name)
+            }
+            val checked = if (current == null) 0
+            else available.indexOfFirst { it.id == current.id } + 1
+
+            // setSingleChoiceItems takes a ListAdapter/Cursor/CharSequence[] —
+            // not a Kotlin List, and Array<String> is not Array<CharSequence>.
+            val items: Array<CharSequence> = labels.map { it as CharSequence }.toTypedArray()
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.exit_node_picker_title)
+                .setSingleChoiceItems(items, checked.coerceAtLeast(0)) { dialog, which ->
+                    val chosen = if (which == 0) null else available.getOrNull(which - 1)
+                    dialog.dismiss()
+                    applyExitNode(chosen)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /** Applies the selection; EditPrefs is a JNI round-trip, hence IO. */
+    private fun applyExitNode(peer: TailnetPeer?) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { exitNodes.setExitNode(peer) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The manager already wrapped the backend's message.
+                Toast.makeText(requireContext(), R.string.exit_node_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val message = if (peer == null) getString(R.string.exit_node_cleared)
+            else getString(R.string.exit_node_set, peer.name)
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+            renderExitNodeSection()
+        }
     }
 
     override fun onResume() {

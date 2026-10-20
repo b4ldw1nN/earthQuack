@@ -225,6 +225,12 @@ type tailnetPeer struct {
 	IP     string `json:"ip"`
 	OS     string `json:"os"`
 	Online bool   `json:"online"`
+	// ExitNodeOption is true when this peer offers exit-node service
+	// (advertised AND approved in the tailnet policy). Drives the
+	// "Route internet through" picker.
+	ExitNodeOption bool `json:"exit_node_option"`
+	// ExitNode is true when this peer is currently OUR exit node.
+	ExitNode bool `json:"exit_node"`
 }
 
 // Peers returns a JSON array of tailnet peers.
@@ -245,11 +251,17 @@ func Peers() string {
 			ip = p.TailscaleIPs[0].String()
 		}
 		out = append(out, tailnetPeer{
-			ID:     string(p.ID),
-			Name:   p.HostName,
-			IP:     ip,
-			OS:     p.OS,
-			Online: p.Online,
+			// ipnstate.PeerStatus.ID is tailcfg.StableNodeID already —
+			// the same ID space SetExitNode() feeds to EditPrefs and
+			// prefs.ExitNodeID stores. (The transient NodeID is the
+			// separate PeerStatus.NodeID field; do not use it here.)
+			ID:             string(p.ID),
+			Name:           p.HostName,
+			IP:             ip,
+			OS:             p.OS,
+			Online:         p.Online,
+			ExitNodeOption: p.ExitNodeOption,
+			ExitNode:       p.ExitNode,
 		})
 	}
 	if out == nil {
