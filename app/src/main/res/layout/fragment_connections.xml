@@ -61,30 +61,6 @@
             app:icon="@drawable/ic_eq_add"
             app:iconSize="16dp" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/eq_gap_sm"
-            android:orientation="horizontal"
-            android:baselineAligned="false">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnScan"
-                style="@style/Widget.Eq.Button"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="@dimen/eq_gap_sm"
-                android:text="@string/connections_scan"
-                app:icon="@drawable/ic_eq_sync" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnUse"
-                style="@style/Widget.Eq.Button.Outlined"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:text="@string/connections_use_selected"
-                android:enabled="false" />
-        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/headerPeers"
@@ -177,6 +153,36 @@
                 app:icon="@drawable/ic_eq_sync"
                 app:iconSize="16dp" />
         </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTailscaleLogin"
+            style="@style/Widget.Eq.Button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="Log in to Tailscale" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnServe"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Serve / Funnel" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAdmin"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Admin Console" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBackground"
+            style="@style/Widget.Eq.Button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="Keep Tailscale running in background" />
 
     </LinearLayout>
 </ScrollView>

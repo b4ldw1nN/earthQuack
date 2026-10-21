@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import com.example.earthquack.tailscale.TailscaleEngine
 
 /**
  * Browser-login flow for the embedded Tailscale node.
@@ -85,12 +86,19 @@ class TailscaleAuthManager(
         )
 
         when (val parsed = parseStartResult(started)) {
-            is TailscaleLoginState.Running -> _state.value = parsed
+            is TailscaleLoginState.Running -> {
+                _state.value = parsed
+                Log.i(TAG, "startLogin: node already ${parsed.nodeIp}, socks=${parsed.socksPort}")
+                TailscaleEngine.onNodeRunning()
+            }
             is TailscaleLoginState.Error -> _state.value = parsed
             is TailscaleLoginState.NeedsLogin -> awaitLogin(parsed.loginUrl)
             // Start() reports Stopped/Starting only if the shim is in an
             // unexpected state; poll briefly and let the loop sort it out.
-            else -> awaitLogin("")
+            else -> {
+                Log.i(TAG, "startLogin: shim reports ${started.take(120)}; entering poll")
+                awaitLogin("")
+            }
         }
     }
 
@@ -110,9 +118,17 @@ class TailscaleAuthManager(
             while (true) {
                 delay(pollIntervalMs)
                 val status = withContext(io) { runCatching { node.status() }.getOrDefault("{}") }
-                when (val parsed = parseStatusResult(status)) {
+                val parsed = parseStatusResult(status)
+                if (parsed != _state.value) {
+                    Log.i(TAG, "node state now: $parsed")
+                    if (parsed is TailscaleLoginState.Starting) _state.value = parsed
+                }
+                when (parsed) {
                     is TailscaleLoginState.Running -> {
                         _state.value = parsed
+                        // Node can route now; wake rclone backends and other
+                        // dependents that registered while it was down.
+                        TailscaleEngine.onNodeRunning()
                         return@withTimeoutOrNull true
                     }
                     is TailscaleLoginState.Error -> {

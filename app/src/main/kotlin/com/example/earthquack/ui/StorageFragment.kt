@@ -198,10 +198,18 @@ class StorageFragment : Fragment() {
             val row = ItemRemoteRowBinding.inflate(layoutInflater, container, false)
             row.remoteName.text = remote.name
             // Type when the config declares one, otherwise say so. Guessing a
-            // backend from the section name would be fabrication.
-            row.remoteStatus.text = remote.type
+            // backend from the section name would be fabrication. Tailnet
+            // remotes carry their route too: they are dialled through this
+            // app's own Tailscale node, which is what makes them reachable
+            // without a system VPN.
+            val typeLabel = remote.type
                 ?.let { getString(R.string.storage_remote_status, it) }
                 ?: getString(R.string.storage_remote_type_unknown)
+            row.remoteStatus.text = if (remote.routedViaTailscale) {
+                getString(R.string.storage_remote_via_tailscale, typeLabel)
+            } else {
+                typeLabel
+            }
 
             row.remoteIcon.setImageResource(iconForType(remote.type))
             row.remoteIcon.imageTintList = resources.getColorStateList(

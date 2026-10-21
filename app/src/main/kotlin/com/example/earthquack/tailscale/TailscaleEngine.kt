@@ -154,7 +154,10 @@ class TailscaleEngine(
     suspend fun isTailnetHost(host: String): Boolean {
         val h = host.trim().lowercase()
         if (looksTailnetHost(h)) return true
-        if ('.' !in h || h == "localhost") return false
+        if (h == "localhost" || h.isEmpty()) return false
+        // Bare MagicDNS names ("archii") and our own .ts.net domains resolve
+        // inside the tailnet; anything with a public-looking domain does not.
+        if ('.' in h && !h.endsWith(".ts.net")) return false
         val resolved = runCatching { withContext(io) { resolveHost(h) } }.getOrDefault("")
         if (resolved.isEmpty()) return false
         return looksTailnetHost(resolved)
@@ -172,58 +175,39 @@ class TailscaleEngine(
 
     fun addRclone(backend: RcloneEngine) {
         rcloneBackends += backend
-        notify(socksPort)
+        notify(effectiveSocksPort())
     }
 
     fun removeRclone(backend: RcloneEngine) {
         rcloneBackends -= backend
     }
 
-    private fun notify(port: Int) {
-        val running = port > 0
+    /**
+     * SOCKS port of the running node.
+     *
+     * Usually the lifecycle state machine knows it first, but the node may
+     * also be started through [TailscaleAuthManager] (login flow), which does
+     * not update this engine — the shim itself always knows, so fall back to
+     * it. 0 means no node is running and tailnet dials must not be proxied.
+     */
+    fun effectiveSocksPort(): Int {
+        if (socksPort > 0) return socksPort
+        return runCatching { Tailscale.socksPort().toInt() }.getOrDefault(0)
+    }
+
+    private fun notify(port: Int = effectiveSocksPort()) {
         val jobs = rcloneBackends.toMutableList()
         scope.launch {
             jobs.forEach { backend ->
                 runCatching {
-                    rcloneSocksSync(backend, if (running) port else null)
+                    rcloneSocksSync(backend, if (port > 0) port else null)
                 }
             }
         }
     }
 
-    private suspend fun rcloneSocksSync(backend: RcloneEngine, socksPort: Int?) {
-        try {
-            val dump = runCatching { backend.call("config/dump") }.getOrElse {
-                Log.w(TAG, "rclone sync: config/dump failed", it)
-                return
-            }
-            val remotes = dump.optJSONObject("remotes")
-            if (remotes != null) {
-                // rclone's config/dump returns remotes as an object keyed by name.
-                val keys = remotes.keys()
-                while (keys.hasNext()) {
-                    val name = keys.next()
-                    val params = remotes.optJSONObject(name) ?: continue
-                    val type = params.optString("type", "")
-                    val host = params.optString("host", "")
-                    if (type == "sftp" && withContext(io) { isTailnetHost(host) }) {
-                        val wanted = if (socksPort == null) "" else "socks5://127.0.0.1:$socksPort"
-                        val current = params.optString("socks_proxy", "")
-                        if (current != wanted) {
-                            backend.call(
-                                "config/update",
-                                org.json.JSONObject().put("name", name).put(
-                                    "parameters", org.json.JSONObject().put("socks_proxy", wanted)
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "rclone sync failed", e)
-        }
-    }
+    private suspend fun rcloneSocksSync(backend: RcloneEngine, socksPort: Int?) =
+        RcloneTailnetSync.apply(backend, socksPort)
 
     companion object {
         private const val TAG = "TailscaleEngine"
@@ -243,17 +227,52 @@ class TailscaleEngine(
                     resolveHost = { Tailscale.resolve(it) },
                 )
                 sharedInstance = engine
-                engine.rcloneBackends.forEach { engine.addRclone(it) }
+                // Adopt backends that registered before this engine existed.
+                pendingRclone.forEach { engine.rcloneBackends += it }
+                pendingRclone.clear()
+                if (engine.effectiveSocksPort() > 0) engine.notify()
                 return engine
             }
         }
 
+        private val pendingRclone = java.util.concurrent.CopyOnWriteArrayList<RcloneEngine>()
+
         fun registerRclone(backend: RcloneEngine) {
-            sharedInstance?.addRclone(backend)
+            val engine = sharedInstance
+            if (engine != null) engine.addRclone(backend)
+            else pendingRclone += backend
         }
 
         fun unregisterRclone(backend: RcloneEngine) {
-            sharedInstance?.removeRclone(backend)
+            val engine = sharedInstance
+            if (engine != null) engine.removeRclone(backend)
+            else pendingRclone -= backend
+        }
+
+        /**
+         * Node lifecycle hook for flows that do not own the engine's state
+         * machine ([TailscaleAuthManager] starts the node during login), so
+         * dependent integrations still re-sync once the node can route.
+         */
+        fun onNodeRunning() {
+            val port = runCatching { Tailscale.socksPort().toInt() }.getOrDefault(0)
+            val engine = sharedInstance
+            Log.i(TAG, "onNodeRunning: port=$port sharedEngine=${engine != null} pending=${pendingRclone.size}")
+            if (engine != null) {
+                if (pendingRclone.isNotEmpty()) {
+                    pendingRclone.forEach { engine.rcloneBackends += it }
+                    pendingRclone.clear()
+                }
+                engine.notify()
+            } else if (port > 0 && pendingRclone.isNotEmpty()) {
+                // No engine instance exists yet (the login flow never creates
+                // one); sync the queued backends standalone instead.
+                val backends = pendingRclone.toMutableList()
+                pendingRclone.clear()
+                CoroutineScope(Dispatchers.Default).launch {
+                    backends.forEach { runCatching { RcloneTailnetSync.apply(it, port) } }
+                }
+            }
         }
 
         // Roadmap-style (object) entry points, delegating to the shared instance.

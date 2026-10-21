@@ -1,5 +1,9 @@
 package com.example.earthquack.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -16,12 +20,16 @@ import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentHomeBinding
+import com.example.earthquack.sftp.SftpServerControllerImpl
+import com.example.earthquack.sftp.SftpServerService
+import com.example.earthquack.sftp.SftpServerStatus
 import com.example.earthquack.state.StorageRepository
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatus
 import com.example.earthquack.state.SystemStatusProvider
-import com.example.earthquack.sftp.SftpServerStatus
-import com.example.earthquack.sftp.UnavailableSftpController
+import com.example.earthquack.tailscale.Tailscale
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
 import kotlinx.coroutines.launch
 
 /**
@@ -56,7 +64,16 @@ class HomeFragment : Fragment() {
 
     private lateinit var statusProvider: SystemStatusProvider
     private lateinit var storageRepository: StorageRepository
-    private val sftpController = UnavailableSftpController()
+
+    /**
+     * The real SFTP server controller, so the tile shows the server's actual
+     * state. The old placeholder controller could only ever say "not
+     * available", which made a running server look dead.
+     */
+    private lateinit var sftpController: SftpServerControllerImpl
+
+    /** Receives the SFTP server's status broadcasts. */
+    private var sftpStatusReceiver: BroadcastReceiver? = null
 
     /** Host of the parent activity, used to observe service status broadcasts. */
     private val mainActivity: MainActivity? get() = activity as? MainActivity
@@ -84,6 +101,7 @@ class HomeFragment : Fragment() {
         val context = requireContext()
         statusProvider = SystemStatusProvider(context)
         storageRepository = StorageRepository(context)
+        sftpController = SftpServerControllerImpl(context)
 
         wireActions()
 
@@ -94,6 +112,24 @@ class HomeFragment : Fragment() {
                 mainActivity?.syncState?.collect { refresh() }
             }
         }
+
+        // The node's own state decides the "This device" row, and the SFTP
+        // server broadcasts whenever it starts or stops. Both are observed so
+        // the dashboard never shows a stale value.
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TailscaleNodeMonitor.state.collect { refresh() }
+            }
+        }
+        sftpStatusReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == SftpServerService.ACTION_STATUS_UPDATE) refresh()
+            }
+        }
+        val filter = IntentFilter(SftpServerService.ACTION_STATUS_UPDATE)
+        androidx.core.content.ContextCompat.registerReceiver(
+            requireContext(), sftpStatusReceiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     override fun onResume() {
@@ -203,17 +239,39 @@ class HomeFragment : Fragment() {
         binding.textConnectionState.text = stateText
         binding.textConnectionSub.text = subText
 
-        if (status.isConfigured) {
+        // Endpoint rows. "Device" is this phone's own tailnet address — the
+        // app's identity on the tailnet — while the desktop is named
+        // separately, because the two are easy to confuse and the desktop
+        // address is only meaningful once one is configured.
+        val thisDevice = thisDeviceTailnetIp()
+        if (status.isConfigured || thisDevice != null) {
             binding.dividerConnection.visibility = View.VISIBLE
             binding.rowsConnection.visibility = View.VISIBLE
-            binding.rowHost.label.text = getString(R.string.home_row_device)
-            binding.rowHost.value.text = status.host
+            binding.rowHost.label.text = getString(R.string.home_row_this_device)
+            binding.rowHost.value.text = thisDevice ?: getString(R.string.home_not_on_tailnet)
+            binding.rowDesktop.label.text = getString(R.string.home_row_desktop)
+            binding.rowDesktop.value.text = status.host.orEmpty()
             binding.rowPort.label.text = getString(R.string.home_row_port)
             binding.rowPort.value.text = status.port.toString()
         } else {
             binding.dividerConnection.visibility = View.GONE
             binding.rowsConnection.visibility = View.GONE
         }
+    }
+
+    /**
+     * This phone's tailnet address, from the app's own node.
+     *
+     * The node is the app's identity on the tailnet, so its address is what
+     * a peer needs to reach the services this app serves. Null when the node
+     * is not running.
+     */
+    private fun thisDeviceTailnetIp(): String? {
+        val fromState = (TailscaleNodeMonitor.state.value as? TailscaleLoginState.Running)?.nodeIp
+        if (!fromState.isNullOrBlank()) return fromState
+        return runCatching {
+            org.json.JSONObject(Tailscale.thisDevice()).optString("ip")
+        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     private fun renderServiceTiles(status: SystemStatus) {
@@ -232,11 +290,15 @@ class HomeFragment : Fragment() {
             )
         )
 
-        // SFTP tile reflects the controller, which currently reports
-        // NotImplemented. See UnavailableSftpController for why that is shown
-        // rather than a faked "Stopped".
+        // SFTP tile reflects the real server: the engine knows whether it is
+        // listening and on which port, so the tile can say so instead of
+        // claiming the feature is unavailable.
         val sftpStatus = sftpController.status()
-        binding.textSftpState.text = sftpStatus.label
+        binding.textSftpState.text = when (sftpStatus) {
+            is SftpServerStatus.Running -> getString(R.string.services_sftp_running, sftpStatus.port)
+            is SftpServerStatus.Error -> sftpStatus.message
+            else -> getString(R.string.state_stopped)
+        }
 
         // Transfers: there is no transfer registry yet, so the honest value is
         // always "no active transfers" -- not a made-up completed/failed pair.
@@ -339,6 +401,8 @@ class HomeFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        sftpStatusReceiver?.let { runCatching { requireContext().unregisterReceiver(it) } }
+        sftpStatusReceiver = null
         super.onDestroyView()
         _binding = null
     }

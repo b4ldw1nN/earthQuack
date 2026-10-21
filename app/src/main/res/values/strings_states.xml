@@ -30,6 +30,9 @@
 
     <!-- Home rows -->
     <string name="home_row_device">Device</string>
+    <string name="home_row_this_device">This device</string>
+    <string name="home_row_desktop">Desktop</string>
+    <string name="home_not_on_tailnet">Not on the tailnet</string>
     <string name="home_row_port">Port</string>
     <string name="home_row_ipv4">IP (v4)</string>
     <string name="home_row_peers">Peers</string>

@@ -2,6 +2,7 @@ package com.example.earthquack.storage
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.earthquack.tailscale.TailscaleEngine
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -62,6 +63,10 @@ class RcloneEngine(
             bridge.initialize(configPath)
             ready = true
         }
+        // Embedded-Tailscale routing: when the node is running, tailnet
+        // remotes (SFTP via 100.x/.ts.net) must dial through the in-process
+        // SOCKS5 proxy — there is no system VPN to carry those packets.
+        TailscaleEngine.registerRclone(this)
     }
 
     /**
@@ -134,6 +139,7 @@ class RcloneEngine(
         synchronized(this) {
             if (!ready) return
             bridge.shutdown()
+            TailscaleEngine.unregisterRclone(this)
             ready = false
         }
     }

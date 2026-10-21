@@ -88,7 +88,9 @@ class StorageRepository(context: Context) {
     data class RemoteSummary(
         val name: String,
         val type: String?,
-        val isReachable: Boolean
+        val isReachable: Boolean,
+        /** True when the remote is dialled through the app's Tailscale node. */
+        val routedViaTailscale: Boolean = false,
     )
 
     /**
@@ -110,7 +112,16 @@ class StorageRepository(context: Context) {
         configManager.ensureReady()
         val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
         RcloneRemoteManager(engine).listRemotes().map { name ->
-            RemoteSummary(name = name, type = remoteType(name), isReachable = true)
+            val section = remoteSection(name)
+            RemoteSummary(
+                name = name,
+                type = section?.get("type"),
+                isReachable = true,
+                // A tailnet remote is dialled through this app's own node
+                // (SOCKS5 proxy), which is what makes it reachable without a
+                // system VPN.
+                routedViaTailscale = section?.get("socks_proxy")?.isNotBlank() == true,
+            )
         }
     } catch (e: Exception) {
         // Includes rclone not loading at all, which is a real possibility on an
@@ -126,11 +137,21 @@ class StorageRepository(context: Context) {
      * INI section. Tolerant by design -- a malformed file yields null instead of
      * throwing, because a cosmetic failure must not hide the remote list.
      */
-    private fun remoteType(name: String): String? {
+    private fun remoteType(name: String): String? = remoteSection(name)?.get("type")
+
+    /**
+     * Reads a remote's config section straight from the file.
+     *
+     * Parsed directly rather than via rclone: there is no RPC for "what type is
+     * remote X", and `config/get` would work but is heavier than reading one
+     * INI section. Tolerant by design -- a malformed file yields null instead of
+     * throwing, because a cosmetic failure must never hide the remote list.
+     */
+    private fun remoteSection(name: String): Map<String, String>? {
         val file = configManager.configFile
         if (!file.exists()) return null
         var inSection = false
-        var type: String? = null
+        val values = mutableMapOf<String, String>()
         try {
             file.useLines { lines ->
                 for (line in lines) {
@@ -141,9 +162,10 @@ class StorageRepository(context: Context) {
                             if (inSection) return@useLines
                             inSection = trimmed.substring(1, trimmed.length - 1).trim() == name
                         }
-                        inSection && trimmed.startsWith("type") -> {
-                            type = trimmed.substringAfter('=', "").trim().ifEmpty { null }
-                            return@useLines
+                        inSection -> {
+                            val key = trimmed.substringBefore('=', "").trim()
+                            val value = trimmed.substringAfter('=', "").trim()
+                            if (key.isNotEmpty()) values[key] = value
                         }
                     }
                 }
@@ -152,7 +174,7 @@ class StorageRepository(context: Context) {
             // A cosmetic read must never hide the remote list itself.
             return null
         }
-        return type
+        return if (inSection) values else null
     }
 
     // ── Shared storage availability ──────────────────────────────────────────

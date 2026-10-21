@@ -22,6 +22,8 @@ import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import com.example.earthquack.tailscale.Socks5Relay
+import com.example.earthquack.tailscale.Tailscale
 
 /**
  * Timeouts, in one place, so the terminal and the file browser cannot disagree
@@ -136,12 +138,22 @@ class SshConnectionFactory(
 
         return withContext(Dispatchers.IO) {
             var client: SshClient? = null
+            var relay: Socks5Relay? = null
             try {
+                // The shim is native code: on a JVM (unit tests) the call
+                // fails, and "no proxy" is the correct answer there.
+                val socksPort = runCatching { Tailscale.socksPort().toInt() }.getOrDefault(0)
+                if (socksPort > 0 && isTailnetHost(profile.host)) {
+                    relay = Socks5Relay.start("127.0.0.1", socksPort, profile.host, profile.port)
+                }
+                val connectHost = relay?.localPort?.let { "127.0.0.1" } ?: profile.host
+                val connectPort = relay?.localPort ?: profile.port
+
                 client = SshClient.setUpDefaultClient().apply {
                     serverKeyVerifier = HostKeyVerifier(profile, knownHosts)
                 }
                 client.start()
-                val session = connectAndVerify(client, profile)
+                val session = connectAndVerify(client, profile, connectHost, connectPort)
                 try {
                     authenticate(session, profile, keyPair, password)
                 } catch (e: Throwable) {
@@ -149,11 +161,13 @@ class SshConnectionFactory(
                     throw e
                 }
                 Log.i(TAG, "connected to ${profile.username}@${profile.endpoint}")
-                SshConnectResult.Connected(SshConnection(client, session, profile))
+                SshConnectResult.Connected(SshConnection(client, session, profile, relay))
             } catch (e: SshFailureException) {
+                runCatching { relay?.close() }
                 runCatching { client?.stop() }
                 SshConnectResult.Failed(e.failure)
             } catch (e: Throwable) {
+                runCatching { relay?.close() }
                 runCatching { client?.stop() }
                 SshConnectResult.Failed(classify(e))
             }
@@ -162,10 +176,10 @@ class SshConnectionFactory(
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    private fun connectAndVerify(client: SshClient, profile: ConnectionProfile): ClientSession {
+    private fun connectAndVerify(client: SshClient, profile: ConnectionProfile, host: String = profile.host, port: Int = profile.port): ClientSession {
         // verify() returns void in this sshd line; the session is read back off
         // the future afterwards.
-        val future = client.connect(profile.username, profile.host, profile.port)
+        val future = client.connect(profile.username, host, port)
         future.verify(timeouts.connectMillis, TimeUnit.MILLISECONDS)
         return future.clientSession
             ?: throw SshFailureException(SshFailure.Timeout)
@@ -311,7 +325,8 @@ internal class SshFailureException(val failure: SshFailure) : IOException(failur
 class SshConnection(
     private val client: SshClient,
     val session: ClientSession,
-    val profile: ConnectionProfile
+    val profile: ConnectionProfile,
+    private val relay: Socks5Relay? = null
 ) : AutoCloseable {
 
     @Volatile
@@ -459,6 +474,7 @@ class SshConnection(
         closed = true
         runCatching { session.close() }
         runCatching { client.stop() }
+        runCatching { relay?.close() }
     }
 
     /**
@@ -799,4 +815,13 @@ internal class HostKeyVerifier(
     private companion object {
         const val TAG = "EarthQuackSsh"
     }
+}
+
+private fun isTailnetHost(host: String): Boolean {
+    val h = host.trim().trimEnd('.').lowercase()
+    if (h.endsWith(".ts.net")) return true
+    val parts = h.split(".")
+    if (parts.size != 4) return false
+    val nums = parts.map { it.toIntOrNull() ?: return false }
+    return nums[0] == 100 && nums[1] in 64..127
 }

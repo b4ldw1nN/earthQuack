@@ -282,7 +282,9 @@ class SftpFragment : Fragment() {
         // says so plainly when not -- the placeholder is never printed as an
         // address.
         val configured = true
-        val phoneIp = TailscaleEngine.shared(requireContext()).nodeIp()
+        val phoneIp = runCatching {
+            org.json.JSONObject(com.example.earthquack.tailscale.Tailscale.thisDevice()).optString("ip")
+        }.getOrNull()?.takeIf { it.isNotBlank() }
         binding.rowEndpoint.label.text = getString(R.string.sftp_endpoint)
         binding.rowEndpoint.value.text = if (configured) {
             "${phoneIp ?: "no tailnet IP"}:${settings.port}"
@@ -377,7 +379,9 @@ class SftpFragment : Fragment() {
 
     /** The phone's tailnet address, or a placeholder when there is none. */
     private fun tailnetHost(): String =
-        TailscaleEngine.shared(requireContext()).nodeIp() ?: "phone"
+        runCatching {
+            org.json.JSONObject(com.example.earthquack.tailscale.Tailscale.thisDevice()).optString("ip")
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "phone"
 
     private fun copyText(text: String) {
         val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)

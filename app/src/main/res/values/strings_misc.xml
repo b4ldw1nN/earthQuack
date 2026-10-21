@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="services_tailscale_connected">Connected to your desktop</string>
+    <string name="services_tailscale_connected">Connected (%1$s)</string>
 
     <string name="connections_use_selected">Use selected</string>
     <string name="connections_scanning_generic">Scanning…</string>

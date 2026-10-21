@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,7 +29,9 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/drive"
+	_ "tailscale.com/feature/androidbin"
 	"tailscale.com/ipn"
+	"tailscale.com/net/netmon"
 	"tailscale.com/net/socks5"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -62,6 +65,71 @@ func mustJSON(v any) string {
 }
 
 // ---------------------------------------------------------------------------
+// Android interface fallback
+// ---------------------------------------------------------------------------
+
+func init() {
+	// Android denies app UIDs netlink interface enumeration. Register a
+	// synthetic interface getter so netmon (and tsnet) can start.
+	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
+		addrs, err := outboundAddrs()
+		if err != nil {
+			return nil, err
+		}
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("no outbound routes found")
+		}
+		return []netmon.Interface{{
+			Interface: &net.Interface{
+				MTU:   1500,
+				Name:  "android",
+				Flags: net.FlagUp | net.FlagRunning,
+			},
+			AltAddrs: addrs,
+		}}, nil
+	})
+}
+
+func outboundAddrs() ([]net.Addr, error) {
+	var addrs []net.Addr
+	for _, target := range []struct {
+		network string
+		addr    string
+	}{
+		{"udp4", "8.8.8.8:53"},
+		{"udp6", "[2001:4860:4860::8888]:53"},
+	} {
+		d := net.Dialer{Timeout: 2 * time.Second}
+		c, err := d.Dial(target.network, target.addr)
+		if err != nil {
+			continue
+		}
+		ua, ok := c.LocalAddr().(*net.UDPAddr)
+		c.Close()
+		if !ok {
+			continue
+		}
+		ip, err := netip.ParseAddr(ua.IP.String())
+		if err != nil {
+			continue
+		}
+		ip = ip.Unmap()
+		if ip.IsLoopback() || ip.IsUnspecified() {
+			continue
+		}
+		mask := 32
+		if ip.Is6() {
+			mask = 128
+		}
+		addrs = append(addrs, &net.IPNet{IP: ip.AsSlice(), Mask: net.CIDRMask(mask, mask)})
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no outbound routes found")
+	}
+	return addrs, nil
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
@@ -87,6 +155,9 @@ func Start(stateDir, hostname string) string {
 			"node_ip":    "",
 		})
 	}
+	os.Setenv("HOME", stateDir)
+	os.Setenv("XDG_CACHE_HOME", stateDir)
+	os.Setenv("XDG_CONFIG_HOME", stateDir)
 
 	s := &tsnet.Server{
 		Dir:      stateDir,

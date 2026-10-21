@@ -7,6 +7,7 @@ import android.view.inputmethod.EditorInfo
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import com.example.earthquack.tailscale.TailnetRoute
 import java.net.URL
 
 /**
@@ -89,7 +90,13 @@ class ClipboardImeService : InputMethodService() {
         try {
             val toSend = CryptoUtil.wrapIfNeeded(text, ServerConfig.getAesKey(this@ClipboardImeService), ServerConfig.isAesEnabled(this@ClipboardImeService))
             val url = URL("${ServerConfig.getBaseUrl(this@ClipboardImeService)}/clipboard")
-            val conn = url.openConnection() as HttpURLConnection
+            // Tailnet hosts are only reachable through the app's embedded
+            // node; public/LAN hosts get NO_PROXY and dail the normal way.
+            val conn = url.openConnection(
+                TailnetRoute.socksAddressFor(url.host)?.let {
+                    java.net.Proxy(java.net.Proxy.Type.SOCKS, it)
+                } ?: java.net.Proxy.NO_PROXY
+            ) as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json; utf-8")
             conn.doOutput = true

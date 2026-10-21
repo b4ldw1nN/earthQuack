@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
+import com.example.earthquack.tailscale.TailnetRoute
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -48,6 +49,15 @@ class FileTransferService : Service() {
         .connectTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(0, TimeUnit.SECONDS)   // unlimited for large uploads
         .readTimeout(0, TimeUnit.SECONDS)    // unlimited for large downloads
+        .apply {
+            // The file server lives on the desktop's tailnet address from
+            // user config; with the embedded node (no system VPN) those
+            // dials must go through the node's SOCKS5 proxy. A non-tailnet
+            // host keeps its normal route.
+            TailnetRoute.socksAddressFor(
+                android.net.Uri.parse(ServerConfig.getFileBaseUrl(this@FileTransferService)).host.orEmpty()
+            )?.let { addr -> proxy(java.net.Proxy(java.net.Proxy.Type.SOCKS, addr)) }
+        }
         .build()
 
     /** Returns the configured earthQuack bearer token, or null if unset. */

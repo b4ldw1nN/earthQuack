@@ -13,7 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
-import com.example.earthquack.tailscale.TailscaleEngine
+import com.example.earthquack.tailscale.Tailscale
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 
@@ -159,6 +159,7 @@ class SftpServerService : Service() {
                     return START_NOT_STICKY
                 }
                 val instance = result.getOrThrow()
+                runCatching { Tailscale.serveHTTP(instance.port.toLong(), instance.port.toLong()) }
                 val status = SftpServerStatus.Running(instance.port, instance.connectedClients)
                 updateNotification(instance.port)
                 broadcastStatus()
@@ -226,7 +227,9 @@ class SftpServerService : Service() {
     }
 
     private fun notificationText(port: Int, clients: Int): String {
-        val host = TailscaleEngine.shared(this).nodeIp() ?: "this device"
+        val host = runCatching {
+            org.json.JSONObject(com.example.earthquack.tailscale.Tailscale.thisDevice()).optString("ip")
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "this device"
         val clientWord = resources.getQuantityString(
             R.plurals.sftp_client_count,
             clients,
@@ -258,7 +261,9 @@ class SftpServerService : Service() {
     }
 
     private fun stopServer() {
+        val port = runCatching { SftpServerHolder.engine(this).serverPort() }.getOrDefault(0)
         runCatching { SftpServerHolder.engine(this).stop() }
+        if (port > 0) runCatching { Tailscale.serveStop(port.toLong()) }
         broadcastStatus()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

@@ -10,6 +10,7 @@
     <string name="storage_shared_not_granted">Not granted — needed to read shared files</string>
 
     <string name="storage_remote_status">%1$s</string>
+    <string name="storage_remote_via_tailscale">%1$s · via Tailscale</string>
     <string name="storage_remote_type_unknown">Type not declared</string>
     <string name="storage_remotes_error">Could not read rclone configuration. The native library may have failed to load on this device.</string>
     <string name="storage_delete_failed">Could not delete remote: %1$s</string>

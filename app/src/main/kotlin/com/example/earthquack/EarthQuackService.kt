@@ -28,6 +28,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
 import com.example.earthquack.state.ClipboardEntry
 import com.example.earthquack.state.ClipboardHistoryStore
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
 import com.example.earthquack.tailscale.TailscaleEngine
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -153,6 +154,10 @@ class EarthQuackService : LifecycleService() {
         isScreenOn        = powerManager.isInteractive
         createNotificationChannel()
         registerScreenReceiver()
+
+        // The embedded node is this app's own tailnet identity: it starts
+        // with the app and stays up regardless of the desktop service.
+        TailscaleNodeMonitor.start(applicationContext)
     }
 
     private fun registerScreenReceiver() {

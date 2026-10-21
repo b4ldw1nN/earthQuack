@@ -5,12 +5,18 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentServicesBinding
 import com.example.earthquack.sftp.SftpServerControllerImpl
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
+import kotlinx.coroutines.launch
 
 /**
  * Services hub: Tailscale, SFTP and Clipboard.
@@ -73,6 +79,8 @@ class ServicesFragment : Fragment() {
             rowTitle.setText(R.string.services_profiles)
             root.setOnClickListener { mainActivity?.openProfiles() }
         }
+
+        observeNodeState()
     }
 
     override fun onResume() {
@@ -80,15 +88,32 @@ class ServicesFragment : Fragment() {
         refresh()
     }
 
+    /**
+     * Keeps the Tailscale row live: the node's state changes on its own
+     * schedule (it comes up with the app, and can drop if the network
+     * changes), so the row follows the node rather than the screen.
+     */
+    private fun observeNodeState() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TailscaleNodeMonitor.state.collect { refresh() }
+            }
+        }
+    }
+
     private fun refresh() {
         val status = statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+        val nodeState = TailscaleNodeMonitor.state.value
 
-        // Tailscale: described by the sync connection, because that is what
-        // actually exercises the tailnet.
-        binding.rowTailscale.rowSubtitle.text = when {
-            status.isConnected -> getString(R.string.services_tailscale_connected)
-            status.syncState == SyncStateLabel.CONNECTING -> getString(R.string.state_connecting)
-            !status.isConfigured -> getString(R.string.subtitle_not_configured)
+        // Tailscale: the state of this app's own node. The tailnet is
+        // connected whenever the node is running — it does not depend on
+        // the desktop binary being up, which is a separate service shown
+        // on its own row.
+        binding.rowTailscale.rowSubtitle.text = when (val node = nodeState) {
+            is TailscaleLoginState.Running ->
+                getString(R.string.services_tailscale_connected, node.nodeIp)
+            is TailscaleLoginState.Starting -> getString(R.string.state_connecting)
+            is TailscaleLoginState.NeedsLogin -> getString(R.string.state_connecting)
             else -> getString(R.string.state_disconnected)
         }
 

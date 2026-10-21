@@ -95,6 +95,10 @@
                     layout="@layout/partial_detail_row" />
 
                 <include
+                    android:id="@+id/rowDesktop"
+                    layout="@layout/partial_detail_row" />
+
+                <include
                     android:id="@+id/rowPort"
                     layout="@layout/partial_detail_row" />
             </LinearLayout>
