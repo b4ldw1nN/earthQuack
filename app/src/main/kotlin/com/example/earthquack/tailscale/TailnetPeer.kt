@@ -20,6 +20,8 @@ data class TailnetPeer(
     val ip: String,
     val os: String,
     val online: Boolean,
+    /** The peer's MagicDNS name, which survives an address change. */
+    val dnsName: String = "",
     val exitNodeOption: Boolean = false,
     val isExitNode: Boolean = false,
 ) {
@@ -44,6 +46,7 @@ data class TailnetPeer(
                     ip = o.optString("ip"),
                     os = o.optString("os"),
                     online = o.optBoolean("online"),
+                    dnsName = o.optString("dns_name").trimEnd('.'),
                     exitNodeOption = o.optBoolean("exit_node_option"),
                     isExitNode = o.optBoolean("exit_node"),
                 )

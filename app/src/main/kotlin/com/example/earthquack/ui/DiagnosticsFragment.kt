@@ -167,7 +167,8 @@ class DiagnosticsFragment : Fragment() {
                 if (peer.exitNodeOption) add("exit node")
                 if (peer.isExitNode) add("in use")
             }.joinToString(", ")
-            container.addView(row(container, peer.name.ifBlank { peer.ip }, "${peer.ip} · $flags"))
+            val address = listOfNotNull(peer.dnsName.takeIf { it.isNotBlank() }, peer.ip).joinToString(" · ")
+            container.addView(row(container, peer.name.ifBlank { peer.ip }, "$address · $flags"))
         }
     }
 

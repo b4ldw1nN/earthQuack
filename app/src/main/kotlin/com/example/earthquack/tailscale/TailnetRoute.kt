@@ -59,4 +59,35 @@ object TailnetRoute {
         val nums = parts.map { it.toIntOrNull() ?: return false }
         return nums[0] == 100 && nums[1] in 64..127
     }
+
+    /**
+     * This node's MagicDNS name, e.g. "phone.tailnet.ts.net".
+     *
+     * The name outlives an IP change, so it is the address to hand to a
+     * peer: a remote configured with an IP breaks the next time the node
+     * re-enrols. Null when the node does not report one.
+     */
+    fun thisDeviceDnsName(): String? = runCatching {
+        val json = org.json.JSONObject(Tailscale.thisDevice())
+        json.optString("dns_name").trimEnd('.').takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /**
+     * The MagicDNS names of the tailnet's peers, by IP address.
+     *
+     * Used to rewrite a remote's host from an address to a name, so the
+     * configuration keeps working when the address changes.
+     */
+    fun peerDnsNames(): Map<String, String> = runCatching {
+        val array = org.json.JSONArray(Tailscale.peers())
+        (0 until array.length()).mapNotNull { i ->
+            val o = array.optJSONObject(i) ?: return@mapNotNull null
+            val ip = o.optString("ip")
+            // The node reports the name in FQDN form; the trailing dot is
+            // correct DNS but odd in a config file.
+            val dns = o.optString("dns_name").trimEnd('.')
+            if (ip.isBlank() || dns.isBlank()) return@mapNotNull null
+            ip to dns
+        }.toMap()
+    }.getOrDefault(emptyMap())
 }

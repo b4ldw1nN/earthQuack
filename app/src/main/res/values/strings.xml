@@ -173,6 +173,8 @@
     <string name="sftp_title">SFTP Server</string>
     <string name="sftp_subtitle">Access your phone over Tailscale</string>
     <string name="sftp_endpoint">Endpoint</string>
+    <string name="sftp_tailnet_address">Tailnet address</string>
+    <string name="sftp_no_tailnet_address">no tailnet address</string>
     <string name="sftp_username">Username</string>
     <string name="sftp_root">Root directory</string>
     <string name="sftp_clients">Connected clients</string>

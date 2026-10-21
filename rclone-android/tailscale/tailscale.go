@@ -271,9 +271,16 @@ func statusLocked() string {
 	if len(st.TailscaleIPs) > 0 {
 		nodeIP = st.TailscaleIPs[0].String()
 	}
+	// The MagicDNS name outlives an IP change, so it is the better address
+	// to hand to a peer.
+	dnsName := ""
+	if st.Self != nil {
+		dnsName = st.Self.DNSName
+	}
 	return mustJSON(map[string]any{
 		"state":      st.BackendState,
 		"node_ip":    nodeIP,
+		"dns_name":   dnsName,
 		"login_url":  st.AuthURL,
 		"socks_port": socksPort,
 	})
@@ -291,11 +298,13 @@ func SocksPort() int {
 // ---------------------------------------------------------------------------
 
 type tailnetPeer struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	IP     string `json:"ip"`
-	OS     string `json:"os"`
-	Online bool   `json:"online"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	IP   string `json:"ip"`
+	OS   string `json:"os"`
+	// DNSName is the peer's MagicDNS name, which survives an IP change.
+	DNSName string `json:"dns_name"`
+	Online  bool   `json:"online"`
 	// ExitNodeOption is true when this peer offers exit-node service
 	// (advertised AND approved in the tailnet policy). Drives the
 	// "Route internet through" picker.
@@ -330,6 +339,7 @@ func Peers() string {
 			Name:           p.HostName,
 			IP:             ip,
 			OS:             p.OS,
+			DNSName:        p.DNSName,
 			Online:         p.Online,
 			ExitNodeOption: p.ExitNodeOption,
 			ExitNode:       p.ExitNode,
@@ -357,13 +367,16 @@ func ThisDevice() string {
 		nodeIP = st.TailscaleIPs[0].String()
 	}
 	name := ""
+	dnsName := ""
 	if st.Self != nil {
 		name = st.Self.HostName
+		dnsName = st.Self.DNSName
 	}
 	return mustJSON(map[string]any{
-		"name": name,
-		"ip":   nodeIP,
-		"os":   "android",
+		"name":     name,
+		"ip":       nodeIP,
+		"dns_name": dnsName,
+		"os":       "android",
 	})
 }
 

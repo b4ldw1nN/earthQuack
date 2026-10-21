@@ -285,12 +285,18 @@ class SftpFragment : Fragment() {
         val phoneIp = runCatching {
             org.json.JSONObject(com.example.earthquack.tailscale.Tailscale.thisDevice()).optString("ip")
         }.getOrNull()?.takeIf { it.isNotBlank() }
+        // The name is what a peer should use: an address changes when the
+        // node re-enrols, the name does not.
+        val dnsName = com.example.earthquack.tailscale.TailnetRoute.thisDeviceDnsName()
         binding.rowEndpoint.label.text = getString(R.string.sftp_endpoint)
         binding.rowEndpoint.value.text = if (configured) {
-            "${phoneIp ?: "no tailnet IP"}:${settings.port}"
+            val host = dnsName ?: phoneIp ?: getString(R.string.sftp_no_tailnet_address)
+            "$host:${settings.port}"
         } else {
             getString(R.string.state_not_configured)
         }
+        binding.rowAddress.label.text = getString(R.string.sftp_tailnet_address)
+        binding.rowAddress.value.text = phoneIp ?: getString(R.string.state_unknown)
         binding.rowUsername.label.text = getString(R.string.sftp_username)
         binding.rowUsername.value.text = USERNAME
         binding.rowRoot.label.text = getString(R.string.sftp_root)

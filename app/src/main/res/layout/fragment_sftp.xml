@@ -55,6 +55,7 @@
 
         <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
             <include android:id="@+id/rowEndpoint" layout="@layout/partial_detail_row" />
+            <include android:id="@+id/rowAddress" layout="@layout/partial_detail_row" />
             <include android:id="@+id/rowUsername" layout="@layout/partial_detail_row" />
             <include android:id="@+id/rowRoot" layout="@layout/partial_detail_row" />
             <include android:id="@+id/rowClients" layout="@layout/partial_detail_row" />

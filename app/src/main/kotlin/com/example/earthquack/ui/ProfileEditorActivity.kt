@@ -203,14 +203,17 @@ class ProfileEditorActivity : AppCompatActivity() {
         binding.peerSuggestions.removeAllViews()
         peers.forEach { peer ->
             val label = peer.name.ifBlank { peer.ip }
+            // The name is offered first: a profile pointing at a name keeps
+            // working when the peer's address changes.
+            val host = peer.dnsName.ifBlank { peer.ip }
             val row = com.google.android.material.button.MaterialButton(
                 this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
             ).apply {
-                text = getString(R.string.profile_peer_suggestion, label, peer.ip)
+                text = getString(R.string.profile_peer_suggestion, label, host)
                 isAllCaps = false
                 setOnClickListener {
-                    binding.fieldHost.setText(peer.ip)
-                    binding.fieldHost.setSelection(peer.ip.length)
+                    binding.fieldHost.setText(host)
+                    binding.fieldHost.setSelection(host.length)
                 }
             }
             binding.peerSuggestions.addView(row)
