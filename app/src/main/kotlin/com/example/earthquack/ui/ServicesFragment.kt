@@ -79,8 +79,27 @@ class ServicesFragment : Fragment() {
             rowTitle.setText(R.string.services_profiles)
             root.setOnClickListener { mainActivity?.openProfiles() }
         }
+        binding.rowDiagnostics.apply {
+            rowIcon.setImageResource(R.drawable.ic_eq_settings)
+            rowTitle.setText(R.string.diagnostics_header)
+            rowSubtitle.setText(R.string.diagnostics_sub)
+            root.setOnClickListener { mainActivity?.pushSubScreen(DiagnosticsFragment(), getString(R.string.diagnostics_header), "") }
+        }
 
         observeNodeState()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.example.earthquack.AppStatus.message.collect { message ->
+                    StatusBanner.render(
+                        binding.statusBanner.root,
+                        binding.statusBanner.bannerText,
+                        binding.statusBanner.bannerAction,
+                        message,
+                    )
+                }
+            }
+        }
     }
 
     override fun onResume() {

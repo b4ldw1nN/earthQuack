@@ -144,6 +144,13 @@
                 android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
                 tools:text="None (direct)" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:text="@string/exit_node_scope"
+                android:textAppearance="@style/TextAppearance.Eq.Meta" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnChangeExitNode"
                 style="@style/Widget.Eq.Button.Text"

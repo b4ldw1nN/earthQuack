@@ -54,7 +54,7 @@
     <string name="services_clipboard">Clipboard</string>
     <string name="services_clipboard_sub">Sync text between devices</string>
     <string name="services_history">History</string>
-    <string name="services_profiles">Connections</string>
+    <string name="services_profiles">SSH Profiles</string>
 
     <!-- Terminal -->
     <string name="terminal_connect">Connect</string>
@@ -89,8 +89,8 @@
     <string name="profile_files_not_implemented">File browser not implemented yet</string>
 
     <!-- Connections -->
-    <string name="connections_title">Connections</string>
-    <string name="connections_subtitle">Tailscale</string>
+    <string name="connections_title">Tailscale</string>
+    <string name="connections_subtitle">Peers, exit node, published services</string>
     <string name="connections_device_name">Device name</string>
     <string name="connections_ipv4">IP (v4)</string>
     <string name="connections_peers">Peers</string>
@@ -105,6 +105,7 @@
     <string name="exit_node_cleared">Exit node cleared — traffic goes direct</string>
     <string name="exit_node_set">Routing all tailnet traffic through %1$s</string>
     <string name="exit_node_failed">Could not change exit node</string>
+    <string name="exit_node_scope">Applies to this app\'s traffic (SFTP, tailnet remotes, the desktop link) — not to the rest of the phone\'s internet.</string>
     <string name="connections_discovered">Discovered Devices</string>
 
     <!-- Connection profiles (Phase 7) -->

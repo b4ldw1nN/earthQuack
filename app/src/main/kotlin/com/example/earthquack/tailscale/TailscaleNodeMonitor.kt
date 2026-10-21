@@ -2,6 +2,7 @@ package com.example.earthquack.tailscale
 
 import android.content.Context
 import android.util.Log
+import com.example.earthquack.AppStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,10 +53,22 @@ object TailscaleNodeMonitor {
         if (manager != null) return
         synchronized(this) {
             if (manager != null) return
+            pendingContext = context.applicationContext
             val authManager = TailscaleAuthManager(TailscaleStateStore(context.applicationContext))
             manager = authManager
             scope.launch {
-                authManager.state.collect { _state.value = it }
+                authManager.state.collect { state ->
+                    val wasRunning = _state.value is TailscaleLoginState.Running
+                    _state.value = state
+                    publishNodeStatus(state)
+                    if (state is TailscaleLoginState.Running && !wasRunning) {
+                        // The node restarted: re-publish the ports the user
+                        // asked for, which died with the old node.
+                        runCatching {
+                            ServeManager(NativeServeControl, store = ServeStore(context.applicationContext)).restore()
+                        }
+                    }
+                }
             }
             scope.launch {
                 runCatching { authManager.startLogin() }
@@ -84,4 +97,43 @@ object TailscaleNodeMonitor {
         val url = (_state.value as? TailscaleLoginState.NeedsLogin)?.loginUrl ?: return
         manager?.openLoginTab(context, url)
     }
+
+    /**
+     * Turns the node's state into a message the user can act on.
+     *
+     * The node failing is invisible otherwise: the app keeps running, the
+     * screens keep showing their normal content, and every tailnet feature
+     * quietly stops working. Publishing the state here is what makes that
+     * visible without hunting for it.
+     */
+    private fun publishNodeStatus(state: TailscaleLoginState) {
+        val message = when (state) {
+            is TailscaleLoginState.Running -> null // healthy: nothing to say
+            is TailscaleLoginState.NeedsLogin -> AppStatus.Message(
+                text = "Tailscale needs you to sign in again. Until then, tailnet " +
+                    "features (SFTP, tailnet remotes, the desktop link) cannot work.",
+                severity = AppStatus.Severity.Error,
+                actionLabel = "Sign in",
+                action = { pendingContext?.let { openLoginTab(it) } },
+            )
+            is TailscaleLoginState.Error -> AppStatus.Message(
+                text = "Tailscale stopped working: ${state.message}",
+                severity = AppStatus.Severity.Error,
+                actionLabel = "Retry",
+                action = { pendingContext?.let { login(it) } },
+            )
+            is TailscaleLoginState.Stopped -> AppStatus.Message(
+                text = "Tailscale is stopped. Tailnet features are unavailable " +
+                    "until it is running again.",
+                severity = AppStatus.Severity.Warning,
+                actionLabel = "Start",
+                action = { pendingContext?.let { start(it) } },
+            )
+            else -> null // Idle / Starting: transient, nothing worth a banner
+        }
+        AppStatus.publish(AppStatus.SOURCE_NODE, message)
+    }
+
+    /** Context kept so the banner's actions can act without one being passed in. */
+    private var pendingContext: Context? = null
 }

@@ -26,6 +26,10 @@ const val ORIGIN_DESKTOP = "desktop"
 const val NOTIFICATION_CHANNEL_ID = "earthquack_channel"
 const val NOTIFICATION_ID = 1001
 
+/** Channel and id for "the Tailscale node needs attention". */
+const val NODE_CHANNEL_ID = "earthquack_tailscale"
+const val NODE_NOTIFICATION_ID = 1002
+
 // ────────────────────────────────────────────────────────────────────────────
 // Intent actions (service ↔ activity ↔ notification receiver)
 // ────────────────────────────────────────────────────────────────────────────

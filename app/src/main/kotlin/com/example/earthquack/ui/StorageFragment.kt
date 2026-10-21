@@ -17,6 +17,7 @@ import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentStorageBinding
 import com.example.earthquack.databinding.ItemRemoteRowBinding
 import com.example.earthquack.state.StorageRepository
+import com.example.earthquack.storage.RcloneHealthProbe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +50,15 @@ class StorageFragment : Fragment() {
 
     private lateinit var repository: StorageRepository
     private lateinit var importer: RcloneConfigImporter
+
+    /**
+     * Rows of the remote list, by remote name, so a probe result can update
+     * the row it belongs to.
+     */
+    private val remoteRows = mutableMapOf<String, ItemRemoteRowBinding>()
+
+    /** The type/route part of each row's label, without the health suffix. */
+    private val remoteBaseLabels = mutableMapOf<String, String>()
 
     /**
      * SAF picker for an existing rclone.conf.
@@ -184,18 +194,68 @@ class StorageFragment : Fragment() {
                     b.remotesMessage.visibility = View.GONE
                     b.btnRemotesRetry.visibility = View.GONE
                     renderRemotes(remotes)
+                    probeRemotes(remotes.map { it.name })
                 }
             }
         }
+    }
+
+    /**
+     * Probes each remote and updates its row as the answers arrive.
+     *
+     * Probing is slow (a network round-trip per remote) and may never finish
+     * for a remote that hangs, so each remote's row is updated on its own
+     * rather than waiting for the whole set.
+     */
+    private fun probeRemotes(names: List<String>) {
+        if (names.isEmpty()) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            repository.probeRemotes(names) { name, result ->
+                val row = remoteRows[name] ?: return@probeRemotes
+                row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
+                row.remoteStatus.setTextColor(
+                    resources.getColor(
+                        when (result.state) {
+                            RcloneHealthProbe.State.Ok -> R.color.eq_success
+                            RcloneHealthProbe.State.Unknown -> R.color.eq_text_muted
+                            else -> R.color.eq_warning
+                        },
+                        requireContext().theme
+                    )
+                )
+            }
+        }
+    }
+
+    /**
+     * Combines the type/route prefix with the probe result.
+     *
+     * The prefix is kept because "sftp · via Tailscale" says how it is
+     * reached, while the health says whether it answers; the two are
+     * different facts and both are worth showing.
+     */
+    private fun remoteStatusLabel(prefix: String, health: RcloneHealthProbe.Health): String {
+        val suffix = when (health.state) {
+            RcloneHealthProbe.State.Ok -> getString(R.string.storage_remote_ok)
+            RcloneHealthProbe.State.NeedsAuth -> getString(R.string.storage_remote_needs_auth)
+            RcloneHealthProbe.State.Unreachable -> getString(R.string.storage_remote_unreachable)
+            RcloneHealthProbe.State.Failed -> getString(R.string.storage_remote_failed)
+            RcloneHealthProbe.State.NotSupported -> getString(R.string.storage_remote_not_supported)
+            RcloneHealthProbe.State.Unknown -> return prefix
+        }
+        return getString(R.string.storage_remote_status_with_health, prefix, suffix)
     }
 
     private fun renderRemotes(remotes: List<StorageRepository.RemoteSummary>) {
         val container = binding.cardRemotes
         container.removeAllViews()
         container.visibility = View.VISIBLE
+        remoteRows.clear()
+        remoteBaseLabels.clear()
 
         remotes.forEachIndexed { index, remote ->
             val row = ItemRemoteRowBinding.inflate(layoutInflater, container, false)
+            remoteRows[remote.name] = row
             row.remoteName.text = remote.name
             // Type when the config declares one, otherwise say so. Guessing a
             // backend from the section name would be fabrication. Tailnet
@@ -205,11 +265,13 @@ class StorageFragment : Fragment() {
             val typeLabel = remote.type
                 ?.let { getString(R.string.storage_remote_status, it) }
                 ?: getString(R.string.storage_remote_type_unknown)
-            row.remoteStatus.text = if (remote.routedViaTailscale) {
+            val baseLabel = if (remote.routedViaTailscale) {
                 getString(R.string.storage_remote_via_tailscale, typeLabel)
             } else {
                 typeLabel
             }
+            remoteBaseLabels[remote.name] = baseLabel
+            row.remoteStatus.text = baseLabel
 
             row.remoteIcon.setImageResource(iconForType(remote.type))
             row.remoteIcon.imageTintList = resources.getColorStateList(

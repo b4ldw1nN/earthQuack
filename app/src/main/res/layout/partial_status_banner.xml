@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Status banner.
+
+    One place for the app to say the one thing the user must know: the node
+    needs a sign-in, the desktop disagrees about encryption, the SFTP server
+    failed to start. Hidden when there is nothing to say, so a healthy app
+    shows no banner at all.
+
+    The action button is optional: many problems have nothing the user can do
+    from here, and a button that goes nowhere is worse than no button.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/statusBanner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/eq_warning_dim"
+    android:padding="@dimen/eq_gap_md"
+    android:visibility="gone"
+    tools:visibility="visible">
+
+    <TextView
+        android:id="@+id/bannerText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/eq_warning"
+        android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+        tools:text="Tailscale needs you to sign in again." />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/bannerAction"
+        style="@style/Widget.Eq.Button.Text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/eq_gap_xs"
+        android:layout_marginTop="@dimen/eq_gap_xs"
+        android:visibility="gone"
+        tools:text="Sign in"
+        tools:visibility="visible" />
+
+</LinearLayout>

@@ -80,6 +80,16 @@
                     android:inputType="textUri"
                     android:hint="@string/profile_host_hint" />
 
+                <!-- Peers seen by the embedded node: one tap instead of typing
+                     a tailnet address. Hidden when the node sees nobody. -->
+                <LinearLayout
+                    android:id="@+id/peerSuggestions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="@dimen/eq_gap_sm"
+                    android:visibility="gone" />
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

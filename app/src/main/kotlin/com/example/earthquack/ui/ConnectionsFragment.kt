@@ -124,8 +124,7 @@ class ConnectionsFragment : Fragment() {
             } else {
                 requireContext().startService(intent)
             }
-            binding.btnBackground.text = "Running in background"
-            android.widget.Toast.makeText(requireContext(), "Tailscale keep-alive enabled", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(requireContext(), R.string.connections_background_enabled, android.widget.Toast.LENGTH_SHORT).show()
         }
 
         observeTailscaleNode()
@@ -148,12 +147,15 @@ class ConnectionsFragment : Fragment() {
             // the same node instead of starting its own.
             launch {
                 TailscaleNodeMonitor.state.collect { state ->
+                    render()
                     if (state is TailscaleLoginState.Running) {
                         renderExitNodeSection()
                         binding.btnTailscaleLogin.visibility = View.GONE
+                        binding.btnBackground.setText(R.string.connections_background_running)
                         refreshPeers()
                     } else {
                         hideExitNodeSection()
+                        binding.btnBackground.setText(R.string.connections_background_start)
                     }
                     if (state is TailscaleLoginState.NeedsLogin && state.loginUrl.isNotBlank()) {
                         TailscaleNodeMonitor.openLoginTab(requireContext())
@@ -288,21 +290,23 @@ class ConnectionsFragment : Fragment() {
         binding.statusConnection.apply {
             toggle.visibility = View.GONE
             action.visibility = View.GONE
+            // This screen is about the tailnet, so the card reports the node.
+            // The desktop link is a separate service and is shown by its own
+            // row; saying "Disconnected" here because the desktop binary is
+            // down would misdescribe the node.
+            val nodeRunning = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
             dot.setBackgroundResource(
-                when {
-                    status.isConnected -> R.drawable.eq_dot_hollow_success
-                    else -> R.drawable.eq_dot_hollow_muted
-                }
+                if (nodeRunning) R.drawable.eq_dot_hollow_success else R.drawable.eq_dot_hollow_muted
             )
             statusText.text = when {
-                status.isConnected -> getString(R.string.state_connected)
-                status.syncState == SyncStateLabel.CONNECTING -> getString(R.string.state_connecting)
+                nodeRunning -> getString(R.string.state_connected)
+                TailscaleNodeMonitor.state.value is TailscaleLoginState.Starting ->
+                    getString(R.string.state_connecting)
                 else -> getString(R.string.state_disconnected)
             }
             statusSub.text = when {
-                status.isConnected -> getString(R.string.subtitle_connected_via_tailscale)
-                !status.isConfigured -> getString(R.string.connections_not_configured)
-                else -> getString(R.string.subtitle_tap_start)
+                nodeRunning -> getString(R.string.subtitle_connected_via_tailscale)
+                else -> getString(R.string.connections_not_on_tailnet)
             }
         }
 

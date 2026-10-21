@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="diagnostics_header">Diagnostics</string>
+    <string name="diagnostics_sub">Node, peers, services, remotes</string>
+    <string name="diagnostics_peers_header">Peers</string>
+    <string name="diagnostics_services_header">Services</string>
+    <string name="diagnostics_remotes_header">rclone remotes</string>
+    <string name="diagnostics_node_state">Node state</string>
+    <string name="diagnostics_node_ip">This device</string>
+    <string name="diagnostics_socks_port">SOCKS port</string>
+    <string name="diagnostics_exit_node">Exit node</string>
+    <string name="diagnostics_sftp_server">SFTP server</string>
+    <string name="diagnostics_serves">Published ports</string>
+    <string name="diagnostics_desktop">Desktop</string>
+    <string name="diagnostics_capabilities">Desktop build</string>
+    <string name="diagnostics_none">None</string>
+    <string name="diagnostics_no_peers">No peers visible</string>
+    <string name="diagnostics_not_queried">Not queried yet</string>
+    <string name="diagnostics_refresh">Refresh</string>
+    <string name="diagnostics_copy">Copy report</string>
+    <string name="diagnostics_copied">Report copied to the clipboard</string>
+    <string name="node_needs_signin">Tailscale needs you to sign in again</string>
+    <string name="node_failed">Tailscale failed: %1$s</string>
+    <string name="profile_peer_suggestion">%1$s — %2$s</string>
+</resources>

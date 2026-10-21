@@ -23,6 +23,10 @@
         android:paddingEnd="@dimen/eq_gutter"
         android:paddingBottom="@dimen/eq_gap_xl">
 
+        <include
+            android:id="@+id/statusBanner"
+            layout="@layout/partial_status_banner" />
+
         <!-- ── Connectivity ───────────────────────────────────────────────
              The single most important card: it answers "is my desktop
              reachable" without the user having to read anything else. -->

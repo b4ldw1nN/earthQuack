@@ -7,9 +7,31 @@ import kotlinx.coroutines.withContext
 class ServeManager(
     private val control: ServeControl,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** Where the user's intent is kept, so a restart does not unpublish it. */
+    private val store: ServeStore? = null,
 ) {
 
     private val active = mutableListOf<ServeEntry>()
+
+    /**
+     * Re-publishes the serves the user asked for.
+     *
+     * Called when the node comes back: the node holds the live state, the
+     * store holds the intent, and a node restart leaves the intent intact.
+     */
+    suspend fun restore(): List<ServeEntry> {
+        val wanted = store?.entries().orEmpty()
+        wanted.forEach { entry ->
+            runCatching {
+                if (entry.tls) control.serveTLS(entry.localPort, entry.tailnetPort)
+                else control.serveHTTP(entry.localPort, entry.tailnetPort)
+                if (entry.funnel) control.funnelEnable(entry.tailnetPort)
+                active.removeAll { it.tailnetPort == entry.tailnetPort }
+                active += entry
+            }
+        }
+        return active.toList()
+    }
 
     suspend fun serveHttp(localPort: Int, tailnetPort: Int) {
         withContext(io) {
@@ -20,6 +42,7 @@ class ServeManager(
             }
         }
         active += ServeEntry(localPort, tailnetPort, tls = false)
+        persist()
     }
 
     suspend fun serveTls(localPort: Int, tailnetPort: Int) {
@@ -31,6 +54,7 @@ class ServeManager(
             }
         }
         active += ServeEntry(localPort, tailnetPort, tls = true)
+        persist()
     }
 
     suspend fun exposeClipboardApi() = serveHttp(8875, 80)
@@ -46,11 +70,17 @@ class ServeManager(
             }
         }
         active.removeAll { it.tailnetPort == tailnetPort }
+        persist()
     }
 
     suspend fun stopAll() {
         active.toList().forEach { runCatching { stop(it.tailnetPort) } }
         active.clear()
+        persist()
+    }
+
+    private fun persist() {
+        store?.save(active.toList())
     }
 
     fun activeServes(): List<ServeEntry> = active.toList()
@@ -65,6 +95,7 @@ class ServeManager(
         }
         val idx = active.indexOfFirst { it.tailnetPort == tailnetPort }
         if (idx >= 0) active[idx] = active[idx].copy(funnel = true)
+        persist()
     }
 
     suspend fun funnelDisable(tailnetPort: Int) {
@@ -77,6 +108,7 @@ class ServeManager(
         }
         val idx = active.indexOfFirst { it.tailnetPort == tailnetPort }
         if (idx >= 0) active[idx] = active[idx].copy(funnel = false)
+        persist()
     }
 }
 

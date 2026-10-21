@@ -85,6 +85,10 @@ class MainActivity : AppCompatActivity() {
         // service — see TailscaleNodeMonitor.
         TailscaleNodeMonitor.start(this)
 
+        // The phone's own clipboard API, so the desktop can talk to the
+        // phone directly instead of needing a server on the desktop.
+        com.example.earthquack.clipboard.ClipboardApiServer.get(this)
+
         statusProvider = SystemStatusProvider(this)
 
         binding.bottomNav.setOnItemSelectedListener { item ->

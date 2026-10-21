@@ -4,6 +4,20 @@ desktop.py — bidirectional clipboard sync for Desktop Linux & Windows
 
   Desktop → Phone:  polls wl-paste every 0.5s, POSTs changes to server.py
   Phone → Desktop:  listens to SSE stream, writes received text to wl-copy
+
+The server it talks to can be either one:
+
+  * the desktop's own server.py (default), or
+  * the phone's clipboard API, published to the tailnet by the Android app
+    (Services → Tailscale → Serve / Funnel → Clipboard API).
+
+Point at the phone with:
+
+  CLIPBOARD_SERVER_HOST=100.121.203.68 CLIPBOARD_SERVER_PORT=8875
+
+Both speak the same protocol, so nothing else changes. The phone encrypts
+what it serves when it has an AES key configured; both sides must use the
+same key (GET /capabilities reports the key's fingerprint).
 """
 
 import argparse

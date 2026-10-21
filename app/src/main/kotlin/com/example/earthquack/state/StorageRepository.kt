@@ -6,7 +6,9 @@ import android.os.Environment
 import android.os.StatFs
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneHealthProbe
 import com.example.earthquack.storage.RcloneRemoteManager
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Real storage figures for the Storage screen.
@@ -33,6 +35,11 @@ import com.example.earthquack.storage.RcloneRemoteManager
  * only the name and whether it is reachable.
  */
 class StorageRepository(context: Context) {
+
+    private companion object {
+        /** Per-remote probe budget; a dead host must not stall the list. */
+        const val PROBE_TIMEOUT_MS = 12_000L
+    }
 
     private val appContext = context.applicationContext
     private val configManager = RcloneConfigManager(appContext)
@@ -116,7 +123,9 @@ class StorageRepository(context: Context) {
             RemoteSummary(
                 name = name,
                 type = section?.get("type"),
-                isReachable = true,
+                // Reachability is established by a probe ([probeRemotes]),
+                // not asserted here.
+                isReachable = false,
                 // A tailnet remote is dialled through this app's own node
                 // (SOCKS5 proxy), which is what makes it reachable without a
                 // system VPN.
@@ -127,6 +136,30 @@ class StorageRepository(context: Context) {
         // Includes rclone not loading at all, which is a real possibility on an
         // ABI we do not ship. Null means "unknown", not "empty".
         null
+    }
+
+    /**
+     * Probes each remote and reports the outcome as it arrives.
+     *
+     * Sequential on purpose — one rclone engine, one call at a time — but the
+     * callback fires per remote, so the list fills in progressively instead of
+     * staying blank until the slowest remote answers. Each probe is bounded
+     * by a timeout, so one dead host cannot stall the rest.
+     */
+    suspend fun probeRemotes(
+        names: List<String>,
+        onResult: (String, RcloneHealthProbe.Health) -> Unit,
+    ) = try {
+        configManager.ensureReady()
+        val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+        names.forEach { name ->
+            val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+                RcloneHealthProbe.probe(engine, name)
+            } ?: RcloneHealthProbe.Health(RcloneHealthProbe.State.Unreachable, "timed out")
+            onResult(name, health)
+        }
+    } catch (e: Exception) {
+        // A failed probe is a result, not a crash: the list stays usable.
     }
 
     /**

@@ -24,6 +24,10 @@
         android:paddingTop="@dimen/eq_gap_sm"
         android:paddingBottom="@dimen/eq_gap_xl">
 
+        <include
+            android:id="@+id/statusBanner"
+            layout="@layout/partial_status_banner" />
+
         <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
 
             <include android:id="@+id/rowTailscale" layout="@layout/item_settings_row" />
@@ -33,6 +37,8 @@
             <include android:id="@+id/rowClipboard" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />
             <include android:id="@+id/rowProfiles" layout="@layout/item_settings_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowDiagnostics" layout="@layout/item_settings_row" />
 
         </LinearLayout>
 

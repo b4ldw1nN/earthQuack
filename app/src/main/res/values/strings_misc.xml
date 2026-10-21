@@ -3,6 +3,9 @@
     <string name="services_tailscale_connected">Connected (%1$s)</string>
 
     <string name="connections_use_selected">Use selected</string>
+    <string name="connections_background_start">Keep Tailscale running in background</string>
+    <string name="connections_background_running">Tailscale is running in the background</string>
+    <string name="connections_background_enabled">Tailscale will keep running in the background</string>
     <string name="connections_scanning_generic">Scanning…</string>
     <string name="connections_peer_found">EarthQuack service reachable</string>
     <string name="connections_peer_current">Current target</string>

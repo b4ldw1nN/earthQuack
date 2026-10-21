@@ -130,6 +130,19 @@ class HomeFragment : Fragment() {
         androidx.core.content.ContextCompat.registerReceiver(
             requireContext(), sftpStatusReceiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
         )
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.example.earthquack.AppStatus.message.collect { message ->
+                    StatusBanner.render(
+                        binding.statusBanner.root,
+                        binding.statusBanner.bannerText,
+                        binding.statusBanner.bannerAction,
+                        message,
+                    )
+                }
+            }
+        }
     }
 
     override fun onResume() {
