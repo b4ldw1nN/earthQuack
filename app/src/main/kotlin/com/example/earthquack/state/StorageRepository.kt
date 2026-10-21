@@ -154,12 +154,45 @@ class StorageRepository(context: Context) {
         val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
         names.forEach { name ->
             val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
-                RcloneHealthProbe.probe(engine, name)
+                RcloneHealthProbe.probe(engine, name, remoteSection(name)?.get("type"))
             } ?: RcloneHealthProbe.Health(RcloneHealthProbe.State.Unreachable, "timed out")
             onResult(name, health)
         }
     } catch (e: Exception) {
         // A failed probe is a result, not a crash: the list stays usable.
+    }
+
+    /**
+     * Creates the folder a crypt remote wraps, if it is missing.
+     *
+     * A crypt remote ("college_crypt") points at a folder inside a drive
+     * ("college:encrypted"). Nothing creates that folder automatically, so
+     * a remote that was never used fails to list with "directory not
+     * found" — which reads like a credential problem and is not one.
+     *
+     * @return true when the folder exists afterwards.
+     */
+    suspend fun createCryptFolder(remote: String): Boolean {
+        return try {
+            configManager.ensureReady()
+            val section = remoteSection(remote)
+            if (section == null || section["type"] != "crypt") return false
+            val target = section["remote"] ?: return false
+            // "college:encrypted" → fs "college:", path "encrypted"
+            val separator = target.indexOf(':')
+            if (separator < 0) return false
+            val fs = target.substring(0, separator + 1)
+            val path = target.substring(separator + 1)
+            val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+            runCatching {
+                engine.call(
+                    "operations/mkdir",
+                    org.json.JSONObject().put("fs", fs).put("remote", path),
+                )
+            }.isSuccess
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**

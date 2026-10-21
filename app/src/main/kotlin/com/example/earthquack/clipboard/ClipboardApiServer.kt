@@ -133,7 +133,10 @@ class ClipboardApiServer(
             }
 
             if (!authorized(authorization)) {
-                writeJson(output, 401, """{"error":"unauthorized"}""")
+                writeJson(
+                    output, 401,
+                    """{"error":"unauthorized","hint":"send Authorization: Bearer <token>"}"""
+                )
                 return
             }
 
@@ -215,9 +218,18 @@ class ClipboardApiServer(
         }.onFailure { Log.w(TAG, "could not set the phone clipboard: ${it.message}") }
     }
 
+    /**
+     * Whether the caller may use this API.
+     *
+     * The server is published to the tailnet, so it is reachable by every
+     * device in it: without a token, anybody could read the phone's
+     * clipboard or replace it. A token is therefore required, and its
+     * absence means "refused" rather than "open" — the app can always be
+     * given one in Settings → Security.
+     */
     private fun authorized(header: String?): Boolean {
         val expected = ServerConfig.getAuthToken(context)
-        if (expected.isBlank()) return true
+        if (expected.isBlank()) return false
         return header == "Bearer $expected"
     }
 

@@ -60,6 +60,9 @@ class StorageFragment : Fragment() {
     /** The type/route part of each row's label, without the health suffix. */
     private val remoteBaseLabels = mutableMapOf<String, String>()
 
+    /** The last probe result per remote, for the row menu. */
+    private val remoteHealth = mutableMapOf<String, RcloneHealthProbe.Health>()
+
     /**
      * SAF picker for an existing rclone.conf.
      *
@@ -211,6 +214,7 @@ class StorageFragment : Fragment() {
         if (names.isEmpty()) return
         viewLifecycleOwner.lifecycleScope.launch {
             repository.probeRemotes(names) { name, result ->
+                remoteHealth[name] = result
                 val row = remoteRows[name] ?: return@probeRemotes
                 row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
                 row.remoteStatus.setTextColor(
@@ -241,6 +245,7 @@ class StorageFragment : Fragment() {
             RcloneHealthProbe.State.Unreachable -> getString(R.string.storage_remote_unreachable)
             RcloneHealthProbe.State.Failed -> getString(R.string.storage_remote_failed)
             RcloneHealthProbe.State.NotSupported -> getString(R.string.storage_remote_not_supported)
+            RcloneHealthProbe.State.NotSetUp -> getString(R.string.storage_remote_not_set_up)
             RcloneHealthProbe.State.Unknown -> return prefix
         }
         return getString(R.string.storage_remote_status_with_health, prefix, suffix)
@@ -308,15 +313,39 @@ class StorageFragment : Fragment() {
     ) {
         PopupMenu(requireContext(), anchor).apply {
             menu.add(0, MENU_BROWSE, 0, R.string.action_browse)
-            menu.add(0, MENU_DELETE, 1, R.string.action_delete_remote)
+            // Only offered when the remote is a crypt remote whose encrypted
+            // folder does not exist yet: that is the one setup step the app
+            // can do for the user.
+            if (remoteHealth[remote.name]?.state == RcloneHealthProbe.State.NotSetUp) {
+                menu.add(0, MENU_CREATE_FOLDER, 1, R.string.storage_remote_create_folder)
+            }
+            menu.add(0, MENU_DELETE, 2, R.string.action_delete_remote)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     MENU_BROWSE -> browseRemote(remote)
+                    MENU_CREATE_FOLDER -> createCryptFolder(remote)
                     MENU_DELETE -> confirmDelete(remote)
                 }
                 true
             }
             show()
+        }
+    }
+
+    /**
+     * Creates the missing folder behind a crypt remote, then re-probes it.
+     */
+    private fun createCryptFolder(remote: StorageRepository.RemoteSummary) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val created = withContext(Dispatchers.IO) {
+                repository.createCryptFolder(remote.name)
+            }
+            Toast.makeText(
+                requireContext(),
+                getString(if (created) R.string.storage_remote_folder_created else R.string.storage_remote_folder_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+            loadRemotes()
         }
     }
 
@@ -480,6 +509,7 @@ class StorageFragment : Fragment() {
 
     private companion object {
         const val MENU_BROWSE = 1
-        const val MENU_DELETE = 2
+        const val MENU_CREATE_FOLDER = 2
+        const val MENU_DELETE = 3
     }
 }

@@ -13,6 +13,7 @@ from config import (
     SERVER_HOST,
     SERVER_PORT,
     aes_key_fingerprint,
+    is_authorized,
 )
 from core.events import EventBroker
 from core.state import ClipboardState
@@ -25,6 +26,9 @@ events = EventBroker()
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        if not self._authorized():
+            return
+
         if self.path == "/health":
             data = json.dumps({
                 "status": "ok",
@@ -114,6 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if not self._authorized():
+            return
+
         if self.path == "/signal":
             self.handle_signal()
             return
@@ -123,6 +130,23 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404)
+
+    def _authorized(self) -> bool:
+        """Whether this request may use the server.
+
+        Enforced only when a token is configured, so a fresh install keeps
+        working; once one is set, every endpoint needs it.
+        """
+        if is_authorized(self.headers.get("Authorization")):
+            return True
+
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("WWW-Authenticate", "Bearer")
+        self.end_headers()
+        self.wfile.write(b'{"error":"unauthorized"}')
+
+        return False
 
     def handle_signal(self):
         try:

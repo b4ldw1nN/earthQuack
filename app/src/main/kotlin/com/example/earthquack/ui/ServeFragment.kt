@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.R
+import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentServeBinding
 import com.example.earthquack.databinding.PartialDetailRowBinding
 import com.example.earthquack.sftp.SftpServerControllerImpl
@@ -101,6 +102,11 @@ class ServeFragment : Fragment() {
 
         b.rowSftp.value.text = sftpState()
         b.rowClipboard.value.text = stateFor(active, 8875)
+        if (active.any { it.tailnetPort == 8875 } && ServerConfig.getAuthToken(requireContext()).isBlank()) {
+            // Published with no token means published to everyone on the
+            // tailnet; say so rather than leaving it to be discovered.
+            b.rowClipboard.value.text = getString(R.string.serve_no_token)
+        }
 
         b.cardPublished.removeAllViews()
         if (active.isEmpty()) {

@@ -42,6 +42,43 @@ SERVER_URL  = f"http://{SERVER_HOST}:{SERVER_PORT}"
 POST_URL    = f"{SERVER_URL}/clipboard"
 EVENTS_URL  = f"{SERVER_URL}/events"
 
+
+def _auth_token() -> str:
+    """The bearer token for the server this bridge talks to.
+
+    The phone's API refuses anonymous callers, so a token is required when
+    talking to the phone. It comes from CLIPBOARD_PHONE_TOKEN, or from the
+    desktop's own config.json when that is what the server expects.
+    """
+    token = os.environ.get("CLIPBOARD_PHONE_TOKEN", "")
+
+    if token:
+        return token
+
+    try:
+        import json
+
+        path = os.path.expanduser("~/.config/earthquack/config.json")
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        auth = data.get("auth") or {}
+
+        return auth.get("token") or ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+AUTH_TOKEN = _auth_token()
+
+
+def auth_headers() -> dict:
+    if not AUTH_TOKEN:
+        return {}
+
+    return {"Authorization": f"Bearer {AUTH_TOKEN}"}
+
 last_sent     = None   # text we last pushed (don't re-push what we just received)
 last_received = None   # text we last received from SSE (don't echo it back)
 lock = threading.Lock()
@@ -104,7 +141,7 @@ def push_loop():
                     data = json.dumps({"clipboard": send_text, "origin": "desktop"}).encode()
                     req  = urllib.request.Request(
                         POST_URL, data=data,
-                        headers={"Content-Type": "application/json"},
+                        headers={"Content-Type": "application/json", **auth_headers()},
                         method="POST",
                     )
                     urllib.request.urlopen(req, timeout=5)
@@ -159,7 +196,7 @@ def sse_loop():
     print(f"[sse]  Listening for Phone clipboard ← {EVENTS_URL}", flush=True)
     while True:
         try:
-            req = urllib.request.Request(EVENTS_URL)
+            req = urllib.request.Request(EVENTS_URL, headers=auth_headers())
             with urllib.request.urlopen(req, timeout=None) as resp:
                 backoff = 2   # reset on successful connection
                 event_type  = ""

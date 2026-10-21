@@ -17,6 +17,10 @@
     <string name="storage_remote_unreachable">unreachable</string>
     <string name="storage_remote_failed">error</string>
     <string name="storage_remote_not_supported">not in this build</string>
+    <string name="storage_remote_not_set_up">not set up yet</string>
+    <string name="storage_remote_create_folder">Create the encrypted folder</string>
+    <string name="storage_remote_folder_created">Folder created</string>
+    <string name="storage_remote_folder_failed">Could not create the folder</string>
     <string name="storage_remote_type_unknown">Type not declared</string>
     <string name="storage_remotes_error">Could not read rclone configuration. The native library may have failed to load on this device.</string>
     <string name="storage_delete_failed">Could not delete remote: %1$s</string>

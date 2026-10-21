@@ -81,3 +81,61 @@ def aes_key_fingerprint() -> str:
         AES_KEY.encode("utf-8")
     ).hexdigest()[:16]
 
+
+def _auth_token_from_config_file() -> str:
+    """The access token from ~/.config/earthquack/config.json, if present."""
+    import json
+
+    path = os.path.expanduser(
+        "~/.config/earthquack/config.json"
+    )
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return ""
+
+    auth = data.get(
+        "auth",
+        {}
+    )
+
+    if not isinstance(auth, dict):
+        return ""
+
+    token = auth.get(
+        "token",
+        ""
+    )
+
+    return token if isinstance(token, str) else ""
+
+
+# Access token for this server. When it is set, callers must send it as
+# "Authorization: Bearer <token>"; the phone sends the same value. When it is
+# not set, the server stays open, as it always was.
+AUTH_TOKEN = (
+    _auth_token_from_config_file()
+    or os.environ.get(
+        "EARTHQUACK_AUTH_TOKEN",
+        "",
+    )
+)
+
+
+def is_authorized(header_value: str | None) -> bool:
+    """Whether a request's Authorization header may use this server.
+
+    No configured token means no enforcement: the server behaves as it did
+    before, which is the right default for a tailnet-only service someone
+    may not have secured yet.
+    """
+    if not AUTH_TOKEN:
+        return True
+
+    if not header_value:
+        return False
+
+    return header_value.strip() == f"Bearer {AUTH_TOKEN}"
+

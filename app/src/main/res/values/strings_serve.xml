@@ -39,4 +39,5 @@
     <string name="admin_this_device">This phone is %1$s (%2$s)</string>
     <string name="admin_device_is_this_phone">This phone</string>
     <string name="admin_device_selected">Selected %1$s</string>
+    <string name="serve_no_token">published, but no access token set</string>
 </resources>

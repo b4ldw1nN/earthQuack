@@ -54,6 +54,21 @@ class RemoteHealthClassificationTest {
     }
 
     @Test
+    fun `a crypt remote with no encrypted folder is a setup step, not a failure`() {
+        val message = "error in ListJSON: directory not found"
+        assertEquals(
+            RcloneHealthProbe.State.NotSetUp,
+            RcloneHealthProbe.classify(message, isCrypt = true).state,
+        )
+        // The same message on a plain remote stays a failure: only a crypt
+        // remote has a folder that may simply not exist yet.
+        assertEquals(
+            RcloneHealthProbe.State.Failed,
+            RcloneHealthProbe.classify(message, isCrypt = false).state,
+        )
+    }
+
+    @Test
     fun `anything else is a plain failure`() {
         val health = RcloneHealthProbe.classify("error in ListJSON: directory not found")
         assertEquals(RcloneHealthProbe.State.Failed, health.state)

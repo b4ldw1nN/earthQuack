@@ -41,6 +41,16 @@ object RcloneHealthProbe {
 
         /** The backend is not part of the rclone build bundled in the app. */
         NotSupported,
+
+        /**
+         * The remote works, but the thing it wraps is not there yet.
+         *
+         * A crypt remote points at a folder ("encrypted") inside a drive.
+         * When that folder was never created, listing the crypt remote fails
+         * with "directory not found" — which looks like a broken token but
+         * is not one.
+         */
+        NotSetUp,
     }
 
     data class Health(val state: State, val detail: String? = null)
@@ -51,7 +61,7 @@ object RcloneHealthProbe {
      * Never throws: a probe that fails is a result, not an error, so one bad
      * remote cannot take the whole list down.
      */
-    suspend fun probe(engine: RcloneEngine, remote: String): Health =
+    suspend fun probe(engine: RcloneEngine, remote: String, type: String? = null): Health =
         withContext(Dispatchers.IO) {
             // `operations/list` is the one call every backend supports, and
             // depth 1 keeps it to the remote's top level. `about` is not
@@ -65,7 +75,7 @@ object RcloneHealthProbe {
                 )
             }
             attempt.exceptionOrNull()?.let { error ->
-                return@withContext classify(error.message ?: "unknown error")
+                return@withContext classify(error.message ?: "unknown error", isCrypt = type == "crypt")
             }
             Health(State.Ok, null)
         }
@@ -78,7 +88,7 @@ object RcloneHealthProbe {
      * user can fix it by re-authenticating) versus a transport failure (the
      * user can fix it by fixing the route or the host).
      */
-    fun classify(message: String): Health {
+    fun classify(message: String, isCrypt: Boolean = false): Health {
         val m = message.lowercase()
         val authMarkers = listOf(
             "unauthorized", "unauthorised", "authentication", "invalid credentials",
@@ -95,6 +105,9 @@ object RcloneHealthProbe {
             networkMarkers.any { it in m } -> Health(State.Unreachable, message)
             "didn't find backend called" in m || "unknown backend" in m ->
                 Health(State.NotSupported, message)
+            // A crypt remote lists the folder it wraps. That folder not
+            // existing is a setup step, not a broken credential.
+            isCrypt && "directory not found" in m -> Health(State.NotSetUp, message)
             else -> {
                 Log.w(TAG, "remote probe failed: $message")
                 Health(State.Failed, message)
