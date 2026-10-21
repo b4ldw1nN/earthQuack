@@ -50,9 +50,18 @@ class TerminalFragment : Fragment() {
     private var _binding: FragmentTerminalBinding? = null
     private val binding get() = _binding!!
 
-    private val grid = TerminalGrid(INITIAL_ROWS, INITIAL_COLS)
+    /**
+     * The shell this screen shows.
+     *
+     * It lives outside the fragment (see [TerminalSessions]) so Back does not
+     * end the session: the user can leave the terminal and come back to a
+     * shell that is still running.
+     */
+    private var session: TerminalSession? = null
 
-    private val state = TerminalState()
+    private val grid: TerminalGrid get() = session?.grid ?: TerminalGrid(INITIAL_ROWS, INITIAL_COLS)
+
+    private val state: TerminalState get() = session?.state ?: TerminalState()
 
     /**
      * The coroutine building this session, and the generation it belongs to.
@@ -143,10 +152,53 @@ class TerminalFragment : Fragment() {
         // current shell, so it is a no-op once disconnected.
         grid.onDeviceReport = { report -> send(report) { } }
 
+        // The session outlives this screen: attach to it so output keeps
+        // arriving, and let go of it when the view goes (Back keeps the
+        // shell, it only detaches the screen).
+        session = TerminalSessions.of(resolved.id)
+        session?.listener = object : TerminalSession.Listener {
+            override fun onOutput() = onSessionOutput()
+
+            // The session calls this from its own worker thread, and the work
+            // it asks for is view work: the status text, the buttons, and the
+            // keyboard. Touching those off the main thread is why the screen
+            // kept saying "Connecting…" after the shell was already open.
+            override fun onPhase(phase: TerminalSession.Phase, message: String?) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (_binding == null) return@launch
+                    when (phase) {
+                        TerminalSession.Phase.Connected -> markConnected()
+                        TerminalSession.Phase.Failed ->
+                            showError(message ?: getString(R.string.terminal_error_not_connected))
+                        TerminalSession.Phase.Connecting ->
+                            showStatus(getString(R.string.terminal_state_connecting))
+                        TerminalSession.Phase.Idle ->
+                            showStatus(getString(R.string.terminal_state_disconnected))
+                    }
+                }
+            }
+        }
+
         wireInput()
         wireButtons()
         wireScroll()
         wireResize()
+
+        // A session that is already running (the user came back) shows its
+        // state right away instead of pretending to be disconnected.
+        when (session?.phase?.value) {
+            TerminalSession.Phase.Connected -> markConnected()
+            TerminalSession.Phase.Connecting -> showStatus(getString(R.string.terminal_state_connecting))
+            TerminalSession.Phase.Failed ->
+                showError(session?.failureMessage ?: getString(R.string.terminal_error_not_connected))
+            else -> showStatus(getString(R.string.terminal_state_disconnected))
+        }
+        if (session?.isConnected == true) {
+            binding.btnConnect.isEnabled = false
+            binding.btnDisconnect.isEnabled = true
+            binding.inputField.isEnabled = true
+            requestDraw()
+        }
         // No auto-connect: the terminal opens in a disconnected state and the
         // user connects explicitly with the Connect button. This matches the
         // layout's initial state (Disconnected status, Connect enabled,
@@ -191,6 +243,19 @@ class TerminalFragment : Fragment() {
             // until the user taps again.
             manager.restartInput(field)
             manager.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
+            // The IME can still end up serving another view (an app-bar button
+            // that held focus, for instance). The keyboard then appears and
+            // nothing it types reaches the shell, which looks exactly like a
+            // broken terminal. Hand the connection back to the sink and say so.
+            field.postDelayed({
+                if (_binding == null) return@postDelayed
+                val active = manager.isActive(field)
+                if (!active) {
+                    field.requestFocus()
+                    manager.restartInput(field)
+                    manager.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }, 250)
         }
     }
 
@@ -224,6 +289,12 @@ class TerminalFragment : Fragment() {
      */
     private fun wireResize() {
         binding.terminalScroll.viewTreeObserver.addOnGlobalLayoutListener {
+            // The keyboard opening shrinks the window, which moves the bottom
+            // of the log. Re-anchor to the newest output so the prompt stays
+            // on screen instead of the viewport showing the middle of the
+            // listing.
+            if (!userScrolledUp) scrollToBottom()
+
             if (state.isConnected) {
                 val view = binding.terminalScroll
                 // Measure the fixed viewport box, never the growing content
@@ -244,7 +315,15 @@ class TerminalFragment : Fragment() {
                 val cell = log.paint.measureText("M")
                 val line = log.lineHeight
                 if (viewportW > 0 && viewportH > 0 && cell > 0f && line > 0) {
-                    resizeShell(rows = viewportH / line, cols = (viewportW / cell).toInt())
+                    val rows = viewportH / line
+                    val cols = (viewportW / cell).toInt()
+                    // The emulator and the shell must agree on the geometry.
+                    // When they did not, every cursor-up / erase / delete-lines
+                    // sequence in the shell's prompt redraw landed on a
+                    // different row, and the text the user typed appeared a
+                    // line below the prompt (or on top of it).
+                    session?.grid?.resize(rows, cols)
+                    resizeShell(rows = rows, cols = cols)
                 }
             }
         }
@@ -254,102 +333,24 @@ class TerminalFragment : Fragment() {
 
     private fun connect() {
         val target = profile ?: return
-        // A second connect while one is running would leak the first session:
-        // nothing waits on it and nothing closes it.
-        sessionJob?.cancel()
-        // Anything still open is replaced, not stacked. Reconnecting without
-        // this left the previous session alive until GC.
-        state.close()
-        val generation = ++connectGeneration
+        val held = session ?: TerminalSessions.of(target.id).also { session = it }
         binding.btnConnect.isEnabled = false
         binding.btnDisconnect.isEnabled = false
         showStatus(getString(R.string.terminal_state_connecting))
 
-        sessionJob = lifecycleScope.launch {
-            resetTerminal()
-            // A fresh session starts following again: whatever the user was
-            // reading on the previous connection must not pin the new one away
-            // from its prompt.
-            userScrolledUp = false
+        resetTerminal()
+        // A fresh session starts following again: whatever the user was
+        // reading on the previous connection must not pin the new one away
+        // from its prompt.
+        userScrolledUp = false
 
-            val result = try {
-                withContext(Dispatchers.IO) {
-                    SshServices.connectionFactory(requireContext()).connect(target)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                // The factory returns failures as data; reaching here means the
-                // failure was raised before it could, which is still something
-                // the user should see rather than a silent "Disconnected".
-                Log.e(TAG, "connect raised", e)
-                SshConnectResult.Failed(SshFailure.Unexpected(causeOf(e)))
-            }
-
-            // The user disconnected, or pressed Connect again, while this was
-            // in flight. The session is real but nobody wants it.
-            if (generation != connectGeneration) {
-                (result as? SshConnectResult.Connected)?.connection?.close()
-                return@launch
-            }
-
-            when (result) {
-                is SshConnectResult.Connected -> {
-                    state.adopt(result.connection)
-                    openShell(generation)
-                }
-                is SshConnectResult.Failed -> {
-                    showError(result.failure.message)
-                }
-            }
-        }
-    }
-
-    /**
-     * Opens a shell on the current connection.
-     *
-     * The channel open is blocking I/O: it waits for the server to answer, and
-     * doing it on the main thread throws [android.os.NetworkOnMainThreadException]
-     * which sshd's NIO2 write handler surfaces as a write-cycle failure that
-     * closes the session — so the shell dies before it opens. Everything here
-     * runs on IO; only the view work comes back to the main thread.
-     */
-    private fun openShell(generation: Int) {
-        val conn = state.connection ?: return
-        sessionJob = lifecycleScope.launch {
-            var channel: SshConnection.ShellChannel? = null
-            try {
-                channel = withContext(Dispatchers.IO) {
-                    shellChannelsOpened++
-                    Log.i(TAG, "opening shell channel #$shellChannelsOpened " +
-                        "(generation $generation)")
-                    conn.openShell(
-                        // The handler is registered before the open returns: the
-                        // server can write before the caller has touched the
-                        // channel, and dropping the first bytes would look like
-                        // a shell that produced nothing.
-                        onData = { data, offset, len -> onShellData(data, offset, len) },
-                        rows = INITIAL_ROWS,
-                        cols = INITIAL_COLS
-                    )
-                }
-                if (generation != connectGeneration) {
-                    // Disconnected while the channel was opening.
-                    channel.close()
-                    return@launch
-                }
-                state.adopt(channel)
-                markConnected()
-            } catch (e: CancellationException) {
-                // The screen went away mid-open: nothing to report, and the
-                // half-open channel must not be left behind.
-                channel?.close()
-                throw e
-            } catch (e: Throwable) {
-                Log.e(TAG, "could not open a shell", e)
-                showError(describeShellFailure(e))
-            }
-        }
+        held.start(
+            profile = target,
+            connect = { p ->
+                SshServices.connectionFactory(requireContext()).connect(p)
+            },
+            onFailure = { message -> showError(message) },
+        )
     }
 
     /**
@@ -367,50 +368,14 @@ class TerminalFragment : Fragment() {
     /** How many startup feeds we've dumped (first few only). */
     private var feedDumpCount = 0
 
-    private fun onShellData(data: ByteArray, offset: Int, len: Int) {
-        bytesReceived += len
-        // Throttled byte-flow heartbeat: proves whether the remote keeps
-        // sending (a runaway session) or output stopped (a UI-only loop).
-        // Content is never logged — only counts and timing.
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastByteFlowLogAt >= 500L) {
-            lastByteFlowLogAt = now
-            Log.i(TAG, "shell data: session bytes=$bytesReceived, this feed=$len")
-        }
-        // One-shot escaped dump of the first feed. This is the pre-command
-        // shell banner/prompt only (no user input yet), so it carries no
-        // secrets; it is the only way to tell genuine remote newlines from
-        // newlines the parser manufactures out of escape sequences.
-        if (feedDumpCount < 5) {
-            feedDumpCount++
-            val sb = StringBuilder(len * 4)
-            var i = offset
-            val end = offset + len
-            while (i < end) {
-                val b = data[i].toInt() and 0xFF
-                i++
-                when {
-                    b == 0x1B -> sb.append("\\e")
-                    b == 0x0A -> sb.append("\\n")
-                    b == 0x0D -> sb.append("\\r")
-                    b == 0x09 -> sb.append("\\t")
-                    b in 0x20..0x7E -> sb.append(b.toChar())
-                    else -> sb.append(String.format("\\x%02x", b))
-                }
-            }
-            Log.i(TAG, "feed #$feedDumpCount (len=$len): $sb")
-        }
-        // Feed the fixed-grid emulator. It owns cursor addressing, carriage
-        // returns, erases and scrollback internally, so there is no per-frame
-        // correction dance here — one feed, one coalesced draw.
-        try {
-            grid.feed(data, offset, len)
-        } catch (e: Throwable) {
-            // A parser failure must not take the session down with it. Losing a
-            // frame of output is recoverable; a dead terminal is not.
-            Log.w(TAG, "parser dropped $len bytes", e)
-            return
-        }
+    /**
+     * New output arrived in the session.
+     *
+     * The session owns the parser and the screen; the fragment only decides
+     * when to put it on the display.
+     */
+    private fun onSessionOutput() {
+        bytesReceived = session?.bytesReceived ?: 0
         requestDraw()
     }
 
@@ -535,26 +500,22 @@ class TerminalFragment : Fragment() {
      * failure against a healthy new session.
      */
     private fun send(payload: ByteArray, onSent: () -> Unit) {
-        val target = state.shell
-        if (target == null || !target.isOpen) {
+        val held = session
+        if (held == null || held.state.shell == null || !held.state.shell!!.isOpen) {
             // Reported rather than dropped: an input field that accepts
             // keystrokes for a shell that is gone is the whole bug.
             showInputError(getString(R.string.terminal_error_not_connected))
             return
         }
-        val generation = state.shellGeneration
         lifecycleScope.launch {
-            val sent = withContext(Dispatchers.IO) { runCatching { target.write(payload) } }
-            if (sent.isFailure) {
-                if (generation == state.shellGeneration) {
-                    val error = sent.exceptionOrNull()
-                    showInputError(
-                        getString(
-                            R.string.terminal_error_send_failed,
-                            error?.message ?: getString(R.string.terminal_error_connection_dropped)
-                        )
+            val sent = withContext(Dispatchers.IO) { held.write(payload) }
+            if (!sent) {
+                showInputError(
+                    getString(
+                        R.string.terminal_error_send_failed,
+                        getString(R.string.terminal_error_connection_dropped)
                     )
-                }
+                )
                 return@launch
             }
             // The field is cleared only once the bytes were taken. Clearing
@@ -578,39 +539,25 @@ class TerminalFragment : Fragment() {
      * "resizing the terminal kills the shell" report.
      */
     private fun resizeShell(rows: Int, cols: Int) {
-        val target = state.shell ?: return
-        if (!target.isOpen) return
+        val held = session ?: return
+        if (held.state.shell == null || !held.state.shell!!.isOpen) return
         if (rows == lastRows && cols == lastCols) return
         lastRows = rows
         lastCols = cols
-        val generation = state.shellGeneration
-        lifecycleScope.launch(Dispatchers.IO) {
-            val applied = runCatching {
-                if (generation == state.shellGeneration && target.isOpen) {
-                    target.resize(rows, cols)
-                    true
-                } else {
-                    false
-                }
-            }
-            if (applied.isFailure) {
-                Log.w(TAG, "resize to ${rows}x$cols failed", applied.exceptionOrNull())
-            } else if (applied.getOrNull() == true) {
-                Log.i(TAG, "resized to ${rows}x$cols")
-            }
-        }
+        lifecycleScope.launch(Dispatchers.IO) { held.resize(rows, cols) }
     }
 
     // ── disconnect ───────────────────────────────────────────────────────────
 
     private fun disconnect() {
-        // The connect coroutine is cancelled before the state is cleared, so
-        // its result is discarded when it lands rather than opening a session
-        // after the user has already left.
-        sessionJob?.cancel()
-        sessionJob = null
-        connectGeneration++
-        state.close()
+        // The session is closed for good: the user asked for it. Leaving the
+        // screen (Back) does not come through here — the session stays
+        // connected until it is disconnected explicitly.
+        val held = session
+        session = null
+        held?.listener = null
+        held?.stop()
+        TerminalSessions.close(profile?.id.orEmpty())
         showStatus(getString(R.string.terminal_state_disconnected))
         binding.btnConnect.isEnabled = true
         binding.btnDisconnect.isEnabled = false
@@ -619,13 +566,12 @@ class TerminalFragment : Fragment() {
 
     override fun onDestroyView() {
         // The view is going away, so nothing may be touched afterwards, and
-        // every coroutine in lifecycleScope is cancelled by the framework. That
-        // is what stops the last write from reaching a channel nothing is
-        // watching, and what stops a connect that lands after the screen is
-        // gone from opening a session nobody closes.
-        sessionJob?.cancel()
-        sessionJob = null
-        state.close()
+        // every coroutine in lifecycleScope is cancelled by the framework.
+        //
+        // The *session* is not closed: Back leaves the terminal, it does not
+        // end the shell. The screen detaches from the session, and the
+        // session keeps running until the user disconnects it.
+        session?.listener = null
         _binding = null
         super.onDestroyView()
     }
@@ -701,8 +647,8 @@ class TerminalFragment : Fragment() {
         const val ARG_PROFILE_ID = "profile_id"
 
         /** The shell's geometry before the first layout pass tells us the real one. */
-        private const val INITIAL_ROWS = 24
-        private const val INITIAL_COLS = 80
+        const val INITIAL_ROWS = 24
+        const val INITIAL_COLS = 80
 
         /**
          * How much styled text the TextView holds.

@@ -262,6 +262,11 @@ class MainActivity : AppCompatActivity() {
         binding.appbar.subtitle.visibility =
             if (subtitle.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
         binding.appbar.btnBack.visibility = android.view.View.VISIBLE
+        // The back arrow must never hold the IME: a served view that is not an
+        // editor takes the keyboard away from the screen that needs it (the
+        // terminal could not raise its keyboard at all because of this).
+        binding.appbar.btnBack.isFocusable = false
+        binding.appbar.btnBack.isFocusableInTouchMode = false
         binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
         if (binding.bottomNav.selectedItemId != R.id.nav_services) {

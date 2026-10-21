@@ -136,8 +136,8 @@
         <com.example.earthquack.ui.TerminalInputView
             android:id="@+id/inputField"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:minHeight="0dp"
+            android:layout_height="1dp"
+            android:minHeight="1dp"
             android:background="@android:color/transparent"
             android:enabled="false"
             android:fontFamily="monospace"
