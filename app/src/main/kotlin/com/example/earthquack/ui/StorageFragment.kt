@@ -11,13 +11,17 @@ import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentStorageBinding
 import com.example.earthquack.databinding.ItemRemoteRowBinding
 import com.example.earthquack.state.StorageRepository
 import com.example.earthquack.storage.RcloneHealthProbe
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -110,6 +114,18 @@ class StorageFragment : Fragment() {
         }
         binding.btnRemotesRetry.setOnClickListener { loadRemotes() }
         binding.btnGrantStorage.setOnClickListener { openAllFilesAccessSettings() }
+
+        // A tailnet remote can only be reached once the node is up, and the
+        // node comes up on its own schedule. Probing before that says
+        // "unreachable" for a remote that is about to work, so the list is
+        // refreshed when the node reports Running.
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TailscaleNodeMonitor.state.collect { state ->
+                    if (state is TailscaleLoginState.Running) loadRemotes()
+                }
+            }
+        }
 
         renderLocalStorage()
     }
