@@ -117,31 +117,6 @@
         <View style="@style/Widget.Eq.Divider" />
 
         <!--
-            Control keys. A soft keyboard has no Ctrl, so without these there
-            is no way to send Ctrl+C to a shell that is waiting for it — the
-            terminal looks connected and cannot interrupt anything.
-        -->
-        <HorizontalScrollView
-            android:id="@+id/controlKeyScroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:background="@color/eq_terminal_background">
-
-            <LinearLayout
-                android:id="@+id/controlKeys"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="2dp" />
-        </HorizontalScrollView>
-
-        <View style="@style/Widget.Eq.Divider" />
-
-        <!--
             Keyboard sink (Termux-style).
 
             There is no visible text field and no send button: the terminal is a

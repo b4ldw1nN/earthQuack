@@ -893,6 +893,9 @@ class TerminalGrid(
                 val style = run.style
                 val cursorStyle = style.copy(reverse = !style.reverse)
                 val out = ArrayList<TerminalRun>(runs.size + 2)
+                // Everything before the cursor's run has to be kept, or the
+                // text in front of the cursor disappears from the screen.
+                for (i in 0 until index) out.add(runs[i])
                 if (at > 0) out.add(TerminalRun(run.text.substring(0, at), style))
                 out.add(TerminalRun(run.text.substring(at, at + 1), cursorStyle))
                 if (at + 1 < length) out.add(TerminalRun(run.text.substring(at + 1), style))

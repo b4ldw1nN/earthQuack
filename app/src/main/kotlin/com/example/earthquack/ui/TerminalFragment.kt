@@ -10,6 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.R
@@ -191,6 +193,7 @@ class TerminalFragment : Fragment() {
 
         wireInput()
         wireButtons()
+        applyKeyboardInset()
         wireScroll()
         wireResize()
 
@@ -279,22 +282,24 @@ class TerminalFragment : Fragment() {
     private fun wireButtons() {
         binding.btnConnect.setOnClickListener { connect() }
         binding.btnDisconnect.setOnClickListener { disconnect() }
-        // Control keys. A soft keyboard has no Ctrl key, so without these an
-        // interactive program can be neither interrupted nor sent a Tab: no
-        // Ctrl+C exists for the shell to react to, no matter how politely the
-        // UI reports that it is connected.
-        CONTROL_KEYS.forEach { (label, bytes) ->
-            binding.controlKeys.addView(
-                 com.google.android.material.button.MaterialButton(requireContext()).apply {
-                     text = label
-                     isAllCaps = false
-                     minWidth = 0
-                     minimumWidth = 0
-                     setPadding(8, 4, 8, 4)
-                     setOnClickListener { sendControl(label, bytes) }
-                 }
-            )
+    }
+
+    /**
+     * Keeps the terminal above the keyboard.
+     *
+     * The app draws edge to edge, so the soft keyboard covers whatever sits
+     * at the bottom of the window: the prompt line was half hidden, and the
+     * shell's text looked cut in half. The keyboard's own inset is applied
+     * as padding, so the log ends where the keyboard begins.
+     */
+    private fun applyKeyboardInset() {
+        val root = _binding?.root ?: return
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, ime.bottom)
+            insets
         }
+        ViewCompat.requestApplyInsets(root)
     }
 
     /**
@@ -530,21 +535,6 @@ class TerminalFragment : Fragment() {
     // ── input ────────────────────────────────────────────────────────────────
 
     /**
-     * Sends a control byte.
-     *
-     * The bytes go out through the same write path as a command, so they share
-     * its ordering and its failure handling; only the source differs.
-     */
-    private fun sendControl(label: String, bytes: ByteArray) {
-        Log.i(TAG, "sending control key $label")
-        // A control key such as Ctrl+C resets the shell's line buffer, so the
-        // invisible mirror must be emptied too or the next keystroke's diff
-        // would be computed against text the shell no longer holds.
-        (binding.inputField as? TerminalInputView)?.clearMirror()
-        send(bytes) { /* nothing further to clear */ }
-    }
-
-    /**
      * Writes [payload] to the shell, off the main thread.
      *
      * The channel and the generation are both captured by value, so a
@@ -742,16 +732,6 @@ class TerminalFragment : Fragment() {
          * program cannot be stopped at all — the shell never sees it, so there
          * is nothing to interrupt and no error to explain.
          */
-        val CONTROL_KEYS: LinkedHashMap<String, ByteArray> = linkedMapOf(
-            "C-c" to byteArrayOf(3),
-            "C-d" to byteArrayOf(4),
-            "C-z" to byteArrayOf(26),
-            "Tab" to byteArrayOf(9),
-            "Esc" to byteArrayOf(27),
-            "↑" to byteArrayOf(27, '['.code.toByte(), 'A'.code.toByte()),
-            "↓" to byteArrayOf(27, '['.code.toByte(), 'B'.code.toByte())
-        )
-
         fun newInstance(profileId: String): TerminalFragment =
             TerminalFragment().apply {
                 arguments = Bundle().apply { putString(ARG_PROFILE_ID, profileId) }
