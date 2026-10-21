@@ -104,7 +104,7 @@ import (
 	_ "github.com/rclone/rclone/backend/mega"  // MEGA
 	_ "github.com/rclone/rclone/backend/onedrive"
 	_ "github.com/rclone/rclone/backend/pcloud"
-	_ "github.com/rclone/rclone/backend/s3"     // AWS and S3-compatible
+
 	_ "github.com/rclone/rclone/backend/sftp"   // any SSH server, incl. a desktop
 	_ "github.com/rclone/rclone/backend/webdav" // Nextcloud, ownCloud, many NASes
 	// Bridging/local-transformation backends: cheap, no network, and they are

@@ -28,6 +28,7 @@ from config import (
     SERVER_HOST,
     SERVER_PORT,
     FILE_SERVER_PORT,
+    is_authorized,
 )
 
 HOST = SERVER_HOST
@@ -74,6 +75,9 @@ class Handler(BaseHTTPRequestHandler):
     # ───────────────────────────────────────────────── GET ──
 
     def do_GET(self):
+        if not self._authorized():
+            return
+
         if self.path == "/files":
             with lock:
                 body = json.dumps(list(staged.values()), default=str).encode()
@@ -133,6 +137,9 @@ class Handler(BaseHTTPRequestHandler):
     # ───────────────────────────────────────────────── POST ──
 
     def do_POST(self):
+        if not self._authorized():
+            return
+
         if self.path != "/upload":
             self.send_error(404)
             return
@@ -187,6 +194,19 @@ class Handler(BaseHTTPRequestHandler):
             }).encode())
 
     # ─────────────────────────────────────────────── helpers ──
+
+    def _authorized(self) -> bool:
+        """Whether this request may use the server.
+
+        Enforced only when a token is configured; the phone sends the same
+        value as a bearer token.
+        """
+        if is_authorized(self.headers.get("Authorization")):
+            return True
+
+        self._json(401, b'{"error":"unauthorized"}')
+
+        return False
 
     def _stream_to_file(self, path: Path, total: int) -> int:
         written = 0

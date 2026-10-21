@@ -26,8 +26,12 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
+import com.example.earthquack.clipboard.ClipboardApiServer
 import com.example.earthquack.state.ClipboardEntry
 import com.example.earthquack.state.ClipboardHistoryStore
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
+import com.example.earthquack.tailscale.TailscaleEngine
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -63,6 +67,7 @@ class EarthQuackService : LifecycleService() {
     private val TAG = "ClipSyncService"
 
     private lateinit var clipboardManager: ClipboardManager
+    private var clipboardApiServer: ClipboardApiServer? = null
     private lateinit var notificationManager: NotificationManager
     private lateinit var windowManager: WindowManager
     private lateinit var powerManager: PowerManager
@@ -152,6 +157,30 @@ class EarthQuackService : LifecycleService() {
         isScreenOn        = powerManager.isInteractive
         createNotificationChannel()
         registerScreenReceiver()
+
+        // The embedded node is this app's own tailnet identity: it starts
+        // with the app and stays up regardless of the desktop service.
+        TailscaleNodeMonitor.start(applicationContext)
+
+        // This phone's own clipboard API, so the desktop can talk to the
+        // phone directly instead of needing a server on the desktop.
+        clipboardApiServer = ClipboardApiServer.get(this)
+
+        // A node that needs a sign-in is invisible from the background, so
+        // it gets its own notification.
+        lifecycleScope.launch {
+            TailscaleNodeMonitor.state.collect { state ->
+                postNodeNotification(
+                    when (state) {
+                        is TailscaleLoginState.NeedsLogin ->
+                            getString(R.string.node_needs_signin)
+                        is TailscaleLoginState.Error ->
+                            getString(R.string.node_failed, state.message)
+                        else -> null
+                    }
+                )
+            }
+        }
     }
 
     private fun registerScreenReceiver() {
@@ -204,7 +233,7 @@ class EarthQuackService : LifecycleService() {
         var newHost = ServerConfig.getHost(this)
         if (newHost == ServerConfig.DEFAULT_HOST || newHost.isBlank() || newHost == "YOUR_TAILSCALE_IP") {
             lifecycleScope.launch(Dispatchers.IO) {
-                val discovered = TailscaleDiscovery.discoverServerIp()
+                val discovered = TailscaleEngine.shared(this@EarthQuackService).peers().firstOrNull()?.ip
                 if (discovered != null) {
                     Log.i(TAG, "Auto-discovered Tailscale clipboard server IP: $discovered")
                     withContext(Dispatchers.Main) {
@@ -317,7 +346,19 @@ class EarthQuackService : LifecycleService() {
         }
     }
 
+    private suspend fun refreshDesktopCapabilities() {
+        // The desktop's build is recorded for the diagnostics screen. It is
+        // not turned into a warning: both sides hold the same key (the
+        // desktop keeps it in ~/.config/earthquack/config.json), so a
+        // mismatch banner would only add noise.
+        runCatching { DesktopCapabilityStore.refresh(this) }
+    }
+
     private suspend fun connectSse() = withContext(Dispatchers.IO) {
+        // Ask the desktop what it supports before the first exchange, so a
+        // mismatch (encryption on one side only) is reported instead of
+        // silently moving unreadable clipboard content.
+        refreshDesktopCapabilities()
         val call = api.sseClient.newCall(api.buildSseRequest())
         currentSseCall = call
         val job  = coroutineContext[Job]
@@ -557,6 +598,9 @@ class EarthQuackService : LifecycleService() {
         }
         if (!syncState.tryClaimLocalChange(text)) return
         if (isSyncPaused()) return
+        // The phone's own clipboard API serves the current value, whether or
+        // not the desktop is reachable.
+        clipboardApiServer?.publish(text, ORIGIN_PHONE)
         val toSend = CryptoUtil.wrapIfNeeded(text, ServerConfig.getAesKey(this), ServerConfig.isAesEnabled(this))
         Log.i(TAG, "Posting to server (${text.length} chars${if (toSend != text) ", AES" else ""}; content withheld)")
         acquireWakeLock()
@@ -680,6 +724,36 @@ class EarthQuackService : LifecycleService() {
             NotificationChannel(NOTIFICATION_CHANNEL_ID, "earthQuack", NotificationManager.IMPORTANCE_LOW)
                 .apply { description = "Clipboard synchronisation status" }
         )
+        notificationManager.createNotificationChannel(
+            NotificationChannel(NODE_CHANNEL_ID, "Tailscale", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "Tailscale node problems" }
+        )
+    }
+
+    /**
+     * Posts (or clears) the "Tailscale needs attention" notification.
+     *
+     * The node can fail while the app is in the background, where a banner
+     * nobody sees is no help at all.
+     */
+    private fun postNodeNotification(text: String?) {
+        if (text == null) {
+            notificationManager.cancel(NODE_NOTIFICATION_ID)
+            return
+        }
+        val openIntent = PendingIntent.getActivity(
+            this, 2, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, NODE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_eq_tailnet)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openIntent)
+            .setAutoCancel(true)
+            .build()
+        notificationManager.notify(NODE_NOTIFICATION_ID, notification)
     }
 
     private fun buildNotification(status: SyncStatus): Notification {

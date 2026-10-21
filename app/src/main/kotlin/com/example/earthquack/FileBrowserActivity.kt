@@ -41,6 +41,7 @@ import com.example.earthquack.storage.RcloneDownloadPlanner
 import com.example.earthquack.storage.RcloneDownloadRequest
 import com.example.earthquack.storage.RcloneDownloadResult
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneException
 import com.example.earthquack.storage.RcloneFileTransfer
 import com.example.earthquack.storage.RcloneRemoteManager
@@ -803,7 +804,7 @@ class FileBrowserActivity : AppCompatActivity() {
         val started = try {
             val config = RcloneConfigManager(this)
             config.ensureReady()
-            engine = RcloneEngine().also { it.initialize(config.configPath) }
+            engine = RcloneEngines.getBlocking(config.configPath)
             true
         } catch (e: Exception) {            // UnsatisfiedLinkError on a device we do not ship the .so for is the
             // likely case. The path is not logged: these are app-private

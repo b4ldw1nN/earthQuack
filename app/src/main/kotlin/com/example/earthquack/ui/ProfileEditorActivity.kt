@@ -19,6 +19,8 @@ import com.example.earthquack.databinding.ActivityProfileEditorBinding
 import com.example.earthquack.ssh.AuthMethod
 import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ssh.HostKeyPolicy
+import com.example.earthquack.tailscale.TailnetPeer
+import com.example.earthquack.tailscale.Tailscale
 import com.example.earthquack.ssh.IdentityKeyInfo
 import com.example.earthquack.ssh.SshServices
 import kotlinx.coroutines.Dispatchers
@@ -179,6 +181,44 @@ class ProfileEditorActivity : AppCompatActivity() {
         // The label follows the alias, including the restored one: a selected
         // key the UI does not show is a key the user cannot trust is selected.
         selectKey(selectedKeyAlias)
+
+        showPeerSuggestions()
+    }
+
+    /**
+     * Offers the tailnet peers the node can see as one-tap hosts.
+     *
+     * Typing a 100.x address by hand is the main reason profiles end up
+     * wrong; the node already knows the peers and their addresses.
+     */
+    private fun showPeerSuggestions() {
+        val peers = runCatching { Tailscale.peers() }
+            .getOrDefault("[]")
+            .let { TailnetPeer.parseList(it) }
+            .filter { it.ip.isNotBlank() }
+        if (peers.isEmpty()) {
+            binding.peerSuggestions.visibility = android.view.View.GONE
+            return
+        }
+        binding.peerSuggestions.removeAllViews()
+        peers.forEach { peer ->
+            val label = peer.name.ifBlank { peer.ip }
+            // The name is offered first: a profile pointing at a name keeps
+            // working when the peer's address changes.
+            val host = peer.dnsName.ifBlank { peer.ip }
+            val row = com.google.android.material.button.MaterialButton(
+                this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                text = getString(R.string.profile_peer_suggestion, label, host)
+                isAllCaps = false
+                setOnClickListener {
+                    binding.fieldHost.setText(host)
+                    binding.fieldHost.setSelection(host.length)
+                }
+            }
+            binding.peerSuggestions.addView(row)
+        }
+        binding.peerSuggestions.visibility = android.view.View.VISIBLE
     }
 
     private fun setAuthMethod(method: AuthMethod) {

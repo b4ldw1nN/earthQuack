@@ -3,6 +3,10 @@ agp = "8.7.0"
 kotlin = "2.0.21"
 coreKtx = "1.13.1"
 appcompat = "1.7.0"
+# AndroidX Browser — Chrome Custom Tabs for the embedded Tailscale
+# browser-login flow (Phase 1). The login URL is opened in a Custom Tab so
+# Tailscale's web login works without auth keys and returns cleanly to the app.
+browser = "1.8.0"
 material = "1.12.0"
 lifecycleService = "2.8.4"
 coroutines = "1.8.1"
@@ -28,6 +32,7 @@ media3 = "1.4.1"
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycleService" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }

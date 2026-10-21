@@ -7,6 +7,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import com.example.earthquack.tailscale.TailnetRoute
 
 private const val TAG = "ClipboardApi"
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -26,11 +27,24 @@ class ClipboardApi(private val baseUrl: String, private val token: String = "") 
     /** Backwards-compat constructor — uses hardcoded fallback URL and no token. */
     constructor() : this(SERVER_BASE_URL)
 
+    /**
+     * The clipboard server normally lives on the desktop's tailnet IP; with
+     * the embedded node there is no system VPN, so those dials must go
+     * through the node's SOCKS5 proxy. The host is read from [baseUrl] — the
+     * same value ServerConfig hands every caller — and the decision is
+     * recomputed per client build, so a non-tailnet host stays untouched.
+     */
+    private val tailnetProxy: java.net.Proxy? =
+        TailnetRoute.socksAddressFor(android.net.Uri.parse(baseUrl).host.orEmpty())?.let {
+            java.net.Proxy(java.net.Proxy.Type.SOCKS, it)
+        }
+
     val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(HTTP_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .readTimeout(HTTP_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .writeTimeout(HTTP_WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(true)
+        .apply { tailnetProxy?.let { proxy(it) } }
         .build()
 
     /** SSE client: read timeout MUST be 0 (infinite). */
@@ -39,6 +53,7 @@ class ClipboardApi(private val baseUrl: String, private val token: String = "") 
         .readTimeout(SSE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)  // 0 = infinite
         .writeTimeout(HTTP_WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(true)
+        .apply { tailnetProxy?.let { proxy(it) } }
         .build()
 
     /**

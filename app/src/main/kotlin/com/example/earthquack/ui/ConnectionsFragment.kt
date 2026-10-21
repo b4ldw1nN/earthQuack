@@ -7,15 +7,23 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.example.earthquack.EarthQuackService
 import com.example.earthquack.MainActivity
+import android.content.Intent
 import com.example.earthquack.R
 import com.example.earthquack.ServerConfig
-import com.example.earthquack.TailscaleDiscovery
+import com.example.earthquack.tailscale.TailnetPeer
+import com.example.earthquack.tailscale.TailscaleEngine
 import com.example.earthquack.databinding.FragmentConnectionsBinding
 import com.example.earthquack.databinding.ItemSettingsRowBinding
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
-import com.example.earthquack.state.TailnetStatus
+
+import com.example.earthquack.tailscale.ExitNodeManager
+import com.example.earthquack.tailscale.NativeExitNodeControl
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleStateStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,7 +57,11 @@ class ConnectionsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var statusProvider: SystemStatusProvider
-    private lateinit var tailnet: TailnetStatus
+
+    /** Exit-node selection (embedded Tailscale). Node must be Running. */
+    private lateinit var exitNodes: ExitNodeManager
+
+    /** Drives the embedded node to Running so the exit-node picker has something to talk to. */
 
     private val mainActivity: MainActivity? get() = activity as? MainActivity
 
@@ -85,7 +97,6 @@ class ConnectionsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         statusProvider = SystemStatusProvider(requireContext())
-        tailnet = TailnetStatus(requireContext())
 
         selected = if (ServerConfig.isConfigured(requireContext())) {
             ServerConfig.getHost(requireContext())
@@ -93,9 +104,167 @@ class ConnectionsFragment : Fragment() {
             null
         }
 
-        binding.btnScan.setOnClickListener { scan() }
-        binding.btnUse.setOnClickListener { applySelection() }
         binding.btnManualAddress.setOnClickListener { promptManualAddress() }
+
+        exitNodes = ExitNodeManager(NativeExitNodeControl)
+        binding.btnChangeExitNode.setOnClickListener { pickExitNode() }
+        binding.btnTailscaleLogin.setOnClickListener {
+            TailscaleNodeMonitor.login(requireContext())
+        }
+        binding.btnServe.setOnClickListener {
+            (activity as? MainActivity)?.pushSubScreen(ServeFragment(), "Serve", "")
+        }
+        binding.btnAdmin.setOnClickListener {
+            (activity as? MainActivity)?.pushSubScreen(AdminFragment(), "Admin", "")
+        }
+        binding.btnBackground.setOnClickListener {
+            val intent = Intent(requireContext(), EarthQuackService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                requireContext().startForegroundService(intent)
+            } else {
+                requireContext().startService(intent)
+            }
+            android.widget.Toast.makeText(requireContext(), R.string.connections_background_enabled, android.widget.Toast.LENGTH_SHORT).show()
+        }
+
+        observeTailscaleNode()
+    }
+
+    /**
+     * Starts the embedded tsnet node (silently when already enrolled) and
+     * shows the exit-node section once it reports Running.
+     *
+     * The picker is hidden, not disabled, until then: exit-node selection
+     * requires a live node, and a visible control that cannot work is worse
+     * than an absent one. Non-enrolled users get nothing here until the
+     * browser-login flow has run — that UI belongs to the auth screen.
+     */
+    private fun observeTailscaleNode() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            // Re-render on every state change; cheap, and it keeps the card
+            // in sync when the node drops out from under the screen. The
+            // state comes from the app-wide monitor, so every screen sees
+            // the same node instead of starting its own.
+            launch {
+                TailscaleNodeMonitor.state.collect { state ->
+                    render()
+                    if (state is TailscaleLoginState.Running) {
+                        renderExitNodeSection()
+                        binding.btnTailscaleLogin.visibility = View.GONE
+                        binding.btnBackground.setText(R.string.connections_background_running)
+                        refreshPeers()
+                    } else {
+                        hideExitNodeSection()
+                        binding.btnBackground.setText(R.string.connections_background_start)
+                    }
+                    if (state is TailscaleLoginState.NeedsLogin && state.loginUrl.isNotBlank()) {
+                        TailscaleNodeMonitor.openLoginTab(requireContext())
+                    }
+                }
+            }
+
+            binding.btnTailscaleLogin.visibility = View.VISIBLE
+
+            TailscaleNodeMonitor.start(requireContext())
+        }
+    }
+
+    private fun hideExitNodeSection() {
+        if (_binding == null) return
+        binding.headerExitNode.visibility = View.GONE
+        binding.cardExitNode.visibility = View.GONE
+    }
+
+    /** Loads exit-node-capable peers and renders the current choice. */
+    private fun renderExitNodeSection() {
+        if (_binding == null) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (current, available) = try {
+                withContext(Dispatchers.IO) {
+                    exitNodes.currentExitNode() to exitNodes.availableExitNodes()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The node can go Stopped between the state emission and this
+                // read. An unreadable picker is an absent one.
+                hideExitNodeSection()
+                return@launch
+            }
+
+            // No exit-node-capable peer and none selected: the section would
+            // offer a dialog with only "None" in it. Say so by hiding it.
+            if (available.isEmpty() && current == null) {
+                hideExitNodeSection()
+                return@launch
+            }
+
+            binding.headerExitNode.visibility = View.VISIBLE
+            binding.cardExitNode.visibility = View.VISIBLE
+            binding.textExitNodeValue.text = current?.name
+                ?: getString(R.string.exit_node_none)
+        }
+    }
+
+    /**
+     * The picker: "None" plus every exit-node-capable peer, current one
+     * pre-selected. Offline peers stay listed but are labelled — the only
+     * approved exit node being temporarily down is a real situation, and
+     * hiding it would leave the user with no way to select it.
+     */
+    private fun pickExitNode() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (current, available) = try {
+                withContext(Dispatchers.IO) {
+                    exitNodes.currentExitNode() to exitNodes.availableExitNodes()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), R.string.exit_node_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val labels = mutableListOf(getString(R.string.exit_node_none))
+            available.forEach { peer ->
+                labels += if (peer.online) peer.name
+                else getString(R.string.exit_node_offline, peer.name)
+            }
+            val checked = if (current == null) 0
+            else available.indexOfFirst { it.id == current.id } + 1
+
+            // setSingleChoiceItems takes a ListAdapter/Cursor/CharSequence[] —
+            // not a Kotlin List, and Array<String> is not Array<CharSequence>.
+            val items: Array<CharSequence> = labels.map { it as CharSequence }.toTypedArray()
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.exit_node_picker_title)
+                .setSingleChoiceItems(items, checked.coerceAtLeast(0)) { dialog, which ->
+                    val chosen = if (which == 0) null else available.getOrNull(which - 1)
+                    dialog.dismiss()
+                    applyExitNode(chosen)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /** Applies the selection; EditPrefs is a JNI round-trip, hence IO. */
+    private fun applyExitNode(peer: TailnetPeer?) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { exitNodes.setExitNode(peer) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The manager already wrapped the backend's message.
+                Toast.makeText(requireContext(), R.string.exit_node_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val message = if (peer == null) getString(R.string.exit_node_cleared)
+            else getString(R.string.exit_node_set, peer.name)
+            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+            renderExitNodeSection()
+        }
     }
 
     override fun onResume() {
@@ -121,21 +290,23 @@ class ConnectionsFragment : Fragment() {
         binding.statusConnection.apply {
             toggle.visibility = View.GONE
             action.visibility = View.GONE
+            // This screen is about the tailnet, so the card reports the node.
+            // The desktop link is a separate service and is shown by its own
+            // row; saying "Disconnected" here because the desktop binary is
+            // down would misdescribe the node.
+            val nodeRunning = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
             dot.setBackgroundResource(
-                when {
-                    status.isConnected -> R.drawable.eq_dot_hollow_success
-                    else -> R.drawable.eq_dot_hollow_muted
-                }
+                if (nodeRunning) R.drawable.eq_dot_hollow_success else R.drawable.eq_dot_hollow_muted
             )
             statusText.text = when {
-                status.isConnected -> getString(R.string.state_connected)
-                status.syncState == SyncStateLabel.CONNECTING -> getString(R.string.state_connecting)
+                nodeRunning -> getString(R.string.state_connected)
+                TailscaleNodeMonitor.state.value is TailscaleLoginState.Starting ->
+                    getString(R.string.state_connecting)
                 else -> getString(R.string.state_disconnected)
             }
             statusSub.text = when {
-                status.isConnected -> getString(R.string.subtitle_connected_via_tailscale)
-                !status.isConfigured -> getString(R.string.connections_not_configured)
-                else -> getString(R.string.subtitle_tap_start)
+                nodeRunning -> getString(R.string.subtitle_connected_via_tailscale)
+                else -> getString(R.string.connections_not_on_tailnet)
             }
         }
 
@@ -168,10 +339,18 @@ class ConnectionsFragment : Fragment() {
      * "No devices found, tap scan again" is not actionable. Whether the phone is
      * on the tailnet decides who to go and look at.
      */
-    private fun emptyPeersMessage(): String = when (val t = tailnet.describe()) {
-        is TailnetStatus.Status.Connected ->
-            getString(R.string.connections_none_found_hint, t.address)
-        else -> getString(R.string.connections_not_on_tailnet)
+    private fun tailscaleNodeIp(): String? {
+        val fromAuth = (TailscaleNodeMonitor.state.value as? TailscaleLoginState.Running)?.nodeIp
+        if (!fromAuth.isNullOrBlank()) return fromAuth
+        return runCatching {
+            org.json.JSONObject(com.example.earthquack.tailscale.Tailscale.thisDevice()).optString("ip")
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun emptyPeersMessage(): String {
+        val addr = tailscaleNodeIp()
+        return if (addr != null) getString(R.string.connections_none_found_hint, addr)
+        else getString(R.string.connections_not_on_tailnet)
     }
 
     /**
@@ -184,8 +363,6 @@ class ConnectionsFragment : Fragment() {
     private fun scan() {
         if (scanning) return
         scanning = true
-        binding.btnScan.isEnabled = false
-        binding.btnScan.setText(R.string.connections_scanning_generic)
         binding.textPeerMessage.text = getString(R.string.connections_scanning_generic)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -194,7 +371,7 @@ class ConnectionsFragment : Fragment() {
             // destroyed view. Cancellation has to propagate.
             val found = try {
                 withContext(Dispatchers.IO) {
-                    TailscaleDiscovery.discoverAllWorkingServers()
+                    TailnetPeer.parseList(com.example.earthquack.tailscale.Tailscale.peers()).map { it.ip }.filter { it.isNotBlank() }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -204,10 +381,6 @@ class ConnectionsFragment : Fragment() {
             }
 
             scanning = false
-            _binding?.let {
-                it.btnScan.isEnabled = true
-                it.btnScan.setText(R.string.connections_scan)
-            }
             discovered = found
             // Prefer the current host if the scan confirmed it; otherwise keep
             // the existing selection rather than resetting to the first result.
@@ -234,18 +407,23 @@ class ConnectionsFragment : Fragment() {
      * without the user having to read logs.
      */
     private fun renderTailnetRow() {
-        when (val t = tailnet.describe()) {
-            is TailnetStatus.Status.Connected -> {
-                binding.rowThisDevice.root.visibility = View.VISIBLE
-                binding.rowThisDevice.label.text = getString(R.string.connections_this_device)
-                binding.rowThisDevice.value.text = t.address
-            }
-            else -> {
-                // No address to show, so the row would read "This device —".
-                // The condition is stated in the peer message instead.
-                binding.rowThisDevice.root.visibility = View.GONE
-            }
+        val addr = tailscaleNodeIp()
+        if (addr != null) {
+            binding.rowThisDevice.root.visibility = View.VISIBLE
+            binding.rowThisDevice.label.text = getString(R.string.connections_this_device)
+            binding.rowThisDevice.value.text = addr
+        } else {
+            binding.rowThisDevice.root.visibility = View.GONE
         }
+    }
+
+    private fun refreshPeers() {
+        val found = TailnetPeer.parseList(com.example.earthquack.tailscale.Tailscale.peers())
+            .map { it.ip }.filter { it.isNotBlank() }
+        discovered = found
+        selected = found.firstOrNull { it == ServerConfig.getHost(requireContext()) }
+            ?: found.firstOrNull() ?: selected
+        render()
     }
 
     private fun renderPeers() {
@@ -265,18 +443,11 @@ class ConnectionsFragment : Fragment() {
                 // Name the likely cause rather than repeating "tap scan again".
                 binding.textPeerMessage.text = emptyPeersMessage()
             }
-            // Enabled whenever there is a target, NOT only when a scan returned
-            // something. Forcing this off here is what left the button dead in
-            // the common case: the desktop is not running, so the scan finds
-            // nothing, so the one control that could (re)apply the address was
-            // the one control that got disabled.
-            binding.btnUse.isEnabled = selected != null
             return
         }
 
         binding.peerMessage.visibility = View.GONE
         list.visibility = View.VISIBLE
-        binding.btnUse.isEnabled = selected != null
 
         discovered.forEach { address ->
             val row = ItemSettingsRowBinding.inflate(layoutInflater, list, false)
@@ -312,7 +483,7 @@ class ConnectionsFragment : Fragment() {
             row.root.isSelected = isSelected
             row.root.setOnClickListener {
                 selected = address
-                render()
+                applySelection()
             }
             list.addView(row.root)
         }

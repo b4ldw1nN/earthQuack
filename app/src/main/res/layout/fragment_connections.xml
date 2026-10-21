@@ -61,30 +61,6 @@
             app:icon="@drawable/ic_eq_add"
             app:iconSize="16dp" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/eq_gap_sm"
-            android:orientation="horizontal"
-            android:baselineAligned="false">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnScan"
-                style="@style/Widget.Eq.Button"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="@dimen/eq_gap_sm"
-                android:text="@string/connections_scan"
-                app:icon="@drawable/ic_eq_sync" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnUse"
-                style="@style/Widget.Eq.Button.Outlined"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:text="@string/connections_use_selected"
-                android:enabled="false" />
-        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/headerPeers"
@@ -125,6 +101,95 @@
                 android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
                 tools:text="No devices found. Tap Scan for Devices to probe your tailnet." />
         </LinearLayout>
+
+        <!--
+            Exit node (embedded Tailscale Phase 3). Hidden unless the tsnet
+            node is Running — the picker cannot do anything without it, and
+            a dead control is worse than an absent one. Only peers that
+            offer exit-node service (advertised AND approved in the tailnet
+            policy) are listed.
+        -->
+        <LinearLayout
+            android:id="@+id/headerExitNode"
+            style="@style/Widget.Eq.SectionHeader"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/connections_exit_node_section"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardExitNode"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/exit_node_picker_title"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle" />
+
+            <TextView
+                android:id="@+id/textExitNodeValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle"
+                tools:text="None (direct)" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:text="@string/exit_node_scope"
+                android:textAppearance="@style/TextAppearance.Eq.Meta" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnChangeExitNode"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/exit_node_change"
+                app:icon="@drawable/ic_eq_sync"
+                app:iconSize="16dp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTailscaleLogin"
+            style="@style/Widget.Eq.Button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="Log in to Tailscale" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnServe"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Serve / Funnel" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAdmin"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Admin Console" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBackground"
+            style="@style/Widget.Eq.Button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="Keep Tailscale running in background" />
 
     </LinearLayout>
 </ScrollView>

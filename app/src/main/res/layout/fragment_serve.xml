@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Serve / Funnel.
+
+    Publishing a local port to the tailnet. Each service the app can expose
+    is a row with its own state, because "which of my ports are published
+    right now" is the question this screen exists to answer.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <include
+            android:id="@+id/statusBanner"
+            layout="@layout/partial_status_banner" />
+
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/serve_services_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical">
+
+            <include android:id="@+id/rowSftp" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowClipboard" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/serve_published_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardPublished"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/serve_funnel_note"
+            android:textAppearance="@style/TextAppearance.Eq.Meta" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFunnel"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:text="@string/serve_funnel_enable" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStopAll"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/serve_stop_all" />
+
+    </LinearLayout>
+</ScrollView>

@@ -5,8 +5,13 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import com.example.earthquack.storage.RcloneConfigManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneHealthProbe
 import com.example.earthquack.storage.RcloneRemoteManager
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Real storage figures for the Storage screen.
@@ -33,6 +38,11 @@ import com.example.earthquack.storage.RcloneRemoteManager
  * only the name and whether it is reachable.
  */
 class StorageRepository(context: Context) {
+
+    private companion object {
+        /** Per-remote probe budget; a dead host must not stall the list. */
+        const val PROBE_TIMEOUT_MS = 12_000L
+    }
 
     private val appContext = context.applicationContext
     private val configManager = RcloneConfigManager(appContext)
@@ -88,7 +98,9 @@ class StorageRepository(context: Context) {
     data class RemoteSummary(
         val name: String,
         val type: String?,
-        val isReachable: Boolean
+        val isReachable: Boolean,
+        /** True when the remote is dialled through the app's Tailscale node. */
+        val routedViaTailscale: Boolean = false,
     )
 
     /**
@@ -106,16 +118,87 @@ class StorageRepository(context: Context) {
      * The Storage screen shows a different message for each: an error the user
      * can act on, versus the perfectly normal fresh-install state.
      */
-    suspend fun remotesOrNull(): List<RemoteSummary>? = try {
+    suspend fun remotesOrNull(): List<RemoteSummary>? = withContext(Dispatchers.IO) { try {
         configManager.ensureReady()
-        val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+        // The shared engine: initialising rclone is expensive, and doing it
+        // on the caller's thread is what used to freeze the UI.
+        val engine = RcloneEngines.getBlocking(configManager.configPath)
         RcloneRemoteManager(engine).listRemotes().map { name ->
-            RemoteSummary(name = name, type = remoteType(name), isReachable = true)
+            val section = remoteSection(name)
+            RemoteSummary(
+                name = name,
+                type = section?.get("type"),
+                // Reachability is established by a probe ([probeRemotes]),
+                // not asserted here.
+                isReachable = false,
+                // A tailnet remote is dialled through this app's own node
+                // (SOCKS5 proxy), which is what makes it reachable without a
+                // system VPN.
+                routedViaTailscale = section?.get("socks_proxy")?.isNotBlank() == true,
+            )
         }
     } catch (e: Exception) {
         // Includes rclone not loading at all, which is a real possibility on an
         // ABI we do not ship. Null means "unknown", not "empty".
         null
+    } }
+
+    /**
+     * Probes each remote and reports the outcome as it arrives.
+     *
+     * Sequential on purpose — one rclone engine, one call at a time — but the
+     * callback fires per remote, so the list fills in progressively instead of
+     * staying blank until the slowest remote answers. Each probe is bounded
+     * by a timeout, so one dead host cannot stall the rest.
+     */
+    suspend fun probeRemotes(
+        names: List<String>,
+        onResult: (String, RcloneHealthProbe.Health) -> Unit,
+    ) = withContext(Dispatchers.IO) { try {
+        configManager.ensureReady()
+        val engine = RcloneEngines.getBlocking(configManager.configPath)
+        names.forEach { name ->
+            val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
+                RcloneHealthProbe.probe(engine, name, remoteSection(name)?.get("type"))
+            } ?: RcloneHealthProbe.Health(RcloneHealthProbe.State.Unreachable, "timed out")
+            onResult(name, health)
+        }
+    } catch (e: Exception) {
+        // A failed probe is a result, not a crash: the list stays usable.
+    } }
+
+    /**
+     * Creates the folder a crypt remote wraps, if it is missing.
+     *
+     * A crypt remote ("college_crypt") points at a folder inside a drive
+     * ("college:encrypted"). Nothing creates that folder automatically, so
+     * a remote that was never used fails to list with "directory not
+     * found" — which reads like a credential problem and is not one.
+     *
+     * @return true when the folder exists afterwards.
+     */
+    suspend fun createCryptFolder(remote: String): Boolean {
+        return withContext(Dispatchers.IO) { try {
+            configManager.ensureReady()
+            val section = remoteSection(remote)
+            if (section == null || section["type"] != "crypt") return@withContext false
+            val target = section["remote"]
+            if (target == null) return@withContext false
+            // "college:encrypted" → fs "college:", path "encrypted"
+            val separator = target.indexOf(':')
+            if (separator < 0) return@withContext false
+            val fs = target.substring(0, separator + 1)
+            val path = target.substring(separator + 1)
+            val engine = RcloneEngines.getBlocking(configManager.configPath)
+            runCatching {
+                engine.call(
+                    "operations/mkdir",
+                    org.json.JSONObject().put("fs", fs).put("remote", path),
+                )
+            }.isSuccess
+        } catch (e: Exception) {
+            false
+        } }
     }
 
     /**
@@ -126,11 +209,21 @@ class StorageRepository(context: Context) {
      * INI section. Tolerant by design -- a malformed file yields null instead of
      * throwing, because a cosmetic failure must not hide the remote list.
      */
-    private fun remoteType(name: String): String? {
+    private fun remoteType(name: String): String? = remoteSection(name)?.get("type")
+
+    /**
+     * Reads a remote's config section straight from the file.
+     *
+     * Parsed directly rather than via rclone: there is no RPC for "what type is
+     * remote X", and `config/get` would work but is heavier than reading one
+     * INI section. Tolerant by design -- a malformed file yields null instead of
+     * throwing, because a cosmetic failure must never hide the remote list.
+     */
+    private fun remoteSection(name: String): Map<String, String>? {
         val file = configManager.configFile
         if (!file.exists()) return null
         var inSection = false
-        var type: String? = null
+        val values = mutableMapOf<String, String>()
         try {
             file.useLines { lines ->
                 for (line in lines) {
@@ -141,9 +234,10 @@ class StorageRepository(context: Context) {
                             if (inSection) return@useLines
                             inSection = trimmed.substring(1, trimmed.length - 1).trim() == name
                         }
-                        inSection && trimmed.startsWith("type") -> {
-                            type = trimmed.substringAfter('=', "").trim().ifEmpty { null }
-                            return@useLines
+                        inSection -> {
+                            val key = trimmed.substringBefore('=', "").trim()
+                            val value = trimmed.substringAfter('=', "").trim()
+                            if (key.isNotEmpty()) values[key] = value
                         }
                     }
                 }
@@ -152,7 +246,7 @@ class StorageRepository(context: Context) {
             // A cosmetic read must never hide the remote list itself.
             return null
         }
-        return type
+        return if (inSection) values else null
     }
 
     // ── Shared storage availability ──────────────────────────────────────────

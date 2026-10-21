@@ -13,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.databinding.ActivityMainBinding
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
 import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ui.ClipboardFragment
 import com.example.earthquack.ui.ConnectionsFragment
@@ -26,6 +27,8 @@ import com.example.earthquack.ui.TerminalFragment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Single-Activity host for the four tabs and the Services sub-screens.
@@ -78,6 +81,22 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Auto-start embedded Tailscale on app open. The node is the app's
+        // own tailnet identity, so it comes up independently of the desktop
+        // service — see TailscaleNodeMonitor.
+        TailscaleNodeMonitor.start(this)
+
+        // Start rclone in the background: initialising it loads the native
+        // library and the config file, which costs about a second. Paying it
+        // here, off the main thread, means no screen stalls later.
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { com.example.earthquack.storage.RcloneEngines.get(this@MainActivity) }
+        }
+
+        // The phone's own clipboard API, so the desktop can talk to the
+        // phone directly instead of needing a server on the desktop.
+        com.example.earthquack.clipboard.ClipboardApiServer.get(this)
+
         statusProvider = SystemStatusProvider(this)
 
         binding.bottomNav.setOnItemSelectedListener { item ->
@@ -86,6 +105,8 @@ class MainActivity : AppCompatActivity() {
             // silently discard the pushed screen.
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+                subScreenTitles.clear()
+                subScreenSubtitles.clear()
                 binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 binding.appbar.btnBack.setOnClickListener(null)
             }
@@ -216,13 +237,15 @@ class MainActivity : AppCompatActivity() {
      * is what the mockup shows for Connections, SFTP and Clipboard: they are
      * deeper within Services, not peers of it.
      */
+    private val subScreenTitles = mutableListOf<String>()
+    private val subScreenSubtitles = mutableListOf<String>()
+
     fun pushSubScreen(fragment: Fragment, title: String, subtitle: String) {
         val fm = supportFragmentManager
-        // Only one sub-screen at a time; replacing keeps Back from walking
-        // through a stack the user cannot see.
-        fm.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        // Allow sub-screens to stack (e.g. Connections -> Serve) so Back
+        // returns to the previous sub-screen instead of the tab root.
         fm.beginTransaction()
-            .add(R.id.content, fragment)
+            .replace(R.id.content, fragment)
             .addToBackStack(SUB_SCREEN)
             .commit()
 
@@ -230,6 +253,9 @@ class MainActivity : AppCompatActivity() {
         // while something is pushed. Leaving it opaque unconditionally hid
         // every tab behind a blank panel.
         binding.content.setBackgroundColor(getColor(R.color.eq_background))
+
+        subScreenTitles.add(title)
+        subScreenSubtitles.add(subtitle)
 
         binding.appbar.title.text = title
         binding.appbar.subtitle.text = subtitle
@@ -296,10 +322,22 @@ class MainActivity : AppCompatActivity() {
     private fun popSubScreen(): Boolean {
         if (supportFragmentManager.backStackEntryCount == 0) return false
         supportFragmentManager.popBackStack()
-        renderAppBar(currentTabId)
-        binding.appbar.btnBack.setOnClickListener(null)
-        // Transparent again so the tab underneath is visible.
-        binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        if (subScreenTitles.isNotEmpty()) subScreenTitles.removeAt(subScreenTitles.lastIndex)
+        if (subScreenSubtitles.isNotEmpty()) subScreenSubtitles.removeAt(subScreenSubtitles.lastIndex)
+        if (subScreenTitles.isNotEmpty()) {
+            binding.appbar.title.text = subScreenTitles.last()
+            val sub = subScreenSubtitles.last()
+            binding.appbar.subtitle.text = sub
+            binding.appbar.subtitle.visibility = if (sub.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+            binding.appbar.btnBack.visibility = android.view.View.VISIBLE
+            binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+            binding.content.setBackgroundColor(getColor(R.color.eq_background))
+        } else {
+            renderAppBar(currentTabId)
+            binding.appbar.btnBack.setOnClickListener(null)
+            // Transparent again so the tab underneath is visible.
+            binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
         return true
     }
 

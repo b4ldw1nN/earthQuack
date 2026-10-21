@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Diagnostics.
+
+    One screen that answers "what is actually going on?" for the parts of the
+    app that talk to the network: the embedded node, the tailnet peers, the
+    services published to the tailnet, the SFTP server and the rclone remotes.
+
+    Rows are label/value pairs, the same shape as the rest of the app, so a
+    report can be read at a glance and copied into a bug report verbatim.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- Node -->
+        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
+
+            <include android:id="@+id/rowNodeState" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowNodeIp" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowSocks" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowExitNode" layout="@layout/partial_detail_row" />
+        </LinearLayout>
+
+        <!-- Peers -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/diagnostics_peers_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_eq_chevron"
+                app:tint="@color/eq_text_muted"
+                android:contentDescription="@null"
+                xmlns:app="http://schemas.android.com/apk/res-auto" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardPeers"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
+        <!-- Services -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/diagnostics_services_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical">
+
+            <include android:id="@+id/rowSftp" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowServes" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowDesktop" layout="@layout/partial_detail_row" />
+            <View style="@style/Widget.Eq.Divider.Inset" />
+            <include android:id="@+id/rowCapabilities" layout="@layout/partial_detail_row" />
+        </LinearLayout>
+
+        <!-- Remotes -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/diagnostics_remotes_header"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cardRemotes"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRefresh"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:text="@string/diagnostics_refresh" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopy"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/diagnostics_copy" />
+
+    </LinearLayout>
+</ScrollView>

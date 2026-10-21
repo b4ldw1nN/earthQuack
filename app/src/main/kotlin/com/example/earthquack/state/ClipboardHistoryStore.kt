@@ -1,6 +1,8 @@
 package com.example.earthquack.state
 
 import android.content.Context
+import com.example.earthquack.CryptoUtil
+import com.example.earthquack.ServerConfig
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -90,6 +92,29 @@ class ClipboardHistoryStore(context: Context) {
 
     private val file = File(context.applicationContext.filesDir, FILE)
 
+    private val appContext = context.applicationContext
+
+    /**
+     * Encrypts a value for storage, when the app has a key.
+     *
+     * The history is a file of everything that was copied, so it is stored
+     * the way the clipboard itself is stored: with the same AES key. Without
+     * a key the value is stored as it always was — the app cannot invent
+     * one, and an unencrypted history is still better than no history.
+     */
+    private fun protect(text: String): String = CryptoUtil.wrapIfNeeded(
+        text,
+        ServerConfig.getAesKey(appContext),
+        ServerConfig.isAesEnabled(appContext),
+    )
+
+    /** Undoes [protect]; values stored before encryption stay readable. */
+    private fun unprotect(text: String): String = CryptoUtil.unwrapIfNeeded(
+        text,
+        ServerConfig.getAesKey(appContext),
+        ServerConfig.isAesEnabled(appContext),
+    )
+
     /**
      * Records a sync. Safe to call from any thread.
      *
@@ -102,8 +127,9 @@ class ClipboardHistoryStore(context: Context) {
         if (text.isBlank()) return
         try {
             val trimmed = text.take(MAX_TEXT_CHARS)
+            val stored = protect(trimmed)
             val entry = JSONObject().apply {
-                put("text", trimmed)
+                put("text", stored)
                 put("dir", direction.name)
                 put("ts", System.currentTimeMillis())
             }
@@ -111,7 +137,9 @@ class ClipboardHistoryStore(context: Context) {
             val entries = readRaw().toMutableList()
             // Newest first, and de-duplicate: the desktop echo of a value we
             // just sent would otherwise appear as a second, identical row.
-            entries.removeAll { it.optString("text") == trimmed }
+            // Compared on the stored form, so an entry written before
+            // encryption was enabled still matches.
+            entries.removeAll { it.optString("text") == stored || unprotect(it.optString("text")) == trimmed }
             entries.add(0, entry)
 
             val trimmed2 = entries.take(MAX_ENTRIES)
@@ -132,7 +160,9 @@ class ClipboardHistoryStore(context: Context) {
     @Synchronized
     fun list(): List<ClipboardEntry> = try {
         readRaw().mapNotNull { obj ->
-            val text = obj.optString("text")
+            val stored = obj.optString("text")
+            if (stored.isEmpty()) return@mapNotNull null
+            val text = unprotect(stored)
             if (text.isEmpty()) return@mapNotNull null
             ClipboardEntry(
                 text = text,

@@ -5,7 +5,16 @@ import argparse
 import json
 import time
 
-from config import APP_NAME, SERVER_HOST, SERVER_PORT
+from config import (
+    AES_ENABLED,
+    APP_NAME,
+    APP_VERSION,
+    FILE_SERVER_PORT,
+    SERVER_HOST,
+    SERVER_PORT,
+    aes_key_fingerprint,
+    is_authorized,
+)
 from core.events import EventBroker
 from core.state import ClipboardState
 
@@ -17,10 +26,39 @@ events = EventBroker()
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        if not self._authorized():
+            return
+
         if self.path == "/health":
             data = json.dumps({
                 "status": "ok",
                 "service": APP_NAME,
+            }).encode()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if self.path == "/capabilities":
+            # What this desktop supports, so the phone can check that both
+            # sides agree (encryption especially) instead of discovering a
+            # mismatch as unreadable clipboard content.
+            data = json.dumps({
+                "service": APP_NAME,
+                "version": APP_VERSION,
+                "aes_enabled": AES_ENABLED,
+                "aes_key_fingerprint": aes_key_fingerprint(),
+                "clipboard_port": SERVER_PORT,
+                "file_port": FILE_SERVER_PORT,
+                "endpoints": [
+                    "clipboard",
+                    "events",
+                    "health",
+                    "capabilities",
+                ],
             }).encode()
 
             self.send_response(200)
@@ -80,6 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if not self._authorized():
+            return
+
         if self.path == "/signal":
             self.handle_signal()
             return
@@ -89,6 +130,23 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404)
+
+    def _authorized(self) -> bool:
+        """Whether this request may use the server.
+
+        Enforced only when a token is configured, so a fresh install keeps
+        working; once one is set, every endpoint needs it.
+        """
+        if is_authorized(self.headers.get("Authorization")):
+            return True
+
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("WWW-Authenticate", "Bearer")
+        self.end_headers()
+        self.wfile.write(b'{"error":"unauthorized"}')
+
+        return False
 
     def handle_signal(self):
         try:

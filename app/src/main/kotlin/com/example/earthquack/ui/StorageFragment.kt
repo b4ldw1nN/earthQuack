@@ -11,12 +11,17 @@ import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentStorageBinding
 import com.example.earthquack.databinding.ItemRemoteRowBinding
 import com.example.earthquack.state.StorageRepository
+import com.example.earthquack.storage.RcloneHealthProbe
+import com.example.earthquack.tailscale.TailscaleLoginState
+import com.example.earthquack.tailscale.TailscaleNodeMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +54,35 @@ class StorageFragment : Fragment() {
 
     private lateinit var repository: StorageRepository
     private lateinit var importer: RcloneConfigImporter
+
+    /**
+     * Rows of the remote list, by remote name, so a probe result can update
+     * the row it belongs to.
+     */
+    private val remoteRows = mutableMapOf<String, ItemRemoteRowBinding>()
+
+    /** The type/route part of each row's label, without the health suffix. */
+    private val remoteBaseLabels = mutableMapOf<String, String>()
+
+    /** The last probe result per remote, for the row menu. */
+    private val remoteHealth = mutableMapOf<String, RcloneHealthProbe.Health>()
+
+    /**
+     * When the last probe ran, and whether the node was up when it did.
+     *
+     * Probing is one network round-trip per remote, and a cloud account can
+     * hold hundreds of files at its root. Doing that on every visit to the
+     * screen is slow and wasteful, so a result is reused until the node
+     * changes state or the answer is old enough to be worth refreshing.
+     */
+    private var lastProbeAt = 0L
+    private var lastProbeWithNode = false
+
+    private fun shouldProbe(): Boolean {
+        val nodeUp = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
+        val age = System.currentTimeMillis() - lastProbeAt
+        return nodeUp != lastProbeWithNode || age > PROBE_MAX_AGE_MS
+    }
 
     /**
      * SAF picker for an existing rclone.conf.
@@ -97,6 +131,18 @@ class StorageFragment : Fragment() {
         }
         binding.btnRemotesRetry.setOnClickListener { loadRemotes() }
         binding.btnGrantStorage.setOnClickListener { openAllFilesAccessSettings() }
+
+        // A tailnet remote can only be reached once the node is up, and the
+        // node comes up on its own schedule. Probing before that says
+        // "unreachable" for a remote that is about to work, so the list is
+        // refreshed when the node reports Running.
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TailscaleNodeMonitor.state.collect { state ->
+                    if (state is TailscaleLoginState.Running) loadRemotes()
+                }
+            }
+        }
 
         renderLocalStorage()
     }
@@ -184,24 +230,102 @@ class StorageFragment : Fragment() {
                     b.remotesMessage.visibility = View.GONE
                     b.btnRemotesRetry.visibility = View.GONE
                     renderRemotes(remotes)
+                    probeRemotes(remotes.map { it.name })
                 }
             }
         }
+    }
+
+    /**
+     * Probes each remote and updates its row as the answers arrive.
+     *
+     * Probing is slow (a network round-trip per remote) and may never finish
+     * for a remote that hangs, so each remote's row is updated on its own
+     * rather than waiting for the whole set.
+     */
+    private fun probeRemotes(names: List<String>) {
+        if (names.isEmpty()) return
+        if (!shouldProbe()) {
+            // Fresh enough: show what we already know.
+            applyCachedHealth(names)
+            return
+        }
+        lastProbeAt = System.currentTimeMillis()
+        lastProbeWithNode = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
+        viewLifecycleOwner.lifecycleScope.launch {
+            repository.probeRemotes(names) { name, result ->
+                remoteHealth[name] = result
+                val row = remoteRows[name] ?: return@probeRemotes
+                row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
+                row.remoteStatus.setTextColor(
+                    resources.getColor(
+                        when (result.state) {
+                            RcloneHealthProbe.State.Ok -> R.color.eq_success
+                            RcloneHealthProbe.State.Unknown -> R.color.eq_text_muted
+                            else -> R.color.eq_warning
+                        },
+                        requireContext().theme
+                    )
+                )
+            }
+        }
+    }
+
+    /** Re-applies the last known health to the rows, without probing again. */
+    private fun applyCachedHealth(names: List<String>) {
+        names.forEach { name ->
+            val result = remoteHealth[name] ?: return@forEach
+            val row = remoteRows[name] ?: return@forEach
+            row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
+        }
+    }
+
+    /**
+     * Combines the type/route prefix with the probe result.
+     *
+     * The prefix is kept because "sftp · via Tailscale" says how it is
+     * reached, while the health says whether it answers; the two are
+     * different facts and both are worth showing.
+     */
+    private fun remoteStatusLabel(prefix: String, health: RcloneHealthProbe.Health): String {
+        val suffix = when (health.state) {
+            RcloneHealthProbe.State.Ok -> getString(R.string.storage_remote_ok)
+            RcloneHealthProbe.State.NeedsAuth -> getString(R.string.storage_remote_needs_auth)
+            RcloneHealthProbe.State.Unreachable -> getString(R.string.storage_remote_unreachable)
+            RcloneHealthProbe.State.Failed -> getString(R.string.storage_remote_failed)
+            RcloneHealthProbe.State.NotSupported -> getString(R.string.storage_remote_not_supported)
+            RcloneHealthProbe.State.NotSetUp -> getString(R.string.storage_remote_not_set_up)
+            RcloneHealthProbe.State.Unknown -> return prefix
+        }
+        return getString(R.string.storage_remote_status_with_health, prefix, suffix)
     }
 
     private fun renderRemotes(remotes: List<StorageRepository.RemoteSummary>) {
         val container = binding.cardRemotes
         container.removeAllViews()
         container.visibility = View.VISIBLE
+        remoteRows.clear()
+        remoteBaseLabels.clear()
 
         remotes.forEachIndexed { index, remote ->
             val row = ItemRemoteRowBinding.inflate(layoutInflater, container, false)
+            remoteRows[remote.name] = row
             row.remoteName.text = remote.name
             // Type when the config declares one, otherwise say so. Guessing a
-            // backend from the section name would be fabrication.
-            row.remoteStatus.text = remote.type
+            // backend from the section name would be fabrication. Tailnet
+            // remotes carry their route too: they are dialled through this
+            // app's own Tailscale node, which is what makes them reachable
+            // without a system VPN.
+            val typeLabel = remote.type
                 ?.let { getString(R.string.storage_remote_status, it) }
                 ?: getString(R.string.storage_remote_type_unknown)
+            val baseLabel = if (remote.routedViaTailscale) {
+                getString(R.string.storage_remote_via_tailscale, typeLabel)
+            } else {
+                typeLabel
+            }
+            remoteBaseLabels[remote.name] = baseLabel
+            row.remoteStatus.text = baseLabel
 
             row.remoteIcon.setImageResource(iconForType(remote.type))
             row.remoteIcon.imageTintList = resources.getColorStateList(
@@ -238,15 +362,39 @@ class StorageFragment : Fragment() {
     ) {
         PopupMenu(requireContext(), anchor).apply {
             menu.add(0, MENU_BROWSE, 0, R.string.action_browse)
-            menu.add(0, MENU_DELETE, 1, R.string.action_delete_remote)
+            // Only offered when the remote is a crypt remote whose encrypted
+            // folder does not exist yet: that is the one setup step the app
+            // can do for the user.
+            if (remoteHealth[remote.name]?.state == RcloneHealthProbe.State.NotSetUp) {
+                menu.add(0, MENU_CREATE_FOLDER, 1, R.string.storage_remote_create_folder)
+            }
+            menu.add(0, MENU_DELETE, 2, R.string.action_delete_remote)
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     MENU_BROWSE -> browseRemote(remote)
+                    MENU_CREATE_FOLDER -> createCryptFolder(remote)
                     MENU_DELETE -> confirmDelete(remote)
                 }
                 true
             }
             show()
+        }
+    }
+
+    /**
+     * Creates the missing folder behind a crypt remote, then re-probes it.
+     */
+    private fun createCryptFolder(remote: StorageRepository.RemoteSummary) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val created = withContext(Dispatchers.IO) {
+                repository.createCryptFolder(remote.name)
+            }
+            Toast.makeText(
+                requireContext(),
+                getString(if (created) R.string.storage_remote_folder_created else R.string.storage_remote_folder_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+            loadRemotes()
         }
     }
 
@@ -305,8 +453,9 @@ class StorageFragment : Fragment() {
             runCatching {
                 val cfg = com.example.earthquack.storage.RcloneConfigManager(requireContext())
                 cfg.ensureReady()
-                val engine = com.example.earthquack.storage.RcloneEngine()
-                    .also { it.initialize(cfg.configPath) }
+                val engine = withContext(Dispatchers.IO) {
+                    com.example.earthquack.storage.RcloneEngines.getBlocking(cfg.configPath)
+                }
                 com.example.earthquack.storage.RcloneRemoteManager(engine)
                     .deleteRemote(remote.name)
             }.onSuccess {
@@ -409,7 +558,11 @@ class StorageFragment : Fragment() {
     }
 
     private companion object {
+        /** How long a probe result is trusted before it is refreshed. */
+        const val PROBE_MAX_AGE_MS = 120_000L
+
         const val MENU_BROWSE = 1
-        const val MENU_DELETE = 2
+        const val MENU_CREATE_FOLDER = 2
+        const val MENU_DELETE = 3
     }
 }

@@ -4,6 +4,20 @@ desktop.py — bidirectional clipboard sync for Desktop Linux & Windows
 
   Desktop → Phone:  polls wl-paste every 0.5s, POSTs changes to server.py
   Phone → Desktop:  listens to SSE stream, writes received text to wl-copy
+
+The server it talks to can be either one:
+
+  * the desktop's own server.py (default), or
+  * the phone's clipboard API, published to the tailnet by the Android app
+    (Services → Tailscale → Serve / Funnel → Clipboard API).
+
+Point at the phone with:
+
+  CLIPBOARD_SERVER_HOST=100.121.203.68 CLIPBOARD_SERVER_PORT=8875
+
+Both speak the same protocol, so nothing else changes. The phone encrypts
+what it serves when it has an AES key configured; both sides must use the
+same key (GET /capabilities reports the key's fingerprint).
 """
 
 import argparse
@@ -27,6 +41,43 @@ SERVER_PORT = os.environ.get("CLIPBOARD_SERVER_PORT", "8875")
 SERVER_URL  = f"http://{SERVER_HOST}:{SERVER_PORT}"
 POST_URL    = f"{SERVER_URL}/clipboard"
 EVENTS_URL  = f"{SERVER_URL}/events"
+
+
+def _auth_token() -> str:
+    """The bearer token for the server this bridge talks to.
+
+    The phone's API refuses anonymous callers, so a token is required when
+    talking to the phone. It comes from CLIPBOARD_PHONE_TOKEN, or from the
+    desktop's own config.json when that is what the server expects.
+    """
+    token = os.environ.get("CLIPBOARD_PHONE_TOKEN", "")
+
+    if token:
+        return token
+
+    try:
+        import json
+
+        path = os.path.expanduser("~/.config/earthquack/config.json")
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        auth = data.get("auth") or {}
+
+        return auth.get("token") or ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+AUTH_TOKEN = _auth_token()
+
+
+def auth_headers() -> dict:
+    if not AUTH_TOKEN:
+        return {}
+
+    return {"Authorization": f"Bearer {AUTH_TOKEN}"}
 
 last_sent     = None   # text we last pushed (don't re-push what we just received)
 last_received = None   # text we last received from SSE (don't echo it back)
@@ -90,7 +141,7 @@ def push_loop():
                     data = json.dumps({"clipboard": send_text, "origin": "desktop"}).encode()
                     req  = urllib.request.Request(
                         POST_URL, data=data,
-                        headers={"Content-Type": "application/json"},
+                        headers={"Content-Type": "application/json", **auth_headers()},
                         method="POST",
                     )
                     urllib.request.urlopen(req, timeout=5)
@@ -145,7 +196,7 @@ def sse_loop():
     print(f"[sse]  Listening for Phone clipboard ← {EVENTS_URL}", flush=True)
     while True:
         try:
-            req = urllib.request.Request(EVENTS_URL)
+            req = urllib.request.Request(EVENTS_URL, headers=auth_headers())
             with urllib.request.urlopen(req, timeout=None) as resp:
                 backoff = 2   # reset on successful connection
                 event_type  = ""
