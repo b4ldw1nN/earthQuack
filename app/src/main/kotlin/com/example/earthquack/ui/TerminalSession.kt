@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class TerminalSession(val profileId: String) {
 
+
     private companion object {
         const val TAG = "TerminalSession"
     }

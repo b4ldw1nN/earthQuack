@@ -237,62 +237,80 @@ class TerminalGrid(
             oldScreen.add(row)
         }
 
-        // Reflow each old row into the new width: a row that no longer fits
-        // wraps onto following rows instead of being silently truncated.
-        val expanded = ArrayList<ArrayList<Cell>>()
-        for (oldRow in oldScreen) {
-            // Drop trailing blank cells so they do not create empty wrapped rows.
-            var contentLen = oldRow.size
-            while (contentLen > 0) {
-                val cp = oldRow[contentLen - 1].code
-                if (cp == 0 || cp == ' '.code) contentLen-- else break
-            }
-            if (contentLen == 0) {
-                expanded.add(blankRow(nc))
-                continue
-            }
-            val content = ArrayList<Cell>(contentLen)
-            for (i in 0 until contentLen) content.add(oldRow[i])
-            var idx = 0
-            while (idx < content.size) {
-                val chunk = ArrayList<Cell>(nc)
-                for (k in 0 until nc) {
-                    if (idx + k < content.size) chunk.add(content[idx + k])
-                    else chunk.add(Cell(0, NO_COLOR, NO_COLOR, 0))
-                }
-                expanded.add(chunk)
-                idx += nc
-            }
-        }
+        // A terminal keeps its text when the window changes size: it does not
+        // re-wrap what is already on the screen.
+        //
+        // The old code re-flowed every row into the new width and kept the
+        // *top* rows when the screen got shorter. Both were wrong here: the
+        // re-flow moved the cursor off its cell, and dropping the bottom
+        // rows cut the prompt off when the keyboard opened — the shell then
+        // redrew it, and the user saw extra blank lines appear.
+        //
+        // So: the content is anchored at the bottom, the rows that no longer
+        // fit go to the scrollback, and the cursor keeps its cell.
+        val keep = minOf(oldRows, nr)
+        val firstKept = oldRows - keep
 
         // Allocate new arrays.
         codes = IntArray(nr * nc)
         fg = IntArray(nr * nc) { NO_COLOR }
         bg = IntArray(nr * nc) { NO_COLOR }
         flags = IntArray(nr * nc)
-        codes.fill(0); fg.fill(NO_COLOR); bg.fill(NO_COLOR); flags.fill(0)
 
-        val copyRows = minOf(expanded.size, nr)
-        for (r in 0 until copyRows) {
-            val row = expanded[r]
+        // The rows that no longer fit become scrollback, oldest first.
+        for (r in 0 until firstKept) {
+            val text = rowText(oldScreen[r])
+            if (text.isNotEmpty()) pushScrollback(lineOf(text))
+        }
+
+        for (r in 0 until keep) {
+            val row = oldScreen[firstKept + r]
             for (c in 0 until nc) {
                 val to = r * nc + c
-                val cell = row[c]
-                codes[to] = cell.code
-                fg[to] = cell.fg
-                bg[to] = cell.bg
-                flags[to] = cell.flags
+                if (c < row.size) {
+                    val cell = row[c]
+                    codes[to] = cell.code
+                    fg[to] = cell.fg
+                    bg[to] = cell.bg
+                    flags[to] = cell.flags
+                }
             }
         }
+
         rows = nr
         cols = nc
+        // The cursor stays on its cell; when the screen shrank, it moves up
+        // with the content it belongs to.
+        cursorY = (cursorY - firstKept).coerceIn(0, rows - 1)
         cursorX = cursorX.coerceIn(0, cols - 1)
-        cursorY = cursorY.coerceIn(0, rows - 1)
         scrollTop = 0
         scrollBottom = rows - 1
         wrapPending = false
         if (viewportOffset > scrollback.size) viewportOffset = scrollback.size
         Unit
+    }
+
+    /** The visible text of a row, trimmed of the trailing blanks. */
+    private fun rowText(row: List<Cell>): String {
+        val sb = StringBuilder(row.size)
+        for (cell in row) {
+            val code = cell.code
+            sb.append(if (code == 0) ' ' else code.toChar())
+        }
+        return sb.toString().trimEnd()
+    }
+
+    /** A scrollback line holding [text]. */
+    private fun lineOf(text: String): Line {
+        val n = text.length
+        val lineCodes = IntArray(n)
+        val lineFg = IntArray(n) { NO_COLOR }
+        val lineBg = IntArray(n) { NO_COLOR }
+        val lineFlags = IntArray(n)
+        for (i in 0 until n) {
+            lineCodes[i] = text[i].code
+        }
+        return Line(lineCodes, lineFg, lineBg, lineFlags)
     }
 
     private data class Cell(val code: Int, val fg: Int, val bg: Int, val flags: Int)
@@ -837,10 +855,57 @@ class TerminalGrid(
                 break
             }
         }
-        val out = ArrayList<List<TerminalRun>>(scrollback.size + lastContentRow + 1)
-        for (i in 0 until scrollback.size) out.add(renderLine(scrollback[i]))
-        for (r in 0..lastContentRow) out.add(renderScreenRow(r))
+        // Only the newest lines are rendered.
+        //
+        // The TextView re-lays out its whole content on every frame, so a
+        // full 2000-line scrollback made each frame take seconds. Worse, the
+        // render holds the grid's lock, and the shell's reader thread needs
+        // that same lock to feed the output in: the render starved the
+        // reader, the reader stalled the shell, and a command like `ls` took
+        // the better part of a minute to appear.
+        val wanted = RENDER_MAX_LINES - lastContentRow
+        val from = if (wanted <= 0) scrollback.size else maxOf(0, scrollback.size - wanted)
+        val out = ArrayList<List<TerminalRun>>(scrollback.size - from + lastContentRow + 1)
+        for (i in from until scrollback.size) out.add(renderLine(scrollback[i]))
+        for (r in 0..lastContentRow) {
+            val runs = renderScreenRow(r)
+            // The cursor is drawn as a reversed cell: without it there is
+            // nothing on screen showing where the next character will land.
+            out.add(if (r == cursorY) withCursor(runs, cursorX) else runs)
+        }
         out
+    }
+
+    /**
+     * The runs of one row with the cursor cell reversed.
+     *
+     * A real terminal shows a block or an underline on the cell the cursor
+     * is on; reversing that one cell is the same idea, and it works with the
+     * span-based rendering.
+     */
+    private fun withCursor(runs: List<TerminalRun>, col: Int): List<TerminalRun> {
+        if (col < 0) return runs
+        var offset = 0
+        for ((index, run) in runs.withIndex()) {
+            val length = run.text.length
+            if (col < offset + length) {
+                val at = col - offset
+                val style = run.style
+                val cursorStyle = style.copy(reverse = !style.reverse)
+                val out = ArrayList<TerminalRun>(runs.size + 2)
+                if (at > 0) out.add(TerminalRun(run.text.substring(0, at), style))
+                out.add(TerminalRun(run.text.substring(at, at + 1), cursorStyle))
+                if (at + 1 < length) out.add(TerminalRun(run.text.substring(at + 1), style))
+                for (i in index + 1 until runs.size) out.add(runs[i])
+                return out
+            }
+            offset += length
+        }
+        // The cursor is past the end of the text: show it as a reversed space.
+        val out = ArrayList<TerminalRun>(runs.size + 1)
+        out.addAll(runs)
+        out.add(TerminalRun(" ", runs.lastOrNull()?.style?.copy(reverse = true) ?: TerminalStyle(null, null, false, false, true)))
+        return out
     }
 
     /** True when row [r] holds anything other than blank cells. */
@@ -928,6 +993,16 @@ class TerminalGrid(
 
         /** Scrollback lines retained above the live screen. */
         const val MAX_SCROLLBACK = 2000
+
+        /**
+         * How many lines the view renders at once.
+         *
+         * The TextView re-lays out its whole content on every frame, and the
+         * render holds the grid's lock, which the shell's reader thread also
+         * needs. Rendering everything made a command like `ls` take the best
+         * part of a minute to appear.
+         */
+        const val RENDER_MAX_LINES = 400
 
         private fun isLead(b: Int) = b in 0xC2..0xF4
 

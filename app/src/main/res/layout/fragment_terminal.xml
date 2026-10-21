@@ -66,12 +66,17 @@
 
         <View style="@style/Widget.Eq.Divider" />
 
-        <!-- Terminal log (scrollable) -->
+        <!-- Terminal log (scrollable). The frame holds the log and the
+             "live output" button that appears when the user scrolls away. -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
         <androidx.core.widget.NestedScrollView
             android:id="@+id/terminalScroll"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="match_parent"
             android:scrollbars="vertical"
             android:focusable="false"
             android:focusableInTouchMode="false"
@@ -95,6 +100,19 @@
                 android:letterSpacing="0"
                 tools:text="user@archii:~$ ls&#10;file1.txt  file2.txt  dir1/&#10;user@archii:~$ " />
         </androidx.core.widget.NestedScrollView>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnJumpToLive"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="@dimen/eq_gap_md"
+                android:text="@string/terminal_jump_to_live"
+                android:visibility="gone"
+                app:icon="@drawable/ic_eq_sync"
+                app:iconSize="16dp" />
+        </FrameLayout>
 
         <View style="@style/Widget.Eq.Divider" />
 
@@ -149,8 +167,7 @@
             android:importantForAutofill="no"
             android:inputType="text|textNoSuggestions|textVisiblePassword"
             android:imeOptions="actionNone|flagNoExtractUi|flagNoFullscreen|flagNoPersonalizedLearning"
-            android:privateImeOptions="nm"
-            android:maxLines="1" />
+            android:privateImeOptions="nm" />
 
     </LinearLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

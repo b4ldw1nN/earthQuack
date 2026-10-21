@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
@@ -143,6 +145,25 @@ class MainActivity : AppCompatActivity() {
             listOf(R.id.nav_home, R.id.nav_storage, R.id.nav_services, R.id.nav_settings)
                 .forEach { id -> findFragment(id)?.let { tabFragments[id] = it } }
             binding.bottomNav.selectedItemId = currentTabId
+        }
+
+        // The navigation and the app bar must not be focusable.
+        //
+        // A soft keyboard that navigates between fields (or any focus
+        // traversal) lands on a menu item, and BottomNavigationView *selects*
+        // the item that has focus: the app then switched to that tab without
+        // the user touching anything. TalkBack is unaffected — it uses
+        // accessibility focus, not input focus.
+        unfocusable(binding.bottomNav)
+        unfocusable(binding.appbar.root)
+    }
+
+    /** Makes [view] and everything inside it unable to take input focus. */
+    private fun unfocusable(view: View) {
+        view.isFocusable = false
+        view.isFocusableInTouchMode = false
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) unfocusable(view.getChildAt(i))
         }
     }
 

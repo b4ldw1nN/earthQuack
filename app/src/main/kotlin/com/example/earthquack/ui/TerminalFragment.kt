@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -101,6 +102,12 @@ class TerminalFragment : Fragment() {
      */
     private var userScrolledUp = false
 
+    /** True while a finger is on the scroll view. */
+    private var userTouching = false
+
+    /** The last screen written to the view, so an unchanged draw is skipped. */
+    private var lastDrawnSignature: Pair<Int, String?>? = null
+
     /** Total bytes fed to the parser this session; diagnostics only. */
     private var bytesReceived = 0L
 
@@ -108,6 +115,9 @@ class TerminalFragment : Fragment() {
     private var shellChannelsOpened = 0
 
     private var profile: ConnectionProfile? = null
+
+    /** The layout listener, so it can be removed when the view goes. */
+    private var resizeListener: ViewTreeObserver.OnGlobalLayoutListener? = null
 
     private val drawRunnable = Runnable { draw() }
 
@@ -220,6 +230,13 @@ class TerminalFragment : Fragment() {
         // type at all.
         binding.terminalLog.setOnClickListener { focusInputAndShowKeyboard() }
         binding.terminalScroll.setOnClickListener { focusInputAndShowKeyboard() }
+        // Back to the live output: without it, a user who scrolled up has no
+        // way to return to the prompt.
+        binding.btnJumpToLive.setOnClickListener {
+            userScrolledUp = false
+            binding.btnJumpToLive.visibility = View.GONE
+            scrollToBottom()
+        }
     }
 
     /** Focuses the input sink and raises the soft keyboard. */
@@ -288,7 +305,7 @@ class TerminalFragment : Fragment() {
      * [resizeShell] is load-bearing rather than an optimisation.
      */
     private fun wireResize() {
-        binding.terminalScroll.viewTreeObserver.addOnGlobalLayoutListener {
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
             // The keyboard opening shrinks the window, which moves the bottom
             // of the log. Re-anchor to the newest output so the prompt stays
             // on screen instead of the viewport showing the middle of the
@@ -296,7 +313,7 @@ class TerminalFragment : Fragment() {
             if (!userScrolledUp) scrollToBottom()
 
             if (state.isConnected) {
-                val view = binding.terminalScroll
+                val view = _binding?.terminalScroll ?: return@OnGlobalLayoutListener
                 // Measure the fixed viewport box, never the growing content
                 // TextView. terminalLog wraps its content: when the remote
                 // redraws a prompt padded to the column count we last sent, the
@@ -309,24 +326,34 @@ class TerminalFragment : Fragment() {
                 // is the real viewport and does not grow with content.
                 val viewportW = view.width - view.paddingLeft - view.paddingRight
                 val viewportH = view.height - view.paddingTop - view.paddingBottom
-                val log = binding.terminalLog
+                val log = _binding?.terminalLog ?: return@OnGlobalLayoutListener
+                // The log's own padding is inside the scroll view's content
+                // box, so it has to come off the width the columns are
+                // counted from.
                 // Font metrics come from the log's paint; they are stable and
                 // unrelated to how wide the content currently is.
                 val cell = log.paint.measureText("M")
                 val line = log.lineHeight
-                if (viewportW > 0 && viewportH > 0 && cell > 0f && line > 0) {
+                val textWidth = viewportW - log.paddingStart - log.paddingEnd
+                if (textWidth > 0 && viewportH > 0 && cell > 0f && line > 0) {
                     val rows = viewportH / line
-                    val cols = (viewportW / cell).toInt()
+                    val cols = (textWidth / cell).toInt()
                     // The emulator and the shell must agree on the geometry.
                     // When they did not, every cursor-up / erase / delete-lines
                     // sequence in the shell's prompt redraw landed on a
                     // different row, and the text the user typed appeared a
                     // line below the prompt (or on top of it).
                     session?.grid?.resize(rows, cols)
-                    resizeShell(rows = rows, cols = cols)
+                    // The shell is told even when the size did not change:
+                    // a window change makes it redraw its prompt, and the
+                    // redraw is what puts the emulator and the shell back
+                    // in step after the screen was resized.
+                    resizeShell(rows = rows, cols = cols, force = true)
                 }
             }
         }
+        resizeListener = listener
+        binding.terminalScroll.viewTreeObserver.addOnGlobalLayoutListener(listener)
     }
 
     // ── connect ──────────────────────────────────────────────────────────────
@@ -404,13 +431,18 @@ class TerminalFragment : Fragment() {
     private fun draw() {
         drawPending.set(false)
         val log = _binding?.terminalLog ?: return
-        // One setText per frame from the whole grid, trailing blank rows trimmed
-        // so the prompt is the last line and auto-follow pins it to the bottom.
         val rows = grid.renderTrimmed()
-        log.text = rows.toScreenSpan()
-        val rendered = rows.sumOf { line -> line.sumOf { it.text.length } }
-        Log.i(TAG, "drew $rendered chars over ${rows.size} lines " +
-            "(session bytes=$bytesReceived), autoscroll=${!userScrolledUp}")
+        // Setting the text empties the view until the new content has been
+        // measured, which reads as the output blinking out and back on every
+        // frame. Nothing is written when the screen has not changed.
+        val signature = rows.size to rows.lastOrNull()?.joinToString("") { it.text }
+        if (signature != lastDrawnSignature) {
+            lastDrawnSignature = signature
+            log.text = rows.toScreenSpan()
+            val rendered = rows.sumOf { line -> line.sumOf { it.text.length } }
+            Log.i(TAG, "drew $rendered chars over ${rows.size} lines " +
+                "(session bytes=$bytesReceived), autoscroll=${!userScrolledUp}")
+        }
         scrollToBottom()
     }
 
@@ -425,14 +457,19 @@ class TerminalFragment : Fragment() {
      */
     private fun scrollToBottom() {
         if (userScrolledUp) return
-        binding.terminalScroll.post {
+        // The view can be gone by the time this is called: the layout
+        // listener and the posted draw both outlive a screen that was left
+        // with Back, and touching the destroyed binding is a crash.
+        val scroll = _binding?.terminalScroll ?: return
+        scroll.post {
+            val view = _binding?.terminalScroll ?: return@post
             if (userScrolledUp) return@post
             // Scroll position only — never fullScroll(FOCUS_DOWN), which also
             // requests focus for the last focusable view and would yank the IME
             // off the input sink mid-typing (observed: the first echoed char
             // moved focus to terminalLog, so every keystroke after it was lost).
-            val child = binding.terminalScroll.getChildAt(0) ?: return@post
-            binding.terminalScroll.scrollTo(0, child.height)
+            val child = view.getChildAt(0) ?: return@post
+            view.scrollTo(0, child.height)
         }
     }
 
@@ -444,12 +481,27 @@ class TerminalFragment : Fragment() {
      * deliberate move up sets [userScrolledUp] and stops [draw] from following.
      */
     private fun wireScroll() {
+        // A scroll that nobody dragged is the view's own relayout, and
+        // treating it as "the user scrolled up" switched the follow off: the
+        // output then went on below the viewport and the text looked like it
+        // had vanished. Only a drag counts.
+        binding.terminalScroll.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_MOVE -> userTouching = true
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> userTouching = false
+            }
+            false
+        }
         binding.terminalScroll.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             if (scrollY == oldScrollY) return@setOnScrollChangeListener
+            if (!userTouching) return@setOnScrollChangeListener
             val child = binding.terminalScroll.getChildAt(0) ?: return@setOnScrollChangeListener
             val distanceFromBottom = child.height - (scrollY + binding.terminalScroll.height)
             val wasUp = userScrolledUp
             userScrolledUp = !shouldFollowOutput(distanceFromBottom, NEAR_BOTTOM_SLACK_PX)
+            _binding?.btnJumpToLive?.visibility = if (userScrolledUp) View.VISIBLE else View.GONE
             if (wasUp != userScrolledUp) {
                 Log.d(TAG, "scroll ${scrollY}px, ${distanceFromBottom}px from bottom -> " +
                     "follow=${!userScrolledUp}")
@@ -470,6 +522,7 @@ class TerminalFragment : Fragment() {
     private fun resetTerminal() {
         grid.reset()
         _binding?.terminalLog?.text = ""
+        lastDrawnSignature = null
         bytesReceived = 0
         feedDumpCount = 0
     }
@@ -538,10 +591,10 @@ class TerminalFragment : Fragment() {
      * channel requests that some servers answer slowly, which is exactly the
      * "resizing the terminal kills the shell" report.
      */
-    private fun resizeShell(rows: Int, cols: Int) {
+    private fun resizeShell(rows: Int, cols: Int, force: Boolean = false) {
         val held = session ?: return
         if (held.state.shell == null || !held.state.shell!!.isOpen) return
-        if (rows == lastRows && cols == lastCols) return
+        if (!force && rows == lastRows && cols == lastCols) return
         lastRows = rows
         lastCols = cols
         lifecycleScope.launch(Dispatchers.IO) { held.resize(rows, cols) }
@@ -571,6 +624,15 @@ class TerminalFragment : Fragment() {
         // The *session* is not closed: Back leaves the terminal, it does not
         // end the shell. The screen detaches from the session, and the
         // session keeps running until the user disconnects it.
+        //
+        // The layout listener has to go as well: it fires on the next layout
+        // pass, which happens after the view is gone, and it used to reach
+        // into the destroyed binding — a crash the user caused by switching
+        // tabs while a shell was open.
+        resizeListener?.let { listener ->
+            _binding?.terminalScroll?.viewTreeObserver?.removeOnGlobalLayoutListener(listener)
+        }
+        resizeListener = null
         session?.listener = null
         _binding = null
         super.onDestroyView()

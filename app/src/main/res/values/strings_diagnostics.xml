@@ -22,4 +22,5 @@
     <string name="node_needs_signin">Tailscale needs you to sign in again</string>
     <string name="node_failed">Tailscale failed: %1$s</string>
     <string name="profile_peer_suggestion">%1$s — %2$s</string>
+    <string name="terminal_jump_to_live">Live output</string>
 </resources>

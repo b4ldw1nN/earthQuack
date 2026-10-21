@@ -58,6 +58,17 @@ class TerminalInputView @JvmOverloads constructor(
     // emptied the mirror" and never forward our own edits back to the shell.
     private var selfEdit = false
 
+    /**
+     * How many characters the shell has been given on this line.
+     *
+     * The count is the authority for backspaces, not the field's own
+     * content: a keyboard's inline prediction lives in the field, and when
+     * it is removed the field reports a deletion that the user never
+     * asked for. Counting against what the shell actually has keeps the
+     * two in step.
+     */
+    private var sentChars = 0
+
     init {
         // This field is the IME's only legitimate target. Without both flags it
         // is easy for a sibling (the terminal log TextView) to be picked as the
@@ -93,13 +104,26 @@ class TerminalInputView @JvmOverloads constructor(
                     (changeStart + changeCount).coerceAtMost(text.length)
                 )
                 if (changeBefore > 0) {
-                    onBytes?.invoke(ByteArray(changeBefore) { BACKSPACE_BYTE })
+                    val erase = minOf(changeBefore, sentChars)
+                    if (erase > 0) {
+                        onBytes?.invoke(ByteArray(erase) { BACKSPACE_BYTE })
+                        sentChars -= erase
+                    }
                 }
-                if (inserted == "\n" && suppressTextEnter) {
-                    suppressTextEnter = false
+                if (inserted == "\n") {
+                    // The key event already sent the carriage return; the
+                    // IME's commit of the same newline is the same keystroke
+                    // arriving twice.
+                    if (suppressTextEnter) {
+                        suppressTextEnter = false
+                    } else {
+                        forward("\n")
+                    }
+                    sentChars = 0
                     return
                 }
                 if (inserted.isNotEmpty()) {
+                    sentChars += inserted.length
                     forward(inserted)
                 }
             }
@@ -124,11 +148,32 @@ class TerminalInputView @JvmOverloads constructor(
      * cannot drift out of step with what the shell is actually holding.
      */
     fun clearMirror() {
+        sentChars = 0
         if (text.isNullOrEmpty()) return
         selfEdit = true
         setText("")
         setSelection(0)
         selfEdit = false
+    }
+
+    /**
+     * Enter as a key event, for hardware keyboards and injected keys.
+     *
+     * The soft keyboard's Enter arrives as a committed newline instead, and
+     * is handled in the text watcher. A key event never reaches the text
+     * watcher at all, so without this the shell never saw the carriage
+     * return and the command simply sat there.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            onBytes?.invoke(byteArrayOf(ENTER_BYTE))
+            clearMirror()
+            // The IME may also commit a newline for the same key; that
+            // duplicate is swallowed by the watcher.
+            suppressTextEnter = true
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
