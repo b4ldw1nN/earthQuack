@@ -6,7 +6,7 @@ import android.os.Build
 import java.io.File
 
 /**
- * Non-secret persistence for the embedded Tailscale node (roadmap Phase 1).
+ * Non-secret persistence for the embedded Tailscale node.
  *
  * This store deliberately persists *nothing sensitive*: the node key, machine
  * key and profile state all live inside tsnet's own state directory
@@ -16,7 +16,7 @@ import java.io.File
  *  - whether the user has ever enrolled (so the UI knows to offer the
  *    browser-login flow vs. silently joining the tailnet),
  *  - the hostname this device advertises (default: sanitised `Build.MODEL`),
- *  - an optional Headscale control URL (Phase 10; stored early so the setting
+ *  - an optional Headscale control URL (stored early so the setting
  *    round-trips before the UI for it exists).
  *
  * ## Testability
@@ -46,7 +46,7 @@ open class TailscaleStateStore(context: Context) : TailscaleNodeConfig {
      * The directory alone is not evidence — `Start()` runs `MkdirAll` before
      * any login happens — so the directory must contain something.
      */
-    open fun isEnrolled(): Boolean {
+    open override fun isEnrolled(): Boolean {
         val dir = stateDir()
         val entries = dir.listFiles() ?: return false
         return entries.isNotEmpty()

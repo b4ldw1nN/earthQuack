@@ -10,12 +10,12 @@ import androidx.lifecycle.lifecycleScope
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
 import com.example.earthquack.ServerConfig
-import com.example.earthquack.TailscaleDiscovery
+import com.example.earthquack.tailscale.TailscaleEngine
 import com.example.earthquack.databinding.FragmentConnectionsBinding
 import com.example.earthquack.databinding.ItemSettingsRowBinding
 import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
-import com.example.earthquack.state.TailnetStatus
+
 import com.example.earthquack.tailscale.ExitNodeManager
 import com.example.earthquack.tailscale.NativeExitNodeControl
 import com.example.earthquack.tailscale.TailnetPeer
@@ -55,9 +55,8 @@ class ConnectionsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var statusProvider: SystemStatusProvider
-    private lateinit var tailnet: TailnetStatus
 
-    /** Exit-node selection (embedded Tailscale Phase 3). Node must be Running. */
+    /** Exit-node selection (embedded Tailscale). Node must be Running. */
     private lateinit var exitNodes: ExitNodeManager
 
     /** Drives the embedded node to Running so the exit-node picker has something to talk to. */
@@ -97,7 +96,6 @@ class ConnectionsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         statusProvider = SystemStatusProvider(requireContext())
-        tailnet = TailnetStatus(requireContext())
 
         selected = if (ServerConfig.isConfigured(requireContext())) {
             ServerConfig.getHost(requireContext())
@@ -140,7 +138,7 @@ class ConnectionsFragment : Fragment() {
             if (TailscaleStateStore(requireContext()).isEnrolled()) {
                 // Enrolled: tsnet joins the tailnet with no user action and
                 // no login UI. startLogin() is the only entry point that
-                // brings the node up (Phase 2's engine will supersede it).
+                // brings the node up (engine will supersede it).
                 authManager.startLogin()
             }
         }
@@ -314,10 +312,10 @@ class ConnectionsFragment : Fragment() {
      * "No devices found, tap scan again" is not actionable. Whether the phone is
      * on the tailnet decides who to go and look at.
      */
-    private fun emptyPeersMessage(): String = when (val t = tailnet.describe()) {
-        is TailnetStatus.Status.Connected ->
-            getString(R.string.connections_none_found_hint, t.address)
-        else -> getString(R.string.connections_not_on_tailnet)
+    private fun emptyPeersMessage(): String {
+        val addr = TailscaleEngine.shared(requireContext()).nodeIp()
+        return if (addr != null) getString(R.string.connections_none_found_hint, addr)
+        else getString(R.string.connections_not_on_tailnet)
     }
 
     /**
@@ -340,7 +338,7 @@ class ConnectionsFragment : Fragment() {
             // destroyed view. Cancellation has to propagate.
             val found = try {
                 withContext(Dispatchers.IO) {
-                    TailscaleDiscovery.discoverAllWorkingServers()
+                    TailscaleEngine.shared(requireContext()).peers().map { it.ip }.filter { it.isNotBlank() }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -380,17 +378,13 @@ class ConnectionsFragment : Fragment() {
      * without the user having to read logs.
      */
     private fun renderTailnetRow() {
-        when (val t = tailnet.describe()) {
-            is TailnetStatus.Status.Connected -> {
-                binding.rowThisDevice.root.visibility = View.VISIBLE
-                binding.rowThisDevice.label.text = getString(R.string.connections_this_device)
-                binding.rowThisDevice.value.text = t.address
-            }
-            else -> {
-                // No address to show, so the row would read "This device —".
-                // The condition is stated in the peer message instead.
-                binding.rowThisDevice.root.visibility = View.GONE
-            }
+        val addr = TailscaleEngine.shared(requireContext()).nodeIp()
+        if (addr != null) {
+            binding.rowThisDevice.root.visibility = View.VISIBLE
+            binding.rowThisDevice.label.text = getString(R.string.connections_this_device)
+            binding.rowThisDevice.value.text = addr
+        } else {
+            binding.rowThisDevice.root.visibility = View.GONE
         }
     }
 

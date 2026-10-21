@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for the Phase 1 browser-login flow.
+ * Tests for the browser-login flow.
  *
  * Everything here runs on the JVM against a fake [TailscaleNode]: no device,
  * no `libgojni.so`, and it runs in CI. The state machine is the part of the
@@ -139,7 +139,7 @@ class TailscaleAuthManagerTest {
     }
 
     /**
-     * The core Phase 1 flow: Start reports NeedsLogin with a URL, the user
+     * The core flow: Start reports NeedsLogin with a URL, the user
      * logs in, the next Status poll says Running.
      */
     @Test

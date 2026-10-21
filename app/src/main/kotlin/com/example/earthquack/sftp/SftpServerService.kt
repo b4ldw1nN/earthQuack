@@ -13,7 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.earthquack.MainActivity
 import com.example.earthquack.R
-import com.example.earthquack.state.TailnetStatus
+import com.example.earthquack.tailscale.TailscaleEngine
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 
@@ -226,7 +226,7 @@ class SftpServerService : Service() {
     }
 
     private fun notificationText(port: Int, clients: Int): String {
-        val host = TailnetStatus(this).tailnetAddress() ?: "this device"
+        val host = TailscaleEngine.shared(this).nodeIp() ?: "this device"
         val clientWord = resources.getQuantityString(
             R.plurals.sftp_client_count,
             clients,

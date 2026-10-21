@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for Phase 3 exit-node selection.
+ * Tests for exit-node selection.
  *
  * JVM-only, against a fake [ExitNodeControl]: the logic under test is peer
  * filtering, ordering, and the StableNodeID contract between the picker and

@@ -28,6 +28,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
 import com.example.earthquack.state.ClipboardEntry
 import com.example.earthquack.state.ClipboardHistoryStore
+import com.example.earthquack.tailscale.TailscaleEngine
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -204,7 +205,7 @@ class EarthQuackService : LifecycleService() {
         var newHost = ServerConfig.getHost(this)
         if (newHost == ServerConfig.DEFAULT_HOST || newHost.isBlank() || newHost == "YOUR_TAILSCALE_IP") {
             lifecycleScope.launch(Dispatchers.IO) {
-                val discovered = TailscaleDiscovery.discoverServerIp()
+                val discovered = TailscaleEngine.shared(this@EarthQuackService).peers().firstOrNull()?.ip
                 if (discovered != null) {
                     Log.i(TAG, "Auto-discovered Tailscale clipboard server IP: $discovered")
                     withContext(Dispatchers.Main) {

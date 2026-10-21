@@ -33,7 +33,7 @@ import com.example.earthquack.sftp.looksLikeOpenSshPrivateKey
 import com.example.earthquack.sftp.parseAuthorizedKeyLine
 import com.example.earthquack.ssh.KeystoreSecretStore
 import com.example.earthquack.ssh.SecretStore
-import com.example.earthquack.state.TailnetStatus
+import com.example.earthquack.tailscale.TailscaleEngine
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -282,7 +282,7 @@ class SftpFragment : Fragment() {
         // says so plainly when not -- the placeholder is never printed as an
         // address.
         val configured = true
-        val phoneIp = TailnetStatus(requireContext()).tailnetAddress()
+        val phoneIp = TailscaleEngine.shared(requireContext()).nodeIp()
         binding.rowEndpoint.label.text = getString(R.string.sftp_endpoint)
         binding.rowEndpoint.value.text = if (configured) {
             "${phoneIp ?: "no tailnet IP"}:${settings.port}"
@@ -377,7 +377,7 @@ class SftpFragment : Fragment() {
 
     /** The phone's tailnet address, or a placeholder when there is none. */
     private fun tailnetHost(): String =
-        TailnetStatus(requireContext()).tailnetAddress() ?: "phone"
+        TailscaleEngine.shared(requireContext()).nodeIp() ?: "phone"
 
     private fun copyText(text: String) {
         val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)

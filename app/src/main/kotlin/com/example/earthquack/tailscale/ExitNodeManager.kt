@@ -6,10 +6,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Exit-node selection for the embedded Tailscale node (roadmap Phase 3).
+ * Exit-node selection for the embedded Tailscale node.
  *
  * All tsnet outbound traffic — including everything EarthQuack sends through
- * the SOCKS5 proxy once Phase 2 lands — follows the chosen exit node. The
+ * the SOCKS5 proxy — follows the chosen exit node. The
  * picker lists only peers that *offer* exit-node service (`exit_node_option`:
  * advertised **and** approved by the tailnet policy); picking one calls
  * `SetExitNode(id)`, picking "None" clears it.
@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
  *
  * These calls need a **Running** node; the shim returns a "not running"
  * error otherwise. This manager does not start the node — lifecycle belongs
- * to [TailscaleAuthManager] (Phase 2's TailscaleEngine will supersede it).
+ * to [TailscaleAuthManager] (TailscaleEngine will supersede it).
  * Callers should gate the picker UI on `state is Running`.
  *
  * ## Testability

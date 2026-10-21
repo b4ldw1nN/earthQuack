@@ -17,7 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 /**
- * Browser-login flow for the embedded Tailscale node (roadmap Phase 1).
+ * Browser-login flow for the embedded Tailscale node.
  *
  * No auth keys, no admin console, no copy-paste: the user taps "Log in",
  * a Chrome Custom Tab opens the URL tsnet produced, and the node joins the
@@ -224,10 +224,13 @@ class TailscaleAuthManager(
     }
 }
 
-/** Node lifecycle states surfaced to the UI (roadmap Phase 1 scope). */
+/** Node lifecycle states surfaced to the UI. */
 sealed class TailscaleLoginState {
     /** Nothing has been attempted yet. */
     object Idle : TailscaleLoginState()
+
+    /** Node stopped / never started. */
+    object Stopped : TailscaleLoginState()
 
     /** Start() has been invoked (or the node is mid-transition); waiting. */
     object Starting : TailscaleLoginState()
@@ -255,6 +258,9 @@ interface TailscaleNodeConfig {
 
     /** Hostname this device advertises in the tailnet. */
     fun advertisedHostname(): String
+
+    /** True when the device has ever enrolled (a tsnet profile exists). */
+    fun isEnrolled(): Boolean = true
 }
 
 /**

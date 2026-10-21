@@ -14,7 +14,22 @@ Last updated: 2026-10-21 · branch: `feature/tailscale-embedded` (owner: tailsca
 foundation phases sequentially; later phases may be claimed by other agents
 on other branches.
 
-### Status: Phase 3 DONE — exit nodes ✅
+### Status: Phase 2 IN PROGRESS — TailscaleEngine + SOCKS5 wiring
+
+> Correction: the earlier "Phase 2 skipped by request" note was wrong — the
+> user never asked to skip it. Phase 2 is now being done by this agent on
+> this branch, which also removes the stopgap where ConnectionsFragment
+> drove TailscaleAuthManager directly.
+
+**This session (Phase 2):**
+- (in progress) `tailscale/TailscaleEngine.kt` — singleton lifecycle +
+  `StateFlow<TailscaleState>` per roadmap.
+- (in progress) SOCKS5 wiring: OkHttp proxy, MINA SSHD proxyData, rclone
+  SOCKS5_PROXY env.
+- (in progress) ConnectionsFragment migrates from TailscaleAuthManager
+  stopgap to TailscaleEngine.
+
+**Phase 3 — DONE** (`31c89ed`)
 
 **Phase 3 — DONE this session**
 - Go shim: `Peers()` now reports `exit_node_option` / `exit_node` per peer.
@@ -74,7 +89,7 @@ wiring into OkHttp / MINA SSHD / rclone.
 |---|---|
 | 0 Go shim + AAR | **done** (verified: go build + merged AAR) |
 | 1 Browser login + state store | **done** (verified: 15 JVM tests, assembleDebug) |
-| 2 TailscaleEngine + SOCKS5 | not started (skipped by request; other agent may claim) |
+| 2 TailscaleEngine + SOCKS5 | in progress (this agent, this branch) |
 | 3 Exit nodes | **done** (verified: 11 JVM tests, assembleDebug, AAR rebuilt) |
 | 4 Taildrop | not started |
 | 5 Taildrive | not started |
