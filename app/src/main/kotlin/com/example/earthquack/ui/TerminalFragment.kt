@@ -130,7 +130,7 @@ class TerminalFragment : Fragment() {
         binding.statusText.text = getString(R.string.terminal_state_disconnected)
 
         // Terminal log: monospace, selectable, scrollable.
-        binding.terminalLog.setTextIsSelectable(true)
+        binding.terminalLog.setTextIsSelectable(false)
         binding.terminalLog.typeface = Typeface.MONOSPACE
         binding.terminalLog.textSize = 13f
         binding.terminalLog.includeFontPadding = false
@@ -203,13 +203,14 @@ class TerminalFragment : Fragment() {
         // UI reports that it is connected.
         CONTROL_KEYS.forEach { (label, bytes) ->
             binding.controlKeys.addView(
-                com.google.android.material.button.MaterialButton(requireContext()).apply {
-                    text = label
-                    isAllCaps = false
-                    minWidth = 0
-                    minimumWidth = 0
-                    setOnClickListener { sendControl(label, bytes) }
-                }
+                 com.google.android.material.button.MaterialButton(requireContext()).apply {
+                     text = label
+                     isAllCaps = false
+                     minWidth = 0
+                     minimumWidth = 0
+                     setPadding(8, 4, 8, 4)
+                     setOnClickListener { sendControl(label, bytes) }
+                 }
             )
         }
     }

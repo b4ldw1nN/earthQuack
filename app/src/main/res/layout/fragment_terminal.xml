@@ -37,6 +37,8 @@
                 android:textSize="13sp"
                 android:textColor="@color/eq_terminal_muted"
                 android:includeFontPadding="false"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:text="Disconnected"
                 tools:text="Connected" />
 
@@ -70,7 +72,6 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:fillViewport="true"
             android:scrollbars="vertical"
             android:focusable="false"
             android:focusableInTouchMode="false"
@@ -106,7 +107,6 @@
             android:id="@+id/controlKeyScroll"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fillViewport="true"
             android:scrollbars="none"
             android:background="@color/eq_terminal_background">
 
@@ -136,8 +136,8 @@
         <com.example.earthquack.ui.TerminalInputView
             android:id="@+id/inputField"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="44dp"
+            android:layout_height="0dp"
+            android:minHeight="0dp"
             android:background="@android:color/transparent"
             android:enabled="false"
             android:fontFamily="monospace"

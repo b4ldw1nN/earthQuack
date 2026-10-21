@@ -223,21 +223,65 @@ class TerminalGrid(
         if (newRows == rows && newCols == cols) return@synchronized
         val nr = newRows.coerceAtLeast(1)
         val nc = newCols.coerceAtLeast(1)
-        val oldCodes = codes; val oldFg = fg; val oldBg = bg; val oldFlags = flags
+        val oldRows = rows
+        val oldCols = cols
+
+        // Capture the current screen as cell rows.
+        val oldScreen = ArrayList<ArrayList<Cell>>(oldRows)
+        for (r in 0 until oldRows) {
+            val row = ArrayList<Cell>(oldCols)
+            val base = r * oldCols
+            for (c in 0 until oldCols) {
+                row.add(Cell(codes[base + c], fg[base + c], bg[base + c], flags[base + c]))
+            }
+            oldScreen.add(row)
+        }
+
+        // Reflow each old row into the new width: a row that no longer fits
+        // wraps onto following rows instead of being silently truncated.
+        val expanded = ArrayList<ArrayList<Cell>>()
+        for (oldRow in oldScreen) {
+            // Drop trailing blank cells so they do not create empty wrapped rows.
+            var contentLen = oldRow.size
+            while (contentLen > 0) {
+                val cp = oldRow[contentLen - 1].code
+                if (cp == 0 || cp == ' '.code) contentLen-- else break
+            }
+            if (contentLen == 0) {
+                expanded.add(blankRow(nc))
+                continue
+            }
+            val content = ArrayList<Cell>(contentLen)
+            for (i in 0 until contentLen) content.add(oldRow[i])
+            var idx = 0
+            while (idx < content.size) {
+                val chunk = ArrayList<Cell>(nc)
+                for (k in 0 until nc) {
+                    if (idx + k < content.size) chunk.add(content[idx + k])
+                    else chunk.add(Cell(0, NO_COLOR, NO_COLOR, 0))
+                }
+                expanded.add(chunk)
+                idx += nc
+            }
+        }
+
+        // Allocate new arrays.
         codes = IntArray(nr * nc)
         fg = IntArray(nr * nc) { NO_COLOR }
         bg = IntArray(nr * nc) { NO_COLOR }
         flags = IntArray(nr * nc)
-        val copyRows = minOf(rows, nr)
-        val copyCols = minOf(cols, nc)
+        codes.fill(0); fg.fill(NO_COLOR); bg.fill(NO_COLOR); flags.fill(0)
+
+        val copyRows = minOf(expanded.size, nr)
         for (r in 0 until copyRows) {
-            for (c in 0 until copyCols) {
-                val from = r * cols + c
+            val row = expanded[r]
+            for (c in 0 until nc) {
                 val to = r * nc + c
-                codes[to] = oldCodes[from]
-                fg[to] = oldFg[from]
-                bg[to] = oldBg[from]
-                flags[to] = oldFlags[from]
+                val cell = row[c]
+                codes[to] = cell.code
+                fg[to] = cell.fg
+                bg[to] = cell.bg
+                flags[to] = cell.flags
             }
         }
         rows = nr
@@ -249,6 +293,14 @@ class TerminalGrid(
         wrapPending = false
         if (viewportOffset > scrollback.size) viewportOffset = scrollback.size
         Unit
+    }
+
+    private data class Cell(val code: Int, val fg: Int, val bg: Int, val flags: Int)
+
+    private fun blankRow(nc: Int): ArrayList<Cell> {
+        val r = ArrayList<Cell>(nc)
+        repeat(nc) { r.add(Cell(0, NO_COLOR, NO_COLOR, 0)) }
+        return r
     }
 
     // ── ground state ────────────────────────────────────────────────────────
@@ -842,6 +894,20 @@ class TerminalGrid(
         }
         if (sb.isNotEmpty() && curStyle != null) {
             runs.add(TerminalRun(sb.toString(), curStyle))
+        }
+        // Trim trailing spaces so a fixed-width row does not force horizontal
+        // scrolling or leave phantom trailing whitespace in the rendered line.
+        while (runs.isNotEmpty()) {
+            val last = runs.last()
+            val trimmed = last.text.trimEnd(' ')
+            if (trimmed.isEmpty()) {
+                runs.removeAt(runs.lastIndex)
+            } else if (trimmed.length != last.text.length) {
+                runs[runs.lastIndex] = TerminalRun(trimmed, last.style)
+                break
+            } else {
+                break
+            }
         }
         return runs
     }

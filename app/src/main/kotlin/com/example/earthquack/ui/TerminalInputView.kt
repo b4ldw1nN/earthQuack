@@ -49,6 +49,10 @@ class TerminalInputView @JvmOverloads constructor(
     private var changeBefore = 0
     private var changeCount = 0
 
+    // Suppresses a duplicate Enter coming through afterTextChanged when the
+    // same key was already handled by sendKeyEvent (hardware/IME key event).
+    private var suppressTextEnter = false
+
     // True while this class is mutating the editable itself (clearing on
     // Enter), so the watcher can tell "the user typed" apart from "we just
     // emptied the mirror" and never forward our own edits back to the shell.
@@ -90,6 +94,10 @@ class TerminalInputView @JvmOverloads constructor(
                 )
                 if (changeBefore > 0) {
                     onBytes?.invoke(ByteArray(changeBefore) { BACKSPACE_BYTE })
+                }
+                if (inserted == "\n" && suppressTextEnter) {
+                    suppressTextEnter = false
+                    return
                 }
                 if (inserted.isNotEmpty()) {
                     forward(inserted)
@@ -159,10 +167,16 @@ class TerminalInputView @JvmOverloads constructor(
                     KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                         onBytes?.invoke(byteArrayOf(ENTER_BYTE))
                         clearMirror()
+                        suppressTextEnter = true
                         return true
                     }
                     KeyEvent.KEYCODE_DEL -> {
                         onBytes?.invoke(byteArrayOf(BACKSPACE_BYTE))
+                        return true
+                    }
+                    KeyEvent.KEYCODE_TAB -> {
+                        onBytes?.invoke(byteArrayOf(9)) // Tab
+                        clearMirror()
                         return true
                     }
                 }
