@@ -45,6 +45,7 @@
 
     <string name="direction_sent">Sent to Desktop</string>
     <string name="direction_received">Received from Desktop</string>
+    <string name="clipboard_encrypted_preview">encrypted (not readable)</string>
 
     <string name="toast_needs_overlay">Grant “Draw over other apps” so clipboard sync can read in the background</string>
 

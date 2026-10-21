@@ -33,16 +33,4 @@ object DesktopCapabilityStore {
         if (fetched != null) _capabilities.value = fetched
         return fetched
     }
-
-    /**
-     * The mismatch between the desktop and this phone, in words, or null when
-     * they agree (or the desktop has not been asked yet).
-     */
-    fun mismatch(context: Context): String? {
-        val desktop = _capabilities.value ?: return null
-        return desktop.mismatchWith(
-            phoneAesEnabled = ServerConfig.isAesEnabled(context),
-            phoneKeyFingerprint = DesktopCapabilities.fingerprint(ServerConfig.getAesKey(context)),
-        )
-    }
 }

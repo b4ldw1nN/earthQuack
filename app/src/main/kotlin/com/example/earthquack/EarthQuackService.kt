@@ -347,16 +347,11 @@ class EarthQuackService : LifecycleService() {
     }
 
     private suspend fun refreshDesktopCapabilities() {
-        val mismatch = runCatching {
-            DesktopCapabilityStore.refresh(this)
-            DesktopCapabilityStore.mismatch(this)
-        }.getOrNull()
-        AppStatus.publish(
-            AppStatus.SOURCE_DESKTOP,
-            mismatch?.let {
-                AppStatus.Message(text = it, severity = AppStatus.Severity.Warning)
-            },
-        )
+        // The desktop's build is recorded for the diagnostics screen. It is
+        // not turned into a warning: both sides hold the same key (the
+        // desktop keeps it in ~/.config/earthquack/config.json), so a
+        // mismatch banner would only add noise.
+        runCatching { DesktopCapabilityStore.refresh(this) }
     }
 
     private suspend fun connectSse() = withContext(Dispatchers.IO) {

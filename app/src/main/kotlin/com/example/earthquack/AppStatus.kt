@@ -43,9 +43,6 @@ object AppStatus {
     /** Source name for the tailnet node's own state. */
     const val SOURCE_NODE = "node"
 
-    /** Source name for problems found while talking to the desktop. */
-    const val SOURCE_DESKTOP = "desktop"
-
     private val sources = MutableStateFlow<Map<String, Message>>(emptyMap())
     private val _message = MutableStateFlow<Message?>(null)
 

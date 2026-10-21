@@ -344,7 +344,19 @@ class HomeFragment : Fragment() {
             com.example.earthquack.state.ClipboardEntry.Direction.RECEIVED ->
                 getString(R.string.direction_received)
         }
-        binding.textLastSync.text = "$direction: ${entry.text}"
+        binding.textLastSync.text = "$direction: ${preview(entry.text)}"
+    }
+
+    /**
+     * A short, honest preview of the last value.
+     *
+     * Ciphertext is shown as such: a value the app could not decrypt is not
+     * text, and printing "AES:..." at the user is just noise. The value is
+     * still stored; only the preview changes.
+     */
+    private fun preview(text: String): String {
+        if (text.startsWith(com.example.earthquack.CryptoUtil.PREFIX)) return getString(R.string.clipboard_encrypted_preview)
+        return text
     }
 
     // ── Actions ──────────────────────────────────────────────────────────────
