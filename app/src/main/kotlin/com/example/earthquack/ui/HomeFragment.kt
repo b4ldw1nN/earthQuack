@@ -30,7 +30,9 @@ import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.tailscale.Tailscale
 import com.example.earthquack.tailscale.TailscaleLoginState
 import com.example.earthquack.tailscale.TailscaleNodeMonitor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The dashboard.
@@ -181,13 +183,19 @@ class HomeFragment : Fragment() {
     // ── Rendering ────────────────────────────────────────────────────────────
 
     private fun refresh() {
-        val status = statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
-        renderConnection(status)
-        renderServiceTiles(status)
-        renderToggle(status)
-        renderLastSync()
-        // Off the main thread: crosses JNI into rclone.
         viewLifecycleOwner.lifecycleScope.launch {
+            // The status read asks ActivityManager whether the service is
+            // alive: a binder round-trip that must not sit on the main
+            // thread while the user is waiting for a screen to appear.
+            val status = withContext(Dispatchers.IO) {
+                statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+            }
+            if (_binding == null) return@launch
+            renderConnection(status)
+            renderServiceTiles(status)
+            renderToggle(status)
+            renderLastSync()
+            // Off the main thread: crosses JNI into rclone.
             val remotes = storageRepository.remotesOrNull()
             _binding?.let { b ->
                 b.textStorageState.text = when {
@@ -332,19 +340,26 @@ class HomeFragment : Fragment() {
     }
 
     private fun renderLastSync() {
-        val entry = com.example.earthquack.state.ClipboardHistoryStore(requireContext()).latest()
-        if (entry == null) {
-            binding.cardLastSync.visibility = View.GONE
-            return
+        // Reading the history is a file read and a JSON parse: off the main
+        // thread, like everything else here.
+        viewLifecycleOwner.lifecycleScope.launch {
+            val entry = withContext(Dispatchers.IO) {
+                com.example.earthquack.state.ClipboardHistoryStore(requireContext()).latest()
+            }
+            val b = _binding ?: return@launch
+            if (entry == null) {
+                b.cardLastSync.visibility = View.GONE
+                return@launch
+            }
+            b.cardLastSync.visibility = View.VISIBLE
+            val direction = when (entry.direction) {
+                com.example.earthquack.state.ClipboardEntry.Direction.SENT ->
+                    getString(R.string.direction_sent)
+                com.example.earthquack.state.ClipboardEntry.Direction.RECEIVED ->
+                    getString(R.string.direction_received)
+            }
+            b.textLastSync.text = "$direction: ${preview(entry.text)}"
         }
-        binding.cardLastSync.visibility = View.VISIBLE
-        val direction = when (entry.direction) {
-            com.example.earthquack.state.ClipboardEntry.Direction.SENT ->
-                getString(R.string.direction_sent)
-            com.example.earthquack.state.ClipboardEntry.Direction.RECEIVED ->
-                getString(R.string.direction_received)
-        }
-        binding.textLastSync.text = "$direction: ${preview(entry.text)}"
     }
 
     /**

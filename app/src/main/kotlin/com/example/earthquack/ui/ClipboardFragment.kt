@@ -10,6 +10,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.earthquack.MainActivity
 import com.example.earthquack.CryptoUtil
 import com.example.earthquack.R
@@ -81,8 +85,20 @@ class ClipboardFragment : Fragment() {
     }
 
     private fun render() {
-        val status = statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
-        val entries = historyStore.list()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+            }
+            val entries = withContext(Dispatchers.IO) { historyStore.list() }
+            if (_binding == null) return@launch
+            renderWith(status, entries)
+        }
+    }
+
+    private fun renderWith(
+        status: com.example.earthquack.state.SystemStatus,
+        entries: List<com.example.earthquack.state.ClipboardEntry>,
+    ) {
 
         binding.statusClipboard.apply {
             toggle.visibility = View.GONE

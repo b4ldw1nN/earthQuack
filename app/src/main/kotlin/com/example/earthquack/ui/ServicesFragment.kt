@@ -16,7 +16,9 @@ import com.example.earthquack.state.SyncStateLabel
 import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.tailscale.TailscaleLoginState
 import com.example.earthquack.tailscale.TailscaleNodeMonitor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Services hub: Tailscale, SFTP and Clipboard.
@@ -121,7 +123,16 @@ class ServicesFragment : Fragment() {
     }
 
     private fun refresh() {
-        val status = statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+            }
+            if (_binding == null) return@launch
+            renderWith(status)
+        }
+    }
+
+    private fun renderWith(status: com.example.earthquack.state.SystemStatus) {
         val nodeState = TailscaleNodeMonitor.state.value
 
         // Tailscale: the state of this app's own node. The tailnet is

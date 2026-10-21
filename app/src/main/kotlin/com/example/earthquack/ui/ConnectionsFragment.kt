@@ -282,7 +282,16 @@ class ConnectionsFragment : Fragment() {
      */
     private fun render() {
         if (_binding == null) return
-        val status = statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                statusProvider.read(mainActivity?.syncState?.value ?: SyncStateLabel.UNKNOWN)
+            }
+            if (_binding == null) return@launch
+            renderWith(status)
+        }
+    }
+
+    private fun renderWith(status: com.example.earthquack.state.SystemStatus) {
 
         // Status row: dot + text + subtext. The toggle is not shown because there
         // is nothing here to toggle -- sync start/stop lives on Home. A disabled
