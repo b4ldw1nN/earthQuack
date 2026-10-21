@@ -17,6 +17,7 @@ import com.example.earthquack.storage.ProviderInfo
 import com.example.earthquack.storage.ProviderSetting
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneRemoteManager
 import kotlinx.coroutines.launch
 
@@ -83,7 +84,7 @@ class RemoteFormActivity : AppCompatActivity() {
             val info = runCatching {
                 val cfg = RcloneConfigManager(applicationContext)
                 cfg.ensureReady()
-                val engine = RcloneEngine().also { it.initialize(cfg.configPath) }
+                val engine = RcloneEngines.getBlocking(cfg.configPath)
                 RcloneRemoteManager(engine).providers().firstOrNull { it.name == type }
             }.getOrNull()
 
@@ -226,7 +227,7 @@ class RemoteFormActivity : AppCompatActivity() {
             runCatching {
                 val cfg = RcloneConfigManager(applicationContext)
                 cfg.ensureReady()
-                val engine = RcloneEngine().also { it.initialize(cfg.configPath) }
+                val engine = RcloneEngines.getBlocking(cfg.configPath)
                 // nonInteractive: an embedded app cannot run rclone's browser
                 // OAuth flow. See the class comment.
                 RcloneRemoteManager(engine).createRemote(name, info.name, params, true)

@@ -27,6 +27,7 @@ import com.example.earthquack.ui.TerminalFragment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -84,6 +85,13 @@ class MainActivity : AppCompatActivity() {
         // own tailnet identity, so it comes up independently of the desktop
         // service — see TailscaleNodeMonitor.
         TailscaleNodeMonitor.start(this)
+
+        // Start rclone in the background: initialising it loads the native
+        // library and the config file, which costs about a second. Paying it
+        // here, off the main thread, means no screen stalls later.
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { com.example.earthquack.storage.RcloneEngines.get(this@MainActivity) }
+        }
 
         // The phone's own clipboard API, so the desktop can talk to the
         // phone directly instead of needing a server on the desktop.

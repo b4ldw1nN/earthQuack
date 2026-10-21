@@ -68,6 +68,23 @@ class StorageFragment : Fragment() {
     private val remoteHealth = mutableMapOf<String, RcloneHealthProbe.Health>()
 
     /**
+     * When the last probe ran, and whether the node was up when it did.
+     *
+     * Probing is one network round-trip per remote, and a cloud account can
+     * hold hundreds of files at its root. Doing that on every visit to the
+     * screen is slow and wasteful, so a result is reused until the node
+     * changes state or the answer is old enough to be worth refreshing.
+     */
+    private var lastProbeAt = 0L
+    private var lastProbeWithNode = false
+
+    private fun shouldProbe(): Boolean {
+        val nodeUp = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
+        val age = System.currentTimeMillis() - lastProbeAt
+        return nodeUp != lastProbeWithNode || age > PROBE_MAX_AGE_MS
+    }
+
+    /**
      * SAF picker for an existing rclone.conf.
      *
      * Registered here rather than constructed on click: `registerForActivityResult`
@@ -228,6 +245,13 @@ class StorageFragment : Fragment() {
      */
     private fun probeRemotes(names: List<String>) {
         if (names.isEmpty()) return
+        if (!shouldProbe()) {
+            // Fresh enough: show what we already know.
+            applyCachedHealth(names)
+            return
+        }
+        lastProbeAt = System.currentTimeMillis()
+        lastProbeWithNode = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
         viewLifecycleOwner.lifecycleScope.launch {
             repository.probeRemotes(names) { name, result ->
                 remoteHealth[name] = result
@@ -244,6 +268,15 @@ class StorageFragment : Fragment() {
                     )
                 )
             }
+        }
+    }
+
+    /** Re-applies the last known health to the rows, without probing again. */
+    private fun applyCachedHealth(names: List<String>) {
+        names.forEach { name ->
+            val result = remoteHealth[name] ?: return@forEach
+            val row = remoteRows[name] ?: return@forEach
+            row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
         }
     }
 
@@ -420,8 +453,9 @@ class StorageFragment : Fragment() {
             runCatching {
                 val cfg = com.example.earthquack.storage.RcloneConfigManager(requireContext())
                 cfg.ensureReady()
-                val engine = com.example.earthquack.storage.RcloneEngine()
-                    .also { it.initialize(cfg.configPath) }
+                val engine = withContext(Dispatchers.IO) {
+                    com.example.earthquack.storage.RcloneEngines.getBlocking(cfg.configPath)
+                }
                 com.example.earthquack.storage.RcloneRemoteManager(engine)
                     .deleteRemote(remote.name)
             }.onSuccess {
@@ -524,6 +558,9 @@ class StorageFragment : Fragment() {
     }
 
     private companion object {
+        /** How long a probe result is trusted before it is refreshed. */
+        const val PROBE_MAX_AGE_MS = 120_000L
+
         const val MENU_BROWSE = 1
         const val MENU_CREATE_FOLDER = 2
         const val MENU_DELETE = 3

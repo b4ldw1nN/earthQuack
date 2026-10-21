@@ -12,6 +12,7 @@ import com.example.earthquack.R
 import com.example.earthquack.databinding.ActivityRcloneConfigEditorBinding
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneRemoteManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
@@ -127,9 +128,12 @@ class RcloneConfigEditorActivity : AppCompatActivity() {
                 }
                 file.writeText(edited)
                 configManager.repairPermissions(file)
+                // The shared engine holds the old config in memory; drop it
+                // so what follows reads the file that was just written.
+                com.example.earthquack.storage.RcloneEngines.reset()
                 // The validator is rclone itself: a fresh engine re-reads the
                 // file with rclone's own INI parser.
-                val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+                val engine = RcloneEngines.getBlocking(configManager.configPath)
                 try {
                     RcloneRemoteManager(engine).listRemotes()
                     true
@@ -162,7 +166,7 @@ class RcloneConfigEditorActivity : AppCompatActivity() {
                 if (!backup.exists()) return@withContext false
                 backup.copyTo(file, overwrite = true)
                 configManager.repairPermissions(file)
-                val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+                val engine = RcloneEngines.getBlocking(configManager.configPath)
                 try {
                     RcloneRemoteManager(engine).listRemotes()
                     true

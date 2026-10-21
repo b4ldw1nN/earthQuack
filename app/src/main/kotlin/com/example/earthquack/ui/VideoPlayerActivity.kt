@@ -20,6 +20,7 @@ import androidx.media3.ui.PlayerView
 import com.example.earthquack.R
 import com.example.earthquack.databinding.ActivityVideoPlayerBinding
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneRangeSource
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.stream.RangeHttpServer
@@ -145,7 +146,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private fun startEngine(): Boolean {
         val started = try {
             RcloneConfigManager(this).ensureReady()
-            engine = RcloneEngine().also { it.initialize(RcloneConfigManager(this).configPath) }
+            engine = RcloneEngines.getBlocking(RcloneConfigManager(this).configPath)
             true
         } catch (e: Exception) {
             // UnsatisfiedLinkError is the expected case on a device the AAR

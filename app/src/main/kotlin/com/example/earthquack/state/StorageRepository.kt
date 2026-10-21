@@ -5,6 +5,9 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import com.example.earthquack.storage.RcloneConfigManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneEngine
 import com.example.earthquack.storage.RcloneHealthProbe
 import com.example.earthquack.storage.RcloneRemoteManager
@@ -115,9 +118,11 @@ class StorageRepository(context: Context) {
      * The Storage screen shows a different message for each: an error the user
      * can act on, versus the perfectly normal fresh-install state.
      */
-    suspend fun remotesOrNull(): List<RemoteSummary>? = try {
+    suspend fun remotesOrNull(): List<RemoteSummary>? = withContext(Dispatchers.IO) { try {
         configManager.ensureReady()
-        val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+        // The shared engine: initialising rclone is expensive, and doing it
+        // on the caller's thread is what used to freeze the UI.
+        val engine = RcloneEngines.getBlocking(configManager.configPath)
         RcloneRemoteManager(engine).listRemotes().map { name ->
             val section = remoteSection(name)
             RemoteSummary(
@@ -136,7 +141,7 @@ class StorageRepository(context: Context) {
         // Includes rclone not loading at all, which is a real possibility on an
         // ABI we do not ship. Null means "unknown", not "empty".
         null
-    }
+    } }
 
     /**
      * Probes each remote and reports the outcome as it arrives.
@@ -149,9 +154,9 @@ class StorageRepository(context: Context) {
     suspend fun probeRemotes(
         names: List<String>,
         onResult: (String, RcloneHealthProbe.Health) -> Unit,
-    ) = try {
+    ) = withContext(Dispatchers.IO) { try {
         configManager.ensureReady()
-        val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+        val engine = RcloneEngines.getBlocking(configManager.configPath)
         names.forEach { name ->
             val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
                 RcloneHealthProbe.probe(engine, name, remoteSection(name)?.get("type"))
@@ -160,7 +165,7 @@ class StorageRepository(context: Context) {
         }
     } catch (e: Exception) {
         // A failed probe is a result, not a crash: the list stays usable.
-    }
+    } }
 
     /**
      * Creates the folder a crypt remote wraps, if it is missing.
@@ -173,17 +178,18 @@ class StorageRepository(context: Context) {
      * @return true when the folder exists afterwards.
      */
     suspend fun createCryptFolder(remote: String): Boolean {
-        return try {
+        return withContext(Dispatchers.IO) { try {
             configManager.ensureReady()
             val section = remoteSection(remote)
-            if (section == null || section["type"] != "crypt") return false
-            val target = section["remote"] ?: return false
+            if (section == null || section["type"] != "crypt") return@withContext false
+            val target = section["remote"]
+            if (target == null) return@withContext false
             // "college:encrypted" → fs "college:", path "encrypted"
             val separator = target.indexOf(':')
-            if (separator < 0) return false
+            if (separator < 0) return@withContext false
             val fs = target.substring(0, separator + 1)
             val path = target.substring(separator + 1)
-            val engine = RcloneEngine().also { it.initialize(configManager.configPath) }
+            val engine = RcloneEngines.getBlocking(configManager.configPath)
             runCatching {
                 engine.call(
                     "operations/mkdir",
@@ -192,7 +198,7 @@ class StorageRepository(context: Context) {
             }.isSuccess
         } catch (e: Exception) {
             false
-        }
+        } }
     }
 
     /**

@@ -16,6 +16,7 @@ import com.example.earthquack.databinding.ItemProviderRowBinding
 import com.example.earthquack.storage.ProviderInfo
 import com.example.earthquack.storage.RcloneConfigManager
 import com.example.earthquack.storage.RcloneEngine
+import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneRemoteManager
 import kotlinx.coroutines.launch
 
@@ -74,7 +75,7 @@ class AddRemoteActivity : AppCompatActivity() {
             val result = runCatching {
                 val cfg = RcloneConfigManager(applicationContext)
                 cfg.ensureReady()
-                val engine = RcloneEngine().also { it.initialize(cfg.configPath) }
+                val engine = RcloneEngines.getBlocking(cfg.configPath)
                 RcloneRemoteManager(engine).providers()
             }
 
