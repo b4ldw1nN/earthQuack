@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One device from the tailnet, as the admin API reports it. Tapping the row
+    puts its device ID in the field the actions use.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Eq.RowStatic"
+    android:minHeight="44dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/deviceName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+            tools:text="archii" />
+
+        <TextView
+            android:id="@+id/deviceDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.Eq.Meta"
+            tools:text="linux · 100.92.160.31 · nXXXX" />
+    </LinearLayout>
+
+</LinearLayout>

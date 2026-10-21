@@ -30,4 +30,13 @@
     <string name="admin_key_expired">Key expired</string>
     <string name="admin_device_deleted">Device deleted</string>
     <string name="admin_delete_failed">Delete failed</string>
+    <string name="admin_save_key">Save key</string>
+    <string name="admin_key_saved">API key saved</string>
+    <string name="admin_key_needed">Paste a Tailscale admin API key first</string>
+    <string name="admin_devices_header">Devices in the tailnet</string>
+    <string name="admin_devices_count">%1$d devices</string>
+    <string name="admin_no_devices">No devices returned</string>
+    <string name="admin_this_device">This phone is %1$s (%2$s)</string>
+    <string name="admin_device_is_this_phone">This phone</string>
+    <string name="admin_device_selected">Selected %1$s</string>
 </resources>

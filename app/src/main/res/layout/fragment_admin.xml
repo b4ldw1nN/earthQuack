@@ -125,6 +125,26 @@
                 android:text="@string/admin_delete_device" />
         </LinearLayout>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSaveKey"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginTop="@dimen/eq_gap_xs"
+            android:text="@string/admin_save_key" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_md"
+            android:text="@string/admin_devices_header"
+            android:textAppearance="@style/TextAppearance.Eq.Overline" />
+
+        <LinearLayout
+            android:id="@+id/listDevices"
+            style="@style/Widget.Eq.Card"
+            android:orientation="vertical" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
