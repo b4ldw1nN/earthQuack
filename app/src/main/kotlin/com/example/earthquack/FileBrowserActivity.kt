@@ -484,15 +484,11 @@ class FileBrowserActivity : AppCompatActivity() {
             return
         }
 
-        // A remote video with nothing cached is the one case where downloading
-        // before watching is the wrong trade: a 2 GB film would have to arrive
-        // in full before the first frame. It is streamed instead, from the
-        // remote, over a loopback range server. Everything else — image, audio,
-        // PDF, and every file already on disk — keeps taking the route below,
-        // unchanged.
-        if (allowStreaming && opener.previewKind(displayName, entry.mimeType) ==
-            PreviewKind.VIDEO
-        ) {
+        // A remote video or audio with nothing cached is streamed directly from
+        // the remote over a loopback range server. Everything else — image,
+        // PDF, and every file already on disk — keeps taking the download route.
+        val previewKind = opener.previewKind(displayName, entry.mimeType)
+        if (allowStreaming && (previewKind == PreviewKind.VIDEO || previewKind == PreviewKind.AUDIO)) {
             Log.i(TAG, "streaming ${entry.name} instead of downloading it")
             streamPending = entry
             streamLauncher.launch(
@@ -1270,6 +1266,12 @@ class FileBrowserActivity : AppCompatActivity() {
 
         menu.menu.add(Menu.NONE, MENU_OPEN, order++, getString(R.string.files_open))
             .isEnabled = !busy
+        val previewKind = opener.previewKind(entry.name, entry.mimeType)
+        val isMediaStreamable = previewKind == PreviewKind.VIDEO || previewKind == PreviewKind.AUDIO
+        if (remote && isMediaStreamable && !selecting) {
+            menu.menu.add(Menu.NONE, MENU_STREAM, order++, getString(R.string.files_stream_action))
+                .isEnabled = !busy
+        }
         menu.menu.add(Menu.NONE, MENU_SHARE, order++, getString(R.string.files_share))
             .isEnabled = !busy
         if (remote && !selecting) {
@@ -1318,6 +1320,10 @@ class FileBrowserActivity : AppCompatActivity() {
                 }
                 MENU_OPEN -> {
                     if (transferring == null) openFile(entry)
+                    true
+                }
+                MENU_STREAM -> {
+                    if (transferring == null) openFile(entry, allowStreaming = true)
                     true
                 }
                 MENU_SHARE -> {
@@ -2241,6 +2247,7 @@ class FileBrowserActivity : AppCompatActivity() {
         private const val LABEL_NO_REMOTES_NOTE = "Add one on the Storage screen"
 
         private const val MENU_OPEN = 1
+        private const val MENU_STREAM = 13
         private const val MENU_SHARE = 2
         private const val MENU_SAVE = 9
         private const val MENU_COPY_PATH = 3

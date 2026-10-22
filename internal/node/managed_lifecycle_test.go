@@ -3,7 +3,8 @@ package node
 import (
 	"context"
 	"errors"
-	"os/exec"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,72 +23,78 @@ func waitManaged(t *testing.T, check func() bool) {
 	}
 }
 
-func TestDaemonPauseResumeAndCrashRecovery(t *testing.T) {
-	if _, err := exec.LookPath("sleep"); err != nil {
-		t.Skip("sleep unavailable")
-	}
-	m := NewDaemonManager(PythonDaemonConfig{})
-	var launches atomic.Int32
-	m.commandFactory = func() *exec.Cmd { launches.Add(1); return exec.Command("sleep", "60") }
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	defer m.Shutdown()
-	m.BeginRestartLoop(ctx)
-	if err := m.Start(); err != nil {
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if launches.Load() != 1 {
-		t.Fatal("duplicate child")
-	}
-	m.mu.Lock()
-	child := m.cmd.Process
-	m.mu.Unlock()
-	if err := child.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	waitManaged(t, func() bool { return launches.Load() >= 2 && m.Snapshot().Running })
-	m.Stop()
-	count := launches.Load()
-	time.Sleep(1200 * time.Millisecond)
-	if m.Snapshot().Running || launches.Load() != count {
-		t.Fatal("intentional stop was restarted")
-	}
-	if err := m.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if !m.Snapshot().Running {
-		t.Fatal("did not resume")
-	}
-	m.Shutdown()
-	if err := m.Start(); err == nil {
-		t.Fatal("started after shutdown")
-	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
 }
 
-func TestDaemonFailedLaunchAndStopWithoutSupervisor(t *testing.T) {
-	m := NewDaemonManager(PythonDaemonConfig{})
-	m.commandFactory = func() *exec.Cmd { return exec.Command("/nonexistent/earthquack-test") }
-	if err := m.Start(); err == nil {
-		t.Fatal("expected launch error")
+func TestGoDaemonLifecycle(t *testing.T) {
+	clipPort := freeLoopbackPort(t)
+	filePort := freeLoopbackPort(t)
+	for filePort == clipPort {
+		filePort = freeLoopbackPort(t)
 	}
-	m.Stop()
-	m.Stop()
-	if m.Snapshot().Running {
-		t.Fatal("failed launch reported running")
+
+	// Invalid port fails validation
+	if _, err := NewGoDaemon(GoDaemonConfig{ClipboardPort: "invalid", FilePort: "8876"}); err == nil {
+		t.Fatal("expected error on invalid clipboard port")
 	}
-	if _, err := exec.LookPath("sleep"); err != nil {
-		t.Skip("sleep unavailable")
+
+	tempDir := t.TempDir()
+	g, err := NewGoDaemon(GoDaemonConfig{
+		Host:          "127.0.0.1",
+		ClipboardPort: strconv.Itoa(clipPort),
+		FilePort:      strconv.Itoa(filePort),
+		AuthToken:     "test-token",
+		StageDir:      tempDir,
+		PhoneSaveDir:  tempDir,
+		DesktopBridge: false,
+	})
+	if err != nil {
+		t.Fatalf("failed to create GoDaemon: %v", err)
 	}
-	m.commandFactory = func() *exec.Cmd { return exec.Command("sleep", "60") }
-	if err := m.Start(); err != nil {
-		t.Fatal(err)
+
+	if g.Snapshot().Running {
+		t.Fatal("expected daemon to not be running before Start()")
 	}
-	m.Stop()
-	if m.Snapshot().Running {
-		t.Fatal("Stop without supervisor left child alive")
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+
+	if !g.Snapshot().Running {
+		t.Fatal("expected daemon to be running after Start()")
+	}
+
+	// Idempotent start
+	if err := g.Start(); err != nil {
+		t.Fatalf("double Start() failed: %v", err)
+	}
+
+	g.Stop()
+	if g.Snapshot().Running {
+		t.Fatal("expected daemon to not be running after Stop()")
+	}
+
+	// Double stop is safe
+	g.Stop()
+
+	// Resume
+	if err := g.Start(); err != nil {
+		t.Fatalf("resuming Start() failed: %v", err)
+	}
+	if !g.Snapshot().Running {
+		t.Fatal("expected daemon to be running after resume")
+	}
+
+	g.Shutdown()
+	if g.Snapshot().Running {
+		t.Fatal("expected daemon to not be running after Shutdown()")
 	}
 }
 

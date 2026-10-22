@@ -1,13 +1,16 @@
 package com.example.earthquack.ui
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -92,6 +95,7 @@ class VideoPlayerActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
 
     private var starting = false
+    private var externalPlayback = false
 
     /** Restored across rotation by [onSaveInstanceState]. */
     private var resumePosition = 0L
@@ -136,6 +140,7 @@ class VideoPlayerActivity : AppCompatActivity() {
 
         binding.btnDownload.isVisible = true
         binding.btnDownload.setOnClickListener { downloadInstead() }
+        binding.btnExternal.setOnClickListener { openExternalPlayer() }
         binding.btnRetry.setOnClickListener { startStream() }
         binding.player.setShutterBackgroundColor(0)
 
@@ -229,11 +234,41 @@ class VideoPlayerActivity : AppCompatActivity() {
         player = exo
 
         binding.player.player = exo
+        val isAudio = mime.startsWith("audio/") || FileOpener(applicationContext).previewKind(name, mime) == PreviewKind.AUDIO
+        if (isAudio) {
+            binding.player.defaultArtwork = ContextCompat.getDrawable(this, R.drawable.ic_eq_play)
+            binding.player.controllerShowTimeoutMs = 0
+            binding.player.controllerAutoShow = true
+            binding.player.showController()
+        } else {
+            binding.player.defaultArtwork = null
+            binding.player.controllerShowTimeoutMs = 5000
+            binding.player.controllerAutoShow = true
+        }
+
         exo.addListener(PlayerListener())
         exo.setMediaItem(MediaItem.fromUri(url))
         exo.playWhenReady = resumePlayWhenReady
         exo.prepare()
         if (resumePosition > 0) exo.seekTo(resumePosition)
+    }
+
+    /** Streams the media via an external player (e.g. VLC, MPV) through the local server. */
+    private fun openExternalPlayer() {
+        val s = server ?: return
+        val streamUrl = s.url(name)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(streamUrl), mime.ifBlank { "*/*" })
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        externalPlayback = true
+        player?.pause()
+        try {
+            startActivity(Intent.createChooser(intent, getString(R.string.files_stream_open_with)))
+        } catch (e: ActivityNotFoundException) {
+            externalPlayback = false
+            toast(getString(R.string.files_stream_failed))
+        }
     }
 
     /** Saves the file through the normal download path instead of streaming. */
@@ -249,6 +284,17 @@ class VideoPlayerActivity : AppCompatActivity() {
         finish()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (externalPlayback) {
+            externalPlayback = false
+            val s = server
+            if (s != null && player == null) {
+                buildPlayer(s.url(name))
+            }
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putLong(KEY_POSITION, player?.currentPosition ?: resumePosition)
         outState.putBoolean(KEY_PLAY_WHEN_READY, player?.playWhenReady ?: resumePlayWhenReady)
@@ -258,12 +304,13 @@ class VideoPlayerActivity : AppCompatActivity() {
     override fun onStop() {
         // Everything the stream holds is released here, not in onDestroy:
         // a backgrounded player must not keep a socket, a decoder or an rclone
-        // read alive. The position survives in onSaveInstanceState, so the
-        // next onResume restarts where the screen left off.
+        // read alive unless an external player was invoked to stream it.
         resumePosition = player?.currentPosition ?: resumePosition
         resumePlayWhenReady = player?.playWhenReady ?: resumePlayWhenReady
         releasePlayer()
-        stopServer()
+        if (!externalPlayback) {
+            stopServer()
+        }
         super.onStop()
     }
 
@@ -298,6 +345,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         binding.player.isVisible = false
         binding.stateGroup.isVisible = false
         binding.loadingGroup.isVisible = true
+        binding.btnExternal.isVisible = false
         if (message != null) binding.loadingText.setText(message)
         binding.progress.isVisible = true
     }
@@ -306,6 +354,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         binding.loadingGroup.isVisible = false
         binding.stateGroup.isVisible = false
         binding.player.isVisible = true
+        binding.btnExternal.isVisible = true
     }
 
     /**
@@ -317,6 +366,7 @@ class VideoPlayerActivity : AppCompatActivity() {
         binding.loadingGroup.isVisible = false
         binding.player.isVisible = false
         binding.stateGroup.isVisible = true
+        binding.btnExternal.isVisible = false
         binding.stateText.text = message
         binding.btnRetry.isVisible = true
         binding.btnDownload.isVisible = offerDownload

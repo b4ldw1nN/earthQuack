@@ -37,6 +37,22 @@
                 android:layout_weight="1" />
 
             <!--
+                Streams the URL to an external media player (e.g. VLC, MPV)
+                via the local loopback RangeHttpServer.
+            -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnExternal"
+                style="@style/Widget.Eq.Button.Outlined"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/eq_gap_xs"
+                android:text="@string/files_stream_external"
+                app:icon="@drawable/ic_eq_open_new"
+                app:iconSize="@dimen/eq_icon_sm"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!--
                 Saves the whole file to Downloads instead of streaming it.
                 The honest alternative to watching the first ten seconds of a
                 2 GB film over a mobile connection.

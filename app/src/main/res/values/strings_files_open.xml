@@ -122,14 +122,17 @@
     <string name="files_pdf_pages">%1$d pages</string>
     <string name="files_pdf_failed">That file could not be opened as a PDF. It may be damaged or password-protected.</string>
 
-    <!-- Remote video streaming screen. -->
-    <string name="files_stream_title">Video</string>
+    <!-- Remote media streaming screen. -->
+    <string name="files_stream_title">Media Player</string>
+    <string name="files_stream_action">Stream</string>
+    <string name="files_stream_external">External</string>
+    <string name="files_stream_open_with">Stream with…</string>
     <string name="files_stream_download">Download instead</string>
     <string name="files_stream_connecting">Opening the remote file…</string>
     <string name="files_stream_buffering">Buffering…</string>
-    <string name="files_stream_failed">This video could not be streamed. Try downloading it instead.</string>
+    <string name="files_stream_failed">This media could not be streamed. Try downloading it instead.</string>
     <string name="files_stream_unsupported">This remote cannot play a file from a position without downloading all of it first.</string>
     <string name="files_stream_unknown_size">This remote does not report the size of the file, so it cannot be streamed.</string>
-    <string name="files_stream_no_copy">This video is already being downloaded, so it cannot be streamed at the same time.</string>
+    <string name="files_stream_no_copy">This media is already being downloaded, so it cannot be streamed at the same time.</string>
     <string name="files_stream_download_prompt">Download %1$s and open it from storage instead?</string>
 </resources>

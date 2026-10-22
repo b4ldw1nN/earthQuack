@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -139,77 +138,39 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// The node is the single entry point for the sync services. Two
-	// implementations exist and are selected by EARTHQUACK_DAEMON_IMPL:
-	//
-	//	python (default) — supervises daemon/app.py as a child process
-	//	go                — runs them in-process (internal/daemon)
-	//
-	// The Go path is a verified rewrite of the Python one: the wire protocol
-	// is unchanged (internal/daemon/parity_test.go runs both side by side),
-	// so switching is reversible by changing one variable and restarting.
-	// It is also strictly safer — the services require the auth token the
-	// node already holds, whereas the Python daemon accepted any caller.
+	// The node is the single entry point for all sync services, running
+	// them entirely in-process via internal/daemon (single binary node).
 	//
 	// AES key MUST match the Android app or the clipboard will not decrypt
 	// to plaintext there. Start before the refresher so those ports are up
 	// when registration happens.
-	repoRoot := envOr("EARTHQUACK_REPO", ".")
 	syncHost := envOr("EARTHQUACK_HOST", "0.0.0.0")
 	clipPort := fmt.Sprintf("%d", envIntOr("EARTHQUACK_PORT", 8875))
 	filePort := fmt.Sprintf("%d", envIntOr("EARTHQUACK_FILE_PORT", 8876))
 
-	useGoDaemon := strings.EqualFold(envOr("EARTHQUACK_DAEMON_IMPL", "python"), "go")
-
-	// startSync, stopSync and shutdownSync hide the implementation choice
-	// from the rest of main.
-	var startSync func() error
-	var stopSync func()
-	var shutdownSync func()
-	var snapshotSync func() node.ManagedState
-
-	if useGoDaemon {
-		goDaemon, err := node.NewGoDaemon(node.GoDaemonConfig{
-			Host:          syncHost,
-			ClipboardPort: clipPort,
-			FilePort:      filePort,
-			AESKey:        aesKey,
-			AuthToken:     authToken,
-			// The desktop bridge is part of the sync service, not an
-			// extra: without it the desktop clipboard never reaches the
-			// node. It is on unless explicitly disabled, matching the
-			// Python daemon, which always started it. Set
-			// EARTHQUACK_DESKTOP_BRIDGE=0 on a headless homeserver that
-			// only serves the phone.
-			DesktopBridge: envOr("EARTHQUACK_DESKTOP_BRIDGE", "1") != "0",
-		})
-		if err != nil {
-			log.Fatalf("sync services: %v", err)
-		}
-		if err := goDaemon.Start(); err != nil {
-			log.Printf("earthquack: failed to start in-process sync services: %v (continuing)", err)
-		}
-		log.Printf("earthquack: sync services running in-process (EARTHQUACK_DAEMON_IMPL=go)")
-		startSync, stopSync, shutdownSync = goDaemon.Start, goDaemon.Stop, goDaemon.Shutdown
-		snapshotSync = goDaemon.Snapshot
-	} else {
-		daemonMgr := node.NewDaemonManager(node.PythonDaemonConfig{
-			RepoDir:       repoRoot + "/daemon",
-			Host:          syncHost,
-			ClipboardPort: clipPort,
-			FilePort:      filePort,
-			AESKey:        aesKey,
-		})
-		if err := daemonMgr.Start(); err != nil {
-			log.Printf("earthquack: failed to start python daemon: %v (continuing)", err)
-		}
-		// The Python child needs a watchdog: it can die and take the
-		// clipboard service with it. The Go path has no child to watch.
-		daemonMgr.BeginRestartLoop(ctx)
-		defer daemonMgr.Shutdown()
-		startSync, stopSync, shutdownSync = daemonMgr.Start, daemonMgr.Stop, daemonMgr.Shutdown
-		snapshotSync = daemonMgr.Snapshot
+	goDaemon, err := node.NewGoDaemon(node.GoDaemonConfig{
+		Host:          syncHost,
+		ClipboardPort: clipPort,
+		FilePort:      filePort,
+		AESKey:        aesKey,
+		AuthToken:     authToken,
+		// The desktop bridge is part of the sync service, not an
+		// extra: without it the desktop clipboard never reaches the
+		// node. It is on unless explicitly disabled. Set
+		// EARTHQUACK_DESKTOP_BRIDGE=0 on a headless homeserver that
+		// only serves the phone.
+		DesktopBridge: envOr("EARTHQUACK_DESKTOP_BRIDGE", "1") != "0",
+	})
+	if err != nil {
+		log.Fatalf("sync services: %v", err)
 	}
+	if err := goDaemon.Start(); err != nil {
+		log.Printf("earthquack: failed to start in-process sync services: %v (continuing)", err)
+	}
+	log.Printf("earthquack: sync services running in-process (single Go binary node)")
+	defer goDaemon.Shutdown()
+	startSync, stopSync, shutdownSync := goDaemon.Start, goDaemon.Stop, goDaemon.Shutdown
+	snapshotSync := goDaemon.Snapshot
 
 	ts := node.NewTailscaleProvider()
 	client := node.NewNodeClientWithToken(*port, authToken)
@@ -337,14 +298,10 @@ func main() {
 	telemetry := node.NewTelemetrySampler(reg, 0)
 	go telemetry.Run(ctx)
 
-	// The sync services, however they are implemented. Browser Stop
-	// pauses them; the dashboard itself stays online.
+	// The sync services. Browser Stop pauses them; the dashboard itself stays online.
 	defer shutdownSync()
-	syncDescription := "Clipboard (:8875) and file transfer (:8876) run as one supervised Python daemon. Stopping interrupts active transfers; the dashboard stays online."
+	syncDescription := "Clipboard (:8875) and file transfer (:8876) run in this process. Stopping interrupts active transfers; the dashboard stays online."
 	syncName := "Clipboard + file transfer"
-	if useGoDaemon {
-		syncDescription = "Clipboard (:8875) and file transfer (:8876) run in this process. Stopping interrupts active transfers; the dashboard stays online."
-	}
 	managed := []node.ManagedService{{
 		ID: "sync-services", Name: syncName,
 		Description: syncDescription,

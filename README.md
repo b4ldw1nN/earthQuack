@@ -11,23 +11,22 @@ One command runs the whole stack on a machine:
 go run ./cmd/earthquack-node
 ```
 
-The Go node is the **single entry point**: it serves the Node API + dashboard on `:8890` and
-supervises the Python daemon (`daemon/app.py`) that implements clipboard sync (`:8875`) and
-file transfer (`:8876`).
+The Go node is the **single binary**: it serves the Node API + dashboard on `:8890` and
+runs the clipboard sync (`:8875`), file transfer (`:8876`), and desktop clipboard bridge directly in-process.
 
 ```
                         Tailscale (WireGuard-encrypted)
 ┌────────────────────────────────────┐      ┌──────────────────────────┐
 │ Desktop (Arch / Hyprland / Windows)│      │ Android 8+ (Kotlin app)  │
 │                                    │      │                          │
-│  earthquack-node (Go, :8890)       │      │  EarthQuackService       │
-│  ├─ Node API + dashboard           │      │  ├─ clipboard sync (SSE) │
+│  earthquack-node (Single Go Binary)│      │  EarthQuackService       │
+│  ├─ Node API + dashboard (:8890)   │      │  ├─ clipboard sync (SSE) │
 │  ├─ system/storage/net telemetry   │      │  ├─ file transfer        │
 │  ├─ Tailscale peer discovery       │      │  └─ pairing via shared   │
-│  └─ supervises ↓                   │      │     token + AES key      │
-│  python daemon (app.py)            │      │                          │
-│  ├─ server.py     :8875 clipboard  │◄────►│  ClipboardApi            │
-│  └─ file_server.py :8876 files     │      │  FileTransferService     │
+│  ├─ in-process sync services:      │      │     token + AES key      │
+│  │   ├─ :8875 clipboard (SSE)      │◄────►│  ClipboardApi            │
+│  │   └─ :8876 file transfer (HTTP) │      │  FileTransferService     │
+│  └─ desktop clipboard bridge       │      │                          │
 └────────────────────────────────────┘      └──────────────────────────┘
 ```
 
@@ -41,10 +40,9 @@ joins with **zero source changes**: build the binary, add a config file, run it.
 
 | Component | Location | What it does |
 |---|---|---|
-| **Go node** | `cmd/earthquack-node`, `internal/node` | Node API, dashboard, auth, identity, peer discovery/probing, telemetry (system, storage, network), daemon supervision. Stdlib only, Go ≥ 1.24, no external dependencies. |
-| **Wallpaper module** | `internal/wallpaper` | First capability module: provider-independent scan/sync/status/retry for wallpapers, archival state, retry/backoff, and a minimal CLI. The Telegram provider streams `sendDocument` uploads and owns forum topic state. Stdlib only. |
-| **Python daemon** | `daemon/` | The sync services themselves: clipboard broker + SSE, file staging/transfer, desktop clipboard bridge, send-folder watcher, AES-256-GCM crypto, Tailscale discovery, hotkeys. Python 3 stdlib only. |
-| **Android app** | `app/` | Tailscale node integration, embedded SFTP server, Termux SSH terminal with overlay keys, multi-cloud storage browser (rclone), transfer manager, foreground sync service with sticky recents persistence, and clipboard sync. Kotlin/Java, minSdk 26 (Android 8+), target SDK 34. |
+| **Go node** | `cmd/earthquack-node`, `internal/node`, `internal/daemon` | Single-binary node: Node API, dashboard, auth, identity, peer discovery/probing, telemetry (system, storage, network), clipboard sync broker + SSE, file transfer server, desktop clipboard bridge. Stdlib only, Go ≥ 1.24, zero external dependencies. |
+| **Wallpaper module** | `internal/wallpaper` | Provider-independent scan/sync/status/retry for wallpapers, archival state, retry/backoff, and a minimal CLI. The Telegram provider streams `sendDocument` uploads and owns forum topic state. Stdlib only. |
+| **Android app** | `app/` | Tailscale node integration, embedded SFTP server, Termux SSH terminal with overlay keys, multi-cloud storage browser (rclone) with direct video & audio streaming (ExoPlayer & external players), transfer manager, unified SSH/SFTP key management, foreground sync service with sticky recents persistence, and clipboard sync. Kotlin/Java, minSdk 26 (Android 8+), target SDK 34. |
 | **Shell helpers** | repo root | `clip-send`, `clip-open`, `clip-shot` — send files, open URLs on the phone, screenshot-to-phone from the desktop. |
 | **Examples & docs** | `examples/`, `docs/NODE.md` | Per-machine node declarations; detailed node deployment guide. |
 
@@ -55,18 +53,18 @@ joins with **zero source changes**: build the binary, add a config file, run it.
 ### 1. Build & run the node (desktop)
 
 ```sh
-go build -o earthquakes-node ./cmd/earthquack-node   # or: go run ./cmd/earthquack-node
+go build -o earthquack-node ./cmd/earthquack-node   # or: go run ./cmd/earthquack-node
 
 export EARTHQUACK_AUTH_TOKEN="$(openssl rand -hex 32)"   # shared secret
-export CLIPBOARD_AES_KEY="$(python3 -c 'import base64,os;print(base64.b64encode(os.urandom(32)).decode())')"
+export CLIPBOARD_AES_KEY="$(openssl rand -base64 32)"
 export EARTHQUACK_HOST="$(tailscale ip -4 | head -n1)"   # sync services bind the tailnet IP
 
-./earthquakes-node --host "$(tailscale ip -4 | head -n1)" --port 8890
+./earthquack-node --host "$(tailscale ip -4 | head -n1)" --port 8890
 ```
 
 * `:8890` — Node API + dashboard
-* `:8875` — clipboard broker (Python, supervised)
-* `:8876` — file transfer (Python, supervised)
+* `:8875` — clipboard broker (in-process Go)
+* `:8876` — file transfer (in-process Go)
 
 ### 2. Open the dashboard
 
@@ -261,42 +259,37 @@ group, and interfaces as one line each in a **Network** group —
 error/drop counters shown when present. Discovered peers show presence
 only until they report their own telemetry.
 
-## The Python daemon
+## In-process Go sync services (`internal/daemon`)
 
-`daemon/app.py` is a small supervisor: it runs every component in guarded
-threads (restart-on-crash after 5 s), initializes optional hotkeys, and
-shuts down cleanly. The Go node starts, restarts, and stops it automatically —
-you normally never launch it by hand (but `daemon/run-earthquack.sh` runs it
-standalone).
+The sync services run 100% in-process as native Go routines inside `earthquack-node`:
+fast, memory-safe, fail-closed token authenticated, and with zero Python dependency.
 
-| Module | Role |
+| Package component | Role |
 |---|---|
-| `server.py` (`:8875`) | Clipboard broker: `GET/POST /clipboard`, `GET /events` (SSE fan-out), `POST /signal` (open a URL on the phone), `GET /health` |
-| `file_server.py` (`:8876`) | `POST /upload` (raw body, `X-Filename`/`X-Origin`), `GET /download/<id>` (Range/206 resumable), `GET /files`. Phone→desktop lands in `~/Downloads/from-phone/`; desktop→phone is staged in `/tmp/cs-files/` and announced over SSE |
-| `desktop.py` | Desktop clipboard bridge: polls `wl-paste` (Wayland) / `xclip`/`xsel` (X11) / tkinter (Windows) every 0.5 s and pushes changes; receives the phone's clipboard via SSE |
-| `watch_send_folder.py` | Watches a send-folder and pushes new files to the phone |
-| `crypto_util.py` | AES-256-GCM (`CLIPBOARD_AES_KEY`) — the `AES:`-prefixed wire format shared with the Android `CryptoUtil` |
-| `tailscale_discovery.py` | Finds online tailnet peers running the clipboard server (cached `tailscale status --json`) |
-| `hotkey_manager.py` | Global screenshot hotkey (Win32 `Ctrl+Alt+Shift+S`, configurable via `SCREENSHOT_HOTKEY`; stub on Linux where the DE binds `clip-shot.sh` directly) |
-
-`daemon/file-server.py` and `daemon/watch-send-folder.py` are legacy
-kebab-case shims delegating to the canonical underscore modules.
+| `clipboard.go` (`:8875`) | Clipboard broker: `GET/POST /clipboard`, `GET /events` (SSE fan-out), `POST /signal` (open a URL on the phone), `GET /health` |
+| `files.go` (`:8876`) | `POST /upload` (raw body, `X-Filename`/`X-Origin`), `GET /download/<id>` (Range/206 resumable seeking), `GET /files`. Phone→desktop lands in `~/Downloads/from-phone/`; desktop→phone is staged in `/tmp/cs-files/` and announced over SSE |
+| `desktop.go` | Desktop clipboard bridge: native Wayland (`wl-paste`), X11 (`xclip`/`xsel`), macOS, and Windows bridge with SSE subscription |
+| `watcher.go` | Watches send-to-phone directory and stages outbound transfers to the phone |
+| `crypto.go` | AES-256-GCM (`CLIPBOARD_AES_KEY`) with deterministic PBKDF2/GCM nonce validation matching Android's `CryptoUtil` |
+| `auth.go` | Bearer token verification fail-closed against unauthenticated access |
 
 ### Desktop shell helpers
 
 ```sh
-clip-send.sh report.pdf            # file(s) → phone's Downloads/ClipboardSync/
-clip-open.sh https://example.com   # open a URL on the phone
-clip-shot.sh                       # screenshot (grim) → phone gallery
+./clip-send.sh report.pdf            # file(s) → phone's Downloads/ClipboardSync/
+./clip-open.sh https://example.com   # open a URL on the phone
+./clip-shot.sh                       # screenshot (grim) → phone gallery
 ```
 
-They resolve the server address via `tailscale_discovery.py`, falling back
-to `tailscale ip -4`. Windows: `win-start.bat` launches the daemon headlessly
-and `win-shot.py` is the screenshot path behind the hotkey manager.
+They resolve the server address automatically via `tailscale ip -4` or `CLIPBOARD_SERVER_HOST`.
 
-`clipsyncd.c`, `clipsyncd-wrapper.sh`, and `clipboard-sync.service` are the
-legacy systemd glue from before the Go node became the entry point — kept
-for reference, not part of the current flow.
+## Direct remote streaming & media player
+
+The Android app includes a built-in loopback streaming engine (`RangeHttpServer` + `RcloneRangeSource`):
+- **Zero waiting**: Videos and audio files stream immediately from cloud remotes without downloading the whole file first.
+- **Seeking & Range support**: HTTP 206 Partial Content range requests are translated directly into remote offset reads via rclone.
+- **In-app & External playback**: Stream directly using the integrated Media3/ExoPlayer or tap **External** to hand off the loopback stream to VLC, MPV, or MX Player.
+- **Background persistence**: Range HTTP server stays alive during external player handoff and releases sockets on activity completion.
 
 ## The wallpaper module
 
@@ -483,11 +476,11 @@ Permissions: notifications (Android 13+), all files access (`MANAGE_EXTERNAL_STO
 cmd/earthquack-node/    Go entry point (flags, env, wiring, lifecycle)
 internal/node/          Node model, registry, Tailscale provider, peer client,
                         auth (bearer + browser sessions), API, dashboard,
-                        service refresher, daemon supervisor, telemetry
-                        (system*.go, storage*.go, netstats*.go) + tests
+                        service refresher, telemetry + tests
+internal/daemon/        In-process sync services: clipboard broker, file server,
+                        desktop clipboard bridge, folder watcher, AES crypto
 web/                    Embedded dashboard template + stylesheet
-daemon/                 Python sync services (see table above)
-app/                    Android app (Kotlin)
+app/                    Android app (Kotlin/Java)
 examples/               arch.json / homeserver.json / vps.json declarations
 docs/NODE.md            Node deployment guide (build → config → token → run)
 clip-*.sh, win-*        Desktop helper scripts
@@ -496,12 +489,9 @@ clip-*.sh, win-*        Desktop helper scripts
 ## Testing
 
 ```sh
-go test ./...            # node unit + integration tests (API, auth, registry,
-go test -race ./...      # telemetry, daemon supervision, deploy checks)
+go test ./...            # node unit + integration tests (daemon, API, auth,
+go test -race ./...      # registry, telemetry, deploy checks)
 go vet ./...
-
-python3 daemon/test_tailscale_discovery.py
-python3 daemon/test_hotkey_manager.py
 
 ./gradlew :app:test      # Android unit tests
 ```
