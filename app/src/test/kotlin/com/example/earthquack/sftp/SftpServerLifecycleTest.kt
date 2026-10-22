@@ -1,5 +1,7 @@
 package com.example.earthquack.sftp
 
+import com.example.earthquack.testutil.TestKeyUtils.freePort
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
 import com.example.earthquack.ssh.InMemorySecretStore
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -609,18 +611,6 @@ class SftpServerLifecycleTest {
         const val DEFAULT_USER = "zoro"
         const val FIRST_USER = "first"
         const val SECOND_USER = "second"
-
-        fun generateEc(): KeyPair {
-            val generator = KeyPairGenerator.getInstance("EC")
-            generator.initialize(ECGenParameterSpec("secp256r1"))
-            return generator.generateKeyPair()
-        }
-
-        fun freePort(): Int = try {
-            ServerSocket(0).use { it.localPort }
-        } catch (e: IOException) {
-            (20000..40000).random()
-        }
 
         fun isListening(port: Int): Boolean = try {
             java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", port), 300); true }

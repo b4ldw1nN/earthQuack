@@ -11,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = java.net.URI.create("https://jitpack.io") }
         // Locally built AARs (the gomobile/rclone binding). Declared here
         // rather than in app/build.gradle.kts because FAIL_ON_PROJECT_REPOS
         // forbids per-project repositories.

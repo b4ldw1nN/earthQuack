@@ -187,17 +187,9 @@ class RcloneFileTransfer(
 
     /** rclone's human-readable error text, or a fixed fallback. */
     private fun describeOf(e: RcloneException): String {
-        val detail = try {
-            JSONObject(e.rcloneOutput).optString("error").trim()
-        } catch (_: Exception) {
-            ""
-        }
+        val detail = extractRcloneErrorMessage(e.rcloneOutput)
         if (detail.isNotEmpty()) {
-            // The first line only: rclone sometimes concatenates the raw
-            // backend error onto a wrapped one, which reads as noise on screen.
-            return detail.lineSequence().firstOrNull()?.trim().orEmpty()
-                .ifEmpty { FALLBACK_MESSAGE }
-                .take(MAX_DETAIL)
+            return detail.ifEmpty { FALLBACK_MESSAGE }.take(MAX_DETAIL)
         }
         return e.message?.takeIf { it.isNotBlank() }?.take(MAX_DETAIL) ?: FALLBACK_MESSAGE
     }

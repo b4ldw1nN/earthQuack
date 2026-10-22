@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import com.example.earthquack.R
 import com.example.earthquack.databinding.FragmentSettingsBinding
+import com.example.earthquack.state.SystemStatusProvider
 import com.example.earthquack.ui.sub.BatteryActivity
 import com.example.earthquack.ui.sub.FilesCacheActivity
 import com.example.earthquack.ui.sub.PermissionsActivity
@@ -68,7 +69,11 @@ class SettingsFragment : Fragment() {
             rowIcon.setImageResource(R.drawable.ic_eq_battery)
             rowIcon.imageTintList = tint(R.color.eq_success)
             rowTitle.setText(R.string.settings_battery)
-            rowSubtitle.setText(R.string.settings_battery_sub)
+            rowSubtitle.text = if (SystemStatusProvider(requireContext()).isIgnoringBatteryOptimisations()) {
+                "Unrestricted (Runs in background)"
+            } else {
+                "Optimized (Restricted)"
+            }
             root.setOnClickListener { open(BatteryActivity::class.java) }
         }
 
@@ -161,6 +166,18 @@ class SettingsFragment : Fragment() {
                 }
             }
             .show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (_binding != null) {
+            val statusProvider = SystemStatusProvider(requireContext())
+            binding.rowBattery.rowSubtitle.text = if (statusProvider.isIgnoringBatteryOptimisations()) {
+                "Unrestricted (Runs in background)"
+            } else {
+                "Optimized (Restricted)"
+            }
+        }
     }
 
     override fun onDestroyView() {

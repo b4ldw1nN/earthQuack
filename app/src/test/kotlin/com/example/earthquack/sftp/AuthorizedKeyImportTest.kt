@@ -1,5 +1,7 @@
 package com.example.earthquack.sftp
 
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -235,11 +237,5 @@ class AuthorizedKeyImportTest {
         org.apache.sshd.common.config.keys.writer.openssh.OpenSSHKeyPairResourceWriter.INSTANCE
             .writePrivateKey(keyPair, "arch", context, out)
         return out.toString("UTF-8")
-    }
-
-    private fun generateEc(): java.security.KeyPair {
-        val generator = KeyPairGenerator.getInstance("EC")
-        generator.initialize(ECGenParameterSpec("secp256r1"))
-        return generator.generateKeyPair()
     }
 }

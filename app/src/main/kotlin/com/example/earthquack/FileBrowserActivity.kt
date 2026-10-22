@@ -43,6 +43,7 @@ import com.example.earthquack.storage.RcloneDownloadResult
 import com.example.earthquack.storage.RcloneEngine
 import com.example.earthquack.storage.RcloneEngines
 import com.example.earthquack.storage.RcloneException
+import com.example.earthquack.ui.showSimpleDialog
 import com.example.earthquack.storage.RcloneFileTransfer
 import com.example.earthquack.storage.RcloneRemoteManager
 import com.example.earthquack.storage.RcloneShareLink
@@ -791,10 +792,7 @@ class FileBrowserActivity : AppCompatActivity() {
      * app installed for this type, so nothing will happen if they retry.
      */
     private fun dialog(message: String) {
-        MaterialAlertDialogBuilder(this)
-            .setMessage(message)
-            .setPositiveButton(R.string.action_dismiss, null)
-            .show()
+        showSimpleDialog(message)
     }
 
     // ── rclone ────────────────────────────────────────────────────────────────

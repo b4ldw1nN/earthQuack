@@ -1,5 +1,7 @@
 package com.example.earthquack
 
+import android.app.Activity
+import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +16,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.FileObserver
 import android.os.PowerManager
 import android.provider.MediaStore
@@ -91,6 +94,7 @@ class EarthQuackService : LifecycleService() {
 
     @Volatile private var isManuallyPaused = false
     @Volatile private var isScreenOn = true
+    @Volatile private var isTaskRemovedPaused = false
     @Volatile private var currentSseCall: okhttp3.Call? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
@@ -98,23 +102,25 @@ class EarthQuackService : LifecycleService() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
-                    Log.i(TAG, "Screen OFF")
+                    Log.i(TAG, "Screen OFF — pausing clipboard sync to save battery")
                     if (ServerConfig.isPauseOnScreenOff(this@EarthQuackService)) {
                         updateNotification(SyncStatus.PAUSED)
                         broadcastStatus(SyncStatus.PAUSED)
                         currentSseCall?.cancel()
                         sseJob?.cancel()
-                        sseJob = lifecycleScope.launch(Dispatchers.IO) { sseLoop() }
+                        monitorJob?.cancel()
                     }
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
-                    Log.i(TAG, "Screen ON")
-                    if (ServerConfig.isPauseOnScreenOff(this@EarthQuackService)) {
+                    Log.i(TAG, "Screen ON — resuming clipboard sync")
+                    if (ServerConfig.isPauseOnScreenOff(this@EarthQuackService) && !isManuallyPaused) {
                         updateNotification(SyncStatus.CONNECTING)
                         broadcastStatus(SyncStatus.CONNECTING)
                         sseJob?.cancel()
+                        monitorJob?.cancel()
                         sseJob = lifecycleScope.launch(Dispatchers.IO) { sseLoop() }
+                        monitorJob = lifecycleScope.launch(Dispatchers.Main) { clipboardMonitorLoop() }
                     }
                 }
             }
@@ -193,6 +199,7 @@ class EarthQuackService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        isTaskRemovedPaused = false
         // START_STICKY restart may deliver null intent — treat as plain start
         if (intent == null) {
             Log.i(TAG, "onStartCommand: null intent (system restart) — resuming with host=${ServerConfig.getHost(this)}")
@@ -277,6 +284,18 @@ class EarthQuackService : LifecycleService() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "onTaskRemoved: App removed from recents; pausing clipboard sync while keeping background service alive for Tailscale")
+        isTaskRemovedPaused = true
+        currentSseCall?.cancel()
+        sseJob?.cancel()
+        monitorJob?.cancel()
+        try { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) } catch (_: Exception) {}
+        updateNotification(SyncStatus.PAUSED)
+        broadcastStatus(SyncStatus.PAUSED)
+    }
+
     // ─── Wake lock — short-lived only during network ops ─────────────────────
 
     /** Acquire a short 10s wake lock so a clipboard POST isn't killed mid-flight. */
@@ -292,9 +311,12 @@ class EarthQuackService : LifecycleService() {
     }
 
     private fun isSyncPaused(): Boolean {
+        if (isTaskRemovedPaused) return true
         if (isManuallyPaused) return true
-        if (!ServerConfig.isPauseOnScreenOff(this)) return false
-        return !isScreenOn && !powerManager.isInteractive
+        if (ServerConfig.isPauseOnScreenOff(this)) {
+            if (!isScreenOn || !powerManager.isInteractive) return true
+        }
+        return false
     }
 
     // ─── Coroutines ───────────────────────────────────────────────────────────
@@ -778,8 +800,12 @@ class EarthQuackService : LifecycleService() {
         val statusText = when (status) {
             SyncStatus.RUNNING    -> "Active ($host:$SERVER_PORT)"
             SyncStatus.CONNECTING -> "Connecting to $host:$SERVER_PORT…"
-            SyncStatus.PAUSED     -> if (isManuallyPaused) "Paused — tap Resume" else "Paused (screen off — battery saver)"
-            SyncStatus.ERROR      -> "Connection error — retrying…"
+            SyncStatus.PAUSED     -> when {
+                isTaskRemovedPaused -> "Running in background (Tailscale active • clipboard idle)"
+                isManuallyPaused    -> "Paused — tap Resume"
+                else                -> "Running in background (Tailscale active • screen off)"
+            }
+            SyncStatus.ERROR      -> "Running in background (Tailscale active • sync reconnecting)"
             SyncStatus.STOPPED    -> "Stopped"
         }
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)

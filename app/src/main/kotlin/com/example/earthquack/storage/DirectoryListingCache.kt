@@ -233,16 +233,8 @@ class DirectoryListingCache(
      * the worst failure this cache could have. MessageDigest is available from
      * API 26, which is this app's minSdk.
      */
-    private fun hashOf(key: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
-        val hex = StringBuilder(digest.size * 2)
-        for (byte in digest) {
-            val value = byte.toInt() and 0xFF
-            if (value < 0x10) hex.append('0')
-            hex.append(Integer.toHexString(value))
-        }
-        return hex.toString()
-    }
+    private fun hashOf(key: String): String =
+        MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).toHexString()
 
     private fun delete(file: File): Boolean = try {
         !file.exists() || file.delete()

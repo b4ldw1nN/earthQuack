@@ -1,5 +1,7 @@
 package com.example.earthquack.sftp
 
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -141,10 +143,4 @@ class Base64CodecTest {
 
     private fun MessageDigestSha256(bytes: ByteArray): ByteArray =
         java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
-
-    private fun generateEc(): java.security.KeyPair {
-        val generator = KeyPairGenerator.getInstance("EC")
-        generator.initialize(ECGenParameterSpec("secp256r1"))
-        return generator.generateKeyPair()
-    }
 }

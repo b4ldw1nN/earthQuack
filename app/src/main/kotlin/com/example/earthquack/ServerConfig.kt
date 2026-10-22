@@ -112,7 +112,7 @@ object ServerConfig {
      * Enable only if you want aggressive battery saving at cost of missed sync while screen off.
      */
     fun isPauseOnScreenOff(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_PAUSE_ON_SCREEN_OFF, false)
+        prefs(context).getBoolean(KEY_PAUSE_ON_SCREEN_OFF, true)
 
     fun setPauseOnScreenOff(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_PAUSE_ON_SCREEN_OFF, enabled).apply()

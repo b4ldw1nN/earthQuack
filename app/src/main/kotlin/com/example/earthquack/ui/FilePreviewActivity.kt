@@ -227,10 +227,7 @@ class FilePreviewActivity : AppCompatActivity() {
     }
 
     private fun dialog(message: String) {
-        MaterialAlertDialogBuilder(this)
-            .setMessage(message)
-            .setPositiveButton(R.string.action_dismiss, null)
-            .show()
+        showSimpleDialog(message)
     }
 
     /**

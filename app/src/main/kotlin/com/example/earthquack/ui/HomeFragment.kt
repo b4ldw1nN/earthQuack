@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -402,8 +404,14 @@ class HomeFragment : Fragment() {
                 getString(R.string.toast_needs_overlay),
                 Toast.LENGTH_LONG
             ).show()
-            statusProvider.batterySettingsIntent()
-            runCatching { startActivity(statusProvider.batterySettingsIntent()) }
+            runCatching {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                )
+            }
             return
         }
 
@@ -412,7 +420,8 @@ class HomeFragment : Fragment() {
             return
         }
 
-        context.startService(
+        androidx.core.content.ContextCompat.startForegroundService(
+            context,
             android.content.Intent(context, com.example.earthquack.EarthQuackService::class.java)
                 .setAction(ACTION_START_SYNC)
         )
@@ -432,7 +441,8 @@ class HomeFragment : Fragment() {
      */
     private fun requestNotificationPermissionThenStart() {
         notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        requireContext().startService(
+        androidx.core.content.ContextCompat.startForegroundService(
+            requireContext(),
             android.content.Intent(
                 requireContext(),
                 com.example.earthquack.EarthQuackService::class.java

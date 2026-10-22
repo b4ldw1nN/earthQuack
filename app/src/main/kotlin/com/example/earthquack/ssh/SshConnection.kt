@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import com.example.earthquack.tailscale.Socks5Relay
+import com.example.earthquack.tailscale.TailnetRoute
 import com.example.earthquack.tailscale.Tailscale
 
 /**
@@ -143,7 +144,7 @@ class SshConnectionFactory(
                 // The shim is native code: on a JVM (unit tests) the call
                 // fails, and "no proxy" is the correct answer there.
                 val socksPort = runCatching { Tailscale.socksPort().toInt() }.getOrDefault(0)
-                if (socksPort > 0 && isTailnetHost(profile.host)) {
+                if (socksPort > 0 && TailnetRoute.looksTailnetHost(profile.host)) {
                     relay = Socks5Relay.start("127.0.0.1", socksPort, profile.host, profile.port)
                 }
                 val connectHost = relay?.localPort?.let { "127.0.0.1" } ?: profile.host
@@ -815,13 +816,4 @@ internal class HostKeyVerifier(
     private companion object {
         const val TAG = "EarthQuackSsh"
     }
-}
-
-private fun isTailnetHost(host: String): Boolean {
-    val h = host.trim().trimEnd('.').lowercase()
-    if (h.endsWith(".ts.net")) return true
-    val parts = h.split(".")
-    if (parts.size != 4) return false
-    val nums = parts.map { it.toIntOrNull() ?: return false }
-    return nums[0] == 100 && nums[1] in 64..127
 }

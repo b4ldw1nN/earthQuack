@@ -36,6 +36,13 @@ class BatteryActivity : SubScreenActivity() {
         render()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::body.isInitialized) {
+            render()
+        }
+    }
+
     override fun inflateBody(inflater: LayoutInflater, container: ViewGroup?) {
         body = ActivityBatteryBinding.inflate(inflater, container, false)
         container?.removeAllViews()
@@ -52,8 +59,29 @@ class BatteryActivity : SubScreenActivity() {
             ServerConfig.setPauseOnScreenOff(this, checked)
         }
         body.btnConfigureOptimisation.setOnClickListener {
-            runCatching { startActivity(statusProvider.batterySettingsIntent()) }
+            openBatterySettings()
         }
+    }
+
+    private fun openBatterySettings() {
+        val intents = mutableListOf<android.content.Intent>()
+        if (!statusProvider.isIgnoringBatteryOptimisations()) {
+            intents.add(statusProvider.batterySettingsIntent())
+        }
+        intents.add(statusProvider.batteryOptimizationListIntent())
+        intents.add(statusProvider.appDetailsSettingsIntent())
+
+        for (intent in intents) {
+            try {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                android.util.Log.i("BatteryActivity", "Attempting to launch battery settings intent: $intent")
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("BatteryActivity", "Failed to launch intent: $intent", e)
+            }
+        }
+        android.widget.Toast.makeText(this, "Unable to open battery settings", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun render() {
@@ -64,11 +92,16 @@ class BatteryActivity : SubScreenActivity() {
         body.switchPauseScreenOff.alpha = if (saver) 1f else 0.4f
 
         val optimised = statusProvider.isIgnoringBatteryOptimisations()
-        body.textOptimisation.setText(
-            if (optimised) R.string.battery_optimised_yes else R.string.battery_optimised_no
-        )
-        // Nothing to configure once exempt.
-        body.btnConfigureOptimisation.visibility =
-            if (optimised) android.view.View.GONE else android.view.View.VISIBLE
+        body.textOptimisation.text = if (optimised) {
+            "Exempt (Unrestricted) — Android allows earthQuack to run in the background."
+        } else {
+            "Restricted (Optimized) — Android may stop background services when idle."
+        }
+        body.btnConfigureOptimisation.text = if (optimised) {
+            "Configure Battery Settings"
+        } else {
+            "Request Unrestricted Background"
+        }
+        body.btnConfigureOptimisation.visibility = android.view.View.VISIBLE
     }
 }

@@ -88,6 +88,15 @@ class MainActivity : AppCompatActivity() {
         // service — see TailscaleNodeMonitor.
         TailscaleNodeMonitor.start(this)
 
+        // Start EarthQuack foreground service so Tailscale, SFTP, and file sharing
+        // survive in the background when the app is closed.
+        runCatching {
+            androidx.core.content.ContextCompat.startForegroundService(
+                this,
+                Intent(this, EarthQuackService::class.java).setAction(ACTION_START_SYNC)
+            )
+        }
+
         // Start rclone in the background: initialising it loads the native
         // library and the config file, which costs about a second. Paying it
         // here, off the main thread, means no screen stalls later.
@@ -290,6 +299,8 @@ class MainActivity : AppCompatActivity() {
         binding.appbar.btnBack.isFocusableInTouchMode = false
         binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
+        binding.bottomNav.visibility = android.view.View.GONE
+
         if (binding.bottomNav.selectedItemId != R.id.nav_services) {
             binding.bottomNav.selectedItemId = R.id.nav_services
         }
@@ -363,6 +374,7 @@ class MainActivity : AppCompatActivity() {
             binding.appbar.btnBack.setOnClickListener(null)
             // Transparent again so the tab underneath is visible.
             binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            binding.bottomNav.visibility = android.view.View.VISIBLE
         }
         return true
     }

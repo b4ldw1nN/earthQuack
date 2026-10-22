@@ -59,3 +59,28 @@ interface RcloneBridge {
     fun rpc(method: String, input: String): RcloneResult
     fun shutdown()
 }
+
+/** Converts a byte array to a lowercase hex string. */
+internal fun ByteArray.toHexString(): String {
+    val hex = StringBuilder(size * 2)
+    for (byte in this) {
+        val value = byte.toInt() and 0xFF
+        if (value < 0x10) hex.append('0')
+        hex.append(Integer.toHexString(value))
+    }
+    return hex.toString()
+}
+
+/** Extracts the first line of an error from rclone's JSON output envelope, or empty string. */
+internal fun extractRcloneErrorMessage(rcloneOutput: String): String {
+    val detail = try {
+        org.json.JSONObject(rcloneOutput).optString("error").trim()
+    } catch (_: Exception) {
+        ""
+    }
+    return if (detail.isNotEmpty()) {
+        detail.lineSequence().firstOrNull()?.trim().orEmpty()
+    } else {
+        ""
+    }
+}

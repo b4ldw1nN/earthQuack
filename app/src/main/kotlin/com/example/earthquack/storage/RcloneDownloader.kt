@@ -137,14 +137,7 @@ class RcloneDownloadPlanner(private val cacheRoot: String) {
          */
         fun cacheKey(fs: String, srcRemote: String, size: Long?): String {
             val raw = "$fs\u0000$srcRemote\u0000${size ?: UNKNOWN_SIZE}"
-            val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
-            val hex = StringBuilder(digest.size * 2)
-            for (byte in digest) {
-                val value = byte.toInt() and 0xFF
-                if (value < 0x10) hex.append('0')
-                hex.append(Integer.toHexString(value))
-            }
-            return hex.toString()
+            return MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).toHexString()
         }
 
         /** A backend that reports no size, spelled so it cannot collide with 0. */

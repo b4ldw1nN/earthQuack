@@ -46,14 +46,19 @@ object TailnetRoute {
     fun isTailnetAddress(host: String): Boolean {
         val h = host.trim().trimEnd('.').lowercase()
         if (h.isEmpty() || h == "localhost") return false
-        if (h.endsWith(".ts.net")) return true
-        if (looksTailnetIp(h)) return true
+        if (looksTailnetHost(h)) return true
         if ('.' in h) return false // plain domain: not ours to route
         val resolved = runCatching { Tailscale.resolve(h) }.getOrNull().orEmpty()
         return looksTailnetIp(resolved)
     }
 
-    private fun looksTailnetIp(value: String): Boolean {
+    fun looksTailnetHost(host: String): Boolean {
+        val h = host.trim().trimEnd('.').lowercase()
+        if (h.endsWith(".ts.net")) return true
+        return looksTailnetIp(h)
+    }
+
+    fun looksTailnetIp(value: String): Boolean {
         val parts = value.trim().split(".")
         if (parts.size != 4) return false
         val nums = parts.map { it.toIntOrNull() ?: return false }

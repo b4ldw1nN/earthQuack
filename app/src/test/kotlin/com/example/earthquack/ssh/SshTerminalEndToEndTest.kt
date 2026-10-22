@@ -1,5 +1,8 @@
 package com.example.earthquack.ssh
 
+import com.example.earthquack.testutil.TestKeyUtils.freePort
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
+
 import com.example.earthquack.sftp.SftpAuthorizedKeys
 import com.example.earthquack.sftp.SftpHostKeys
 import com.example.earthquack.sftp.SftpSettings
@@ -364,19 +367,5 @@ class SshTerminalEndToEndTest {
         }
 
         override fun forget(profileId: String) { recorded.remove(profileId) }
-    }
-
-    companion object {
-        fun generateEc(): KeyPair {
-            val generator = KeyPairGenerator.getInstance("EC")
-            generator.initialize(ECGenParameterSpec("secp256r1"))
-            return generator.generateKeyPair()
-        }
-
-        fun freePort(): Int = try {
-            ServerSocket(0).use { it.localPort }
-        } catch (e: IOException) {
-            (20000..40000).random()
-        }
     }
 }

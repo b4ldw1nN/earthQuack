@@ -1,148 +1,238 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    SSH Terminal.
-    Top: status row + connect/disconnect. Middle: scrollable terminal log.
-    Bottom: control keys + a transparent Termux-style keyboard sink (no send
-    button — keystrokes go straight to the shell and the PTY echoes them).
--->
-<androidx.coordinatorlayout.widget.CoordinatorLayout
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="@color/eq_terminal_background">
 
+    <!-- Status + actions -->
     <LinearLayout
-        style="@style/Widget.Eq.Screen">
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@color/eq_terminal_background">
 
-        <!-- Status + actions -->
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="monospace"
+            android:textSize="13sp"
+            android:textColor="@color/eq_terminal_muted"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Disconnected"
+            tools:text="Connected" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnConnect"
+            style="@style/Widget.Eq.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:text="@string/terminal_connect"
+            app:icon="@drawable/ic_eq_play"
+            app:iconSize="16dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDisconnect"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:text="@string/terminal_disconnect"
+            android:enabled="false"
+            app:icon="@drawable/ic_eq_stop"
+            app:iconSize="16dp" />
+    </LinearLayout>
+
+    <View style="@style/Widget.Eq.Divider" />
+
+    <!-- Terminal view: Termux hardware-accelerated canvas terminal emulator -->
+    <com.termux.view.TerminalView
+        android:id="@+id/terminalView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:background="@color/eq_terminal_background" />
+
+    <View style="@style/Widget.Eq.Divider" />
+
+    <!-- Extra keys bar (ESC, TAB, CTRL, ALT, C-c, arrows) -->
+    <HorizontalScrollView
+        android:id="@+id/extraKeysBar"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="#161A22"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/extraKeysLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:background="@color/eq_terminal_background">
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
 
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
+            <Button
+                android:id="@+id/keyEsc"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="44dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
                 android:fontFamily="monospace"
-                android:textSize="13sp"
-                android:textColor="@color/eq_terminal_muted"
-                android:includeFontPadding="false"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text="Disconnected"
-                tools:text="Connected" />
+                android:textSize="12sp"
+                android:text="ESC" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnConnect"
-                style="@style/Widget.Eq.Button"
+            <Button
+                android:id="@+id/keyTab"
+                style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginStart="8dp"
-                android:text="@string/terminal_connect"
-                app:icon="@drawable/ic_eq_play"
-                app:iconSize="16dp" />
+                android:minWidth="44dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:text="TAB" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDisconnect"
-                style="@style/Widget.Eq.Button.Outlined"
+            <Button
+                android:id="@+id/keyCtrl"
+                style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginStart="8dp"
-                android:text="@string/terminal_disconnect"
-                android:enabled="false"
-                app:icon="@drawable/ic_eq_stop"
-                app:iconSize="16dp" />
+                android:minWidth="48dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:text="CTRL" />
+
+            <Button
+                android:id="@+id/keyAlt"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="44dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:text="ALT" />
+
+            <Button
+                android:id="@+id/keyCtrlC"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="44dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:text="C-c" />
+
+            <Button
+                android:id="@+id/keyLeft"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="38dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:text="◀" />
+
+            <Button
+                android:id="@+id/keyDown"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="38dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:text="▼" />
+
+            <Button
+                android:id="@+id/keyUp"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="38dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:text="▲" />
+
+            <Button
+                android:id="@+id/keyRight"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:minWidth="38dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp"
+                android:paddingTop="0dp"
+                android:paddingBottom="0dp"
+                android:fontFamily="monospace"
+                android:textSize="14sp"
+                android:text="▶" />
+
         </LinearLayout>
+    </HorizontalScrollView>
 
-        <View style="@style/Widget.Eq.Divider" />
-
-        <!-- Terminal log (scrollable). The frame holds the log and the
-             "live output" button that appears when the user scrolls away. -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
-
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/terminalScroll"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scrollbars="vertical"
-            android:focusable="false"
-            android:focusableInTouchMode="false"
-            android:background="@color/eq_terminal_background"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp">
-
-            <TextView
-                android:id="@+id/terminalLog"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:focusable="false"
-                android:focusableInTouchMode="false"
-                android:fontFamily="monospace"
-                android:textSize="13sp"
-                android:textColor="@color/eq_terminal_text"
-                android:includeFontPadding="false"
-                android:lineSpacingMultiplier="1.1"
-                android:letterSpacing="0"
-                tools:text="user@archii:~$ ls&#10;file1.txt  file2.txt  dir1/&#10;user@archii:~$ " />
-        </androidx.core.widget.NestedScrollView>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnJumpToLive"
-                style="@style/Widget.Eq.Button.Outlined"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_margin="@dimen/eq_gap_md"
-                android:text="@string/terminal_jump_to_live"
-                android:visibility="gone"
-                app:icon="@drawable/ic_eq_sync"
-                app:iconSize="16dp" />
-        </FrameLayout>
-
-        <View style="@style/Widget.Eq.Divider" />
-
-        <!--
-            Keyboard sink (Termux-style).
-
-            There is no visible text field and no send button: the terminal is a
-            log of what the PTY echoes, so keystrokes are forwarded straight to
-            the shell by TerminalInputView and the characters appear in the log
-            because the remote echoes them. The field itself is fully
-            transparent — tapping the terminal focuses it and opens the keyboard
-            in a single tap (see TerminalFragment.focusInputAndShowKeyboard).
-        -->
-        <com.example.earthquack.ui.TerminalInputView
-            android:id="@+id/inputField"
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:minHeight="1dp"
-            android:background="@android:color/transparent"
-            android:enabled="false"
-            android:fontFamily="monospace"
-            android:textSize="14sp"
-            android:textColor="@android:color/transparent"
-            android:textColorHighlight="@android:color/transparent"
-            android:textCursorDrawable="@android:color/transparent"
-            android:cursorVisible="false"
-            android:importantForAutofill="no"
-            android:inputType="text|textNoSuggestions|textVisiblePassword"
-            android:imeOptions="actionNone|flagNoExtractUi|flagNoFullscreen|flagNoPersonalizedLearning"
-            android:privateImeOptions="nm" />
-
-    </LinearLayout>
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</LinearLayout>

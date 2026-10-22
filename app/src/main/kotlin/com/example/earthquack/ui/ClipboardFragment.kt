@@ -286,19 +286,8 @@ class ClipboardFragment : Fragment() {
             row.root.setOnClickListener { copyToClipboard(entry.text) }
 
             list.addView(row.root)
-            if (index < older.lastIndex) list.addView(divider())
+            if (index < older.lastIndex) list.addView(createDivider())
         }
-    }
-
-    private fun divider(): View = View(requireContext()).apply {
-        layoutParams = ViewGroup.MarginLayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            resources.getDimensionPixelSize(R.dimen.eq_divider)
-        ).apply {
-            marginStart = resources.getDimensionPixelSize(R.dimen.eq_card_pad)
-            marginEnd = resources.getDimensionPixelSize(R.dimen.eq_card_pad)
-        }
-        setBackgroundColor(resources.getColor(R.color.eq_border, requireContext().theme))
     }
 
     /**

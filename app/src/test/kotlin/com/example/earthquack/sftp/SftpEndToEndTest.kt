@@ -1,5 +1,7 @@
 package com.example.earthquack.sftp
 
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
+
 import com.example.earthquack.ssh.InMemorySecretStore
 import com.example.earthquack.ssh.SftpSession
 import com.example.earthquack.ssh.TransferProgress
@@ -420,12 +422,6 @@ class SftpEndToEndTest {
         id = "test", name = "test", host = "127.0.0.1",
         port = engine.serverPort(), username = "zoro"
     )
-
-    private fun generateEc(): KeyPair {
-        val generator = KeyPairGenerator.getInstance("EC")
-        generator.initialize(ECGenParameterSpec("secp256r1"))
-        return generator.generateKeyPair()
-    }
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

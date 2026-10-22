@@ -2,6 +2,11 @@
 <resources>
     <string name="app_name">earthQuack</string>
 
+    <!-- Termux Text Selection -->
+    <string name="copy_text">Copy</string>
+    <string name="paste_text">Paste</string>
+    <string name="text_selection_more">More</string>
+
     <!-- Bottom navigation -->
     <string name="nav_home">Home</string>
     <string name="nav_storage">Storage</string>

@@ -196,9 +196,22 @@ class SystemStatusProvider(context: Context) {
     /** Intent that opens this app's battery-optimisation settings. */
     fun batterySettingsIntent(): Intent =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                .setData(Uri.parse("package:${appContext.packageName}"))
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${appContext.packageName}")
+            }
         } else {
             Intent(Settings.ACTION_SETTINGS)
+        }
+
+    fun batteryOptimizationListIntent(): Intent =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        } else {
+            Intent(Settings.ACTION_SETTINGS)
+        }
+
+    fun appDetailsSettingsIntent(): Intent =
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${appContext.packageName}")
         }
 }

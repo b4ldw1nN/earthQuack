@@ -298,15 +298,9 @@ class RcloneShareLink(private val engine: RcloneEngine) {
      *  [RcloneFileTransfer]'s mapping so the two screens read the same. */
     private fun describe(e: Exception): String {
         if (e is RcloneException) {
-            val detail = try {
-                JSONObject(e.rcloneOutput).optString("error").trim()
-            } catch (_: Exception) {
-                ""
-            }
+            val detail = extractRcloneErrorMessage(e.rcloneOutput)
             if (detail.isNotEmpty()) {
-                return detail.lineSequence().firstOrNull()?.trim().orEmpty()
-                    .ifEmpty { FALLBACK_MESSAGE }
-                    .take(MAX_DETAIL)
+                return detail.ifEmpty { FALLBACK_MESSAGE }.take(MAX_DETAIL)
             }
         }
         return e.message?.takeIf { it.isNotBlank() }?.take(MAX_DETAIL) ?: FALLBACK_MESSAGE

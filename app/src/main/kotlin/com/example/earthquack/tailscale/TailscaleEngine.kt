@@ -142,14 +142,7 @@ class TailscaleEngine(
             .getOrNull()
     }
 
-    fun looksTailnetHost(host: String): Boolean {
-        val h = host.trim().trimEnd('.').lowercase()
-        if (h.endsWith(".ts.net")) return true
-        val parts = h.split(".")
-        if (parts.size != 4) return false
-        val nums = parts.map { it.toIntOrNull() ?: return false }
-        return nums[0] == 100 && nums[1] in 64..127
-    }
+    fun looksTailnetHost(host: String): Boolean = TailnetRoute.looksTailnetHost(host)
 
     suspend fun isTailnetHost(host: String): Boolean {
         val h = host.trim().lowercase()

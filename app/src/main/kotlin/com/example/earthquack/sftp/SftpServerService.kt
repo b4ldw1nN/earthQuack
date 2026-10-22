@@ -164,10 +164,16 @@ class SftpServerService : Service() {
                 updateNotification(instance.port)
                 broadcastStatus()
                 completePending(status)
+                return START_STICKY
             }
             else -> stopSelf(startId)
         }
         return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "onTaskRemoved: Task swiped from Recents; SFTP server continues running in foreground")
     }
 
     override fun onDestroy() {

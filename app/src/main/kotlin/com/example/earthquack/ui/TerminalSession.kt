@@ -1,13 +1,15 @@
 package com.example.earthquack.ui
 
 import android.util.Log
+import com.example.earthquack.ssh.ConnectionProfile
 import com.example.earthquack.ssh.SshConnectResult
 import com.example.earthquack.ssh.SshConnection
+import com.termux.terminal.TerminalSession as TermuxSession
+import com.termux.terminal.TerminalSessionClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,45 +18,71 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * TerminalSession — one SSH shell, owned by the process rather than by a screen.
+ * TerminalState — keeps the connection, the shell channel, and generation guards.
+ */
+class TerminalState {
+
+    var shellGeneration = 0
+        private set
+
+    @Volatile
+    private var shellRef: SshConnection.ShellChannel? = null
+
+    @Volatile
+    private var connectionRef: SshConnection? = null
+
+    val isConnected: Boolean get() = connectionRef?.isOpen == true
+
+    val shell: SshConnection.ShellChannel? get() = shellRef
+
+    val connection: SshConnection? get() = connectionRef
+
+    fun adopt(connection: SshConnection) {
+        shellRef = null
+        connectionRef = connection
+        shellGeneration++
+    }
+
+    fun adopt(shell: SshConnection.ShellChannel) {
+        shellRef = shell
+        shellGeneration++
+    }
+
+    fun close() {
+        shellGeneration++
+        val dyingShell = shellRef
+        shellRef = null
+        val conn = connectionRef
+        connectionRef = null
+        dyingShell?.close()
+        conn?.close()
+    }
+}
+
+/**
+ * TerminalSession — bridges an SSH shell to Termux's terminal emulator and view.
  *
- * A terminal that dies when the user presses Back is a terminal that cannot be
- * left running: you go and check something else, come back, and find the
- * session gone. The session therefore lives here, outside the fragment, and the
- * fragment is only a *view* of it: it attaches, renders, and detaches.
- *
- * The screen shows what the session is doing (connecting, connected, failed)
- * through [phase]; the output is fed into the session's own grid, so output
- * that arrives while nobody is looking is still there when the user comes
- * back.
+ * Owned by the process rather than by a screen: navigating Back detaches the
+ * view, but the shell and emulator remain active until explicitly disconnected.
  */
 class TerminalSession(val profileId: String) {
-
 
     private companion object {
         const val TAG = "TerminalSession"
     }
 
-    /** What the session is doing. */
     enum class Phase { Idle, Connecting, Connected, Failed }
 
-    /** Told when something changed that the screen should show. */
     interface Listener {
-        /** New output arrived: redraw. */
         fun onOutput()
-
-        /** The session's phase changed. */
         fun onPhase(phase: Phase, message: String?)
+        fun onCopyText(text: String)
+        fun onPasteText()
     }
 
-    /** The screen attached to this session, if any. */
     @Volatile
     var listener: Listener? = null
 
-    /** The terminal emulator: the screen this session's output is drawn from. */
-    val grid = TerminalGrid(TerminalFragment.INITIAL_ROWS, TerminalFragment.INITIAL_COLS)
-
-    /** The connection, the shell and the generation that guards both. */
     val state = TerminalState()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -62,46 +90,85 @@ class TerminalSession(val profileId: String) {
     private val _phase = MutableStateFlow(Phase.Idle)
     val phase: StateFlow<Phase> = _phase.asStateFlow()
 
-    /** The failure message, when the phase is [Phase.Failed]. */
     @Volatile
     var failureMessage: String? = null
         private set
 
-    /** Bumped whenever the shell is replaced or torn down. */
     var generation: Int = 0
         private set
 
-    /** Total bytes fed to the parser; diagnostics only. */
     @Volatile
     var bytesReceived: Long = 0L
         private set
 
     private var job: Job? = null
 
-    /**
-     * Records a phase change and tells the attached screen.
-     *
-     * The flow alone is not enough: the screen reads the phase once when it
-     * attaches, and a change that happens while nobody is looking has to be
-     * delivered when the screen comes back.
-     */
+    private val sessionClient = object : TerminalSessionClient {
+        override fun onTextChanged(changedSession: TermuxSession?) {
+            listener?.onOutput()
+        }
+
+        override fun onTitleChanged(changedSession: TermuxSession?) {}
+
+        override fun onSessionFinished(finishedSession: TermuxSession?) {
+            setPhase(Phase.Idle)
+        }
+
+        override fun onCopyTextToClipboard(session: TermuxSession?, text: String?) {
+            listener?.onCopyText(text ?: "")
+        }
+
+        override fun onPasteTextFromClipboard(session: TermuxSession?) {
+            listener?.onPasteText()
+        }
+
+        override fun onBell(session: TermuxSession?) {}
+
+        override fun onColorsChanged(session: TermuxSession?) {}
+
+        override fun onTerminalCursorStateChange(state: Boolean) {}
+
+        override fun getTerminalCursorStyle(): Int? = null
+
+        override fun logError(tag: String?, message: String?) { Log.e(tag, message ?: "") }
+        override fun logWarn(tag: String?, message: String?) { Log.w(tag, message ?: "") }
+        override fun logInfo(tag: String?, message: String?) { Log.i(tag, message ?: "") }
+        override fun logDebug(tag: String?, message: String?) { Log.d(tag, message ?: "") }
+        override fun logVerbose(tag: String?, message: String?) { Log.v(tag, message ?: "") }
+        override fun logStackTraceWithMessage(tag: String?, message: String?, e: Exception?) { Log.e(tag, message, e) }
+        override fun logStackTrace(tag: String?, e: Exception?) { Log.e(tag, "Stack trace", e) }
+    }
+
+    /** Termux terminal session handling ANSI/VT100 emulation and screen buffer. */
+    val termSession = TermuxSession(
+        2000,
+        sessionClient,
+        object : TermuxSession.SessionCallback {
+            override fun onWrite(data: ByteArray, offset: Int, count: Int) {
+                val bytes = data.copyOfRange(offset, offset + count)
+                scope.launch {
+                    write(bytes)
+                }
+            }
+
+            override fun onResize(columns: Int, rows: Int) {
+                scope.launch {
+                    resize(rows, columns)
+                }
+            }
+        }
+    )
+
     private fun setPhase(phase: Phase, message: String? = null) {
         _phase.value = phase
         listener?.onPhase(phase, message)
     }
 
-    /** True while a shell is open. */
     val isConnected: Boolean get() = state.isConnected
 
-    /**
-     * Connects and opens a shell.
-     *
-     * [connect] is the blocking connect call, supplied by the caller because
-     * it needs a Context. The session runs it on IO and keeps the result.
-     */
     fun start(
-        profile: com.example.earthquack.ssh.ConnectionProfile,
-        connect: suspend (com.example.earthquack.ssh.ConnectionProfile) -> SshConnectResult,
+        profile: ConnectionProfile,
+        connect: suspend (ConnectionProfile) -> SshConnectResult,
         onFailure: (String) -> Unit,
     ) {
         job?.cancel()
@@ -142,15 +209,18 @@ class TerminalSession(val profileId: String) {
         scope.launch {
             var channel: SshConnection.ShellChannel? = null
             try {
+                val em = termSession.emulator
+                val rows = em?.mRows ?: TerminalFragment.INITIAL_ROWS
+                val cols = em?.mColumns ?: TerminalFragment.INITIAL_COLS
                 channel = withContext(Dispatchers.IO) {
                     conn.openShell(
-                        onData = { data, offset, len -> onShellData(data, offset, len) },
-                        rows = TerminalFragment.INITIAL_ROWS,
-                        cols = TerminalFragment.INITIAL_COLS
+                        onData = { data: ByteArray, offset: Int, len: Int -> onShellData(data, offset, len) },
+                        rows = rows,
+                        cols = cols
                     )
                 }
                 if (mine != generation) {
-                    channel.close()
+                    channel?.close()
                     return@launch
                 }
                 state.adopt(channel)
@@ -169,19 +239,15 @@ class TerminalSession(val profileId: String) {
         }
     }
 
-    /** Output from the remote shell, on an sshd I/O thread. */
     private fun onShellData(data: ByteArray, offset: Int, len: Int) {
         bytesReceived += len
         try {
-            grid.feed(data, offset, len)
+            termSession.appendRemoteData(data, offset, len)
         } catch (e: Throwable) {
-            Log.w(TAG, "parser dropped $len bytes", e)
-            return
+            Log.w(TAG, "terminal emulator dropped $len bytes", e)
         }
-        listener?.onOutput()
     }
 
-    /** Writes [payload] to the shell. Returns false when there is no shell. */
     suspend fun write(payload: ByteArray): Boolean {
         val target = state.shell ?: return false
         if (!target.isOpen) return false
@@ -194,7 +260,6 @@ class TerminalSession(val profileId: String) {
         return mine == generation
     }
 
-    /** Sends a PTY size change, off the main thread. */
     suspend fun resize(rows: Int, cols: Int) {
         val target = state.shell ?: return
         if (!target.isOpen) return
@@ -204,44 +269,31 @@ class TerminalSession(val profileId: String) {
         }.onFailure { Log.w(TAG, "resize to ${rows}x$cols failed", it) }
     }
 
-    /** Closes the session. The screen is told through [phase]. */
     fun stop() {
         job?.cancel()
         job = null
         generation++
         state.close()
         failureMessage = null
+        termSession.finishIfRunning()
         setPhase(Phase.Idle)
     }
 
-    /** True when the session has nothing running. */
     fun isIdle(): Boolean = _phase.value == Phase.Idle
 }
 
-/**
- * TerminalSessions — the sessions of this process, by profile.
- *
- * Keyed by profile so two profiles never share a shell, and held for as long
- * as the process lives: a session the user connected stays connected until
- * they disconnect it or the app is killed.
- */
 object TerminalSessions {
-
     private val sessions = ConcurrentHashMap<String, TerminalSession>()
 
-    /** The session for [profileId], created on first use. */
     fun of(profileId: String): TerminalSession =
         sessions.getOrPut(profileId) { TerminalSession(profileId) }
 
-    /** The session for [profileId], or null when there is none. */
     fun peek(profileId: String): TerminalSession? = sessions[profileId]
 
-    /** Closes and forgets a session. */
     fun close(profileId: String) {
         sessions.remove(profileId)?.stop()
     }
 
-    /** Closes every session; used when the process is going away. */
     fun closeAll() {
         sessions.values.forEach { runCatching { it.stop() } }
         sessions.clear()

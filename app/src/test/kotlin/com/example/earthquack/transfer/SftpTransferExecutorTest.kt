@@ -1,5 +1,7 @@
 package com.example.earthquack.transfer
 
+import com.example.earthquack.testutil.TestKeyUtils.generateEc
+
 import com.example.earthquack.ssh.AuthMethod
 import com.example.earthquack.ssh.ClientIdentityProvider
 import com.example.earthquack.ssh.ConnectionProfile
@@ -353,13 +355,5 @@ class SftpTransferExecutorTest {
             task("seed-$path", TransferType.UPLOAD, sftpBackend(path, File(localDir, "seed.tmp").also { it.writeBytes(seed) }.absolutePath), path, total = seed.size.toLong())
         ) {}
         assertTrue("seeding $path failed: $result", result is TransferOutcome.Completed)
-    }
-
-    companion object {
-        fun generateEc(): KeyPair {
-            val generator = KeyPairGenerator.getInstance("EC")
-            generator.initialize(ECGenParameterSpec("secp256r1"))
-            return generator.generateKeyPair()
-        }
     }
 }
