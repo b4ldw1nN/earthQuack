@@ -67,9 +67,11 @@ class RcloneRangeSource(
     // may restyle freely as long as it compiles.
     override fun size(): Long? {
         return try {
+            System.err.println("EQ_STREAM: size() calling operations/stat fs=$srcFs remote=$srcRemote")
             val reply = runBlocking {
                 engine.call(METHOD_STAT, JSONObject().put("fs", srcFs).put("remote", srcRemote))
             }
+            System.err.println("EQ_STREAM: size() stat reply=$reply")
             val item = reply.optJSONObject("item") ?: return null
             // A directory has a size of 0 upstream and no business being streamed;
             // reporting it as "unknown" stops the server from promising a range.
@@ -77,14 +79,17 @@ class RcloneRangeSource(
             val size = item.optLong("Size", item.optLong("size", -1L))
             if (size < 0) null else size
         } catch (e: RcloneException) {
+            System.err.println("EQ_STREAM: size() RcloneException: $e")
             // A stat that cannot be answered means the remote is gone, the
             // credentials expired, or the path moved. Treating that as "unknown
             // size" would send the player into a range it cannot satisfy, so the
             // failure is raised instead.
             throw RangeReadException(statMessage(e), e)
         } catch (e: RangeReadException) {
+            System.err.println("EQ_STREAM: size() RangeReadException: $e")
             throw e
         } catch (e: Exception) {
+            System.err.println("EQ_STREAM: size() Exception: $e")
             throw RangeReadException(STAT_FAILED, e)
         }
     }
@@ -93,6 +98,8 @@ class RcloneRangeSource(
         require(offset >= 0) { "offset must not be negative" }
         require(length in 1..maxChunkBytes) { "length must be within 1..$maxChunkBytes" }
 
+        val t0 = System.currentTimeMillis()
+        System.err.println("EQ_STREAM: readAt offset=$offset length=$length fs=$srcFs remote=$srcRemote")
         val reply = try {
             runBlocking {
                 engine.call(
@@ -105,18 +112,25 @@ class RcloneRangeSource(
                 )
             }
         } catch (e: RcloneException) {
+            System.err.println("EQ_STREAM: readAt failed in ${System.currentTimeMillis() - t0}ms: $e")
             throw RangeReadException(readMessage(e), e)
         } catch (e: RangeReadException) {
+            System.err.println("EQ_STREAM: readAt failed in ${System.currentTimeMillis() - t0}ms: $e")
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
+            System.err.println("EQ_STREAM: readAt cancelled in ${System.currentTimeMillis() - t0}ms")
             // The server stops its workers by cancelling them; a cancelled read
             // is not a read failure and must not be reported as one.
             throw e
         } catch (e: Exception) {
+            System.err.println("EQ_STREAM: readAt failed in ${System.currentTimeMillis() - t0}ms: $e")
             throw RangeReadException(READ_FAILED, e)
         }
 
+        val dt = System.currentTimeMillis() - t0
         val encoded = reply.optString("data")
+        val reported = reply.optLong("length", -1L)
+        System.err.println("EQ_STREAM: readAt returned length=$reported in ${dt}ms")
         if (encoded.isEmpty()) return ByteArray(0)
 
         val data = try {
@@ -124,7 +138,6 @@ class RcloneRangeSource(
         } catch (e: IllegalArgumentException) {
             throw RangeReadException(MALFORMED_REPLY, e)
         }
-        val reported = reply.optLong("length", -1L)
         if (reported != data.size.toLong()) {
             // The only signature of a truncated or reassembled reply: trust it
             // as little as possible, because a video played through a hole in

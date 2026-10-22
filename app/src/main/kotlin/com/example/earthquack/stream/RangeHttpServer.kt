@@ -64,7 +64,7 @@ import java.util.concurrent.atomic.AtomicLong
 class RangeHttpServer(
     private val source: RangeSource,
     private val contentType: String = DEFAULT_CONTENT_TYPE,
-    private val chunkBytes: Int = 256 * 1024,
+    private val chunkBytes: Int = 64 * 1024,
     private val maxConcurrentRequests: Int = MAX_CONCURRENT,
     private val token: String = newToken()
 ) {
@@ -207,18 +207,24 @@ class RangeHttpServer(
 
         val request = try {
             readRequest(input)
-        } catch (_: IOException) {
+        } catch (e: IOException) {
+            System.err.println("EQ_STREAM_HTTP: readRequest IOException: $e")
             return
-        } catch (_: SocketTimeoutException) {
+        } catch (e: SocketTimeoutException) {
+            System.err.println("EQ_STREAM_HTTP: readRequest SocketTimeoutException: $e")
             return
         } ?: return
 
+        System.err.println("EQ_STREAM_HTTP: incoming req: ${request.method} ${request.target} Range=${request.header("range")}")
+
         if (request.method != "GET" && request.method != "HEAD") {
+            System.err.println("EQ_STREAM_HTTP: method not allowed: ${request.method}")
             writeResponse(out, STATUS_METHOD_NOT_ALLOWED, request.method == "HEAD", close = true)
             return
         }
 
         if (!pathAllowed(request.target)) {
+            System.err.println("EQ_STREAM_HTTP: 404 path not allowed: ${request.target}")
             // Same answer for a bad token and a bad path: an outside caller
             // learns nothing from the difference.
             writeResponse(out, STATUS_NOT_FOUND, request.method == "HEAD", close = true)
@@ -228,6 +234,7 @@ class RangeHttpServer(
         val isHead = request.method == "HEAD"
         val range = request.header("range")
         if (range != null && !range.startsWith(RANGE_UNIT, ignoreCase = true)) {
+            System.err.println("EQ_STREAM_HTTP: bad range header: $range")
             // A range unit this server does not speak: refusing it is legal and
             // honest; pretending it was not asked for would serve the whole body.
             writeRangeProblem(out, isHead, STATUS_BAD_REQUEST, null)
@@ -235,6 +242,7 @@ class RangeHttpServer(
         }
 
         if (!acquirePermit()) {
+            System.err.println("EQ_STREAM_HTTP: 503 too busy (no permit)")
             writeResponse(out, TOO_BUSY, isHead, close = true)
             return
         }
@@ -242,27 +250,35 @@ class RangeHttpServer(
             servedRequests.incrementAndGet()
             when (val size = sourceSize()) {
                 is SizeResult.Failed -> {
+                    System.err.println("EQ_STREAM_HTTP: 500 remote failed (sourceSize failed)")
                     // The remote could not even be measured. That is not a
                     // "no size" answer: one means a backend that reports none,
                     // the other means the remote is gone or the credentials
                     // expired. Only the second is worth a 500.
                     writeResponse(out, STATUS_REMOTE_FAILED, isHead, close = true)
                 }
-                is SizeResult.Unknown -> serveUnknownLength(out, isHead, range)
+                is SizeResult.Unknown -> {
+                    System.err.println("EQ_STREAM_HTTP: size unknown, serving chunked")
+                    serveUnknownLength(out, isHead, range)
+                }
                 is SizeResult.Known -> {
                     if (range == null) {
+                        System.err.println("EQ_STREAM_HTTP: no range header, serving whole file (size=${size.bytes})")
                         serveWholeFile(out, isHead, size.bytes)
                         return
                     }
                     val parsed = parseRange(range, size.bytes)
                     if (parsed == null) {
+                        System.err.println("EQ_STREAM_HTTP: unsatisfiable range $range (size=${size.bytes})")
                         writeRangeProblem(out, isHead, STATUS_UNSATISFIABLE, size.bytes)
                         return
                     }
+                    System.err.println("EQ_STREAM_HTTP: serving range ${parsed.first}-${parsed.second} of ${size.bytes}")
                     serveRange(out, isHead, parsed.first, parsed.second, size.bytes)
                 }
             }
         } catch (e: RangeReadException) {
+            System.err.println("EQ_STREAM_HTTP: RangeReadException during serve: $e")
             Log.w(TAG, "remote read failed: ${e.javaClass.simpleName}")
             writeResponse(out, STATUS_REMOTE_FAILED, isHead, close = true)
         } finally {

@@ -180,12 +180,14 @@ class VideoPlayerActivity : AppCompatActivity() {
         val rpc = engine ?: return
         starting = true
         showLoading(getString(R.string.files_stream_connecting))
+        System.err.println("EQ_STREAM: startStream fs=$fs remote=$remote mime=$mime")
 
         prepScope.launch {
             val src = RcloneRangeSource(rpc, fs, remote)
             val size = try {
                 withContext(Dispatchers.IO) { src.size() }
             } catch (e: RangeReadException) {
+                System.err.println("EQ_STREAM: remote not streamable: $e")
                 Log.w(TAG, "remote not streamable: ${e.javaClass.simpleName}")
                 lifecycleScope.launch {
                     showFailure(e.message ?: getString(R.string.files_stream_failed), true)
@@ -194,6 +196,7 @@ class VideoPlayerActivity : AppCompatActivity() {
                 return@launch
             }
 
+            System.err.println("EQ_STREAM: probed size=$size")
             if (size == null) {
                 lifecycleScope.launch {
                     // Not an error in the remote: some backends simply do not
@@ -208,9 +211,11 @@ class VideoPlayerActivity : AppCompatActivity() {
             val port = localServer.start()
             source = src
             server = localServer
+            val streamUrl = localServer.url(name)
+            System.err.println("EQ_STREAM: server started port=$port url=$streamUrl")
 
             lifecycleScope.launch {
-                buildPlayer(localServer.url(name))
+                buildPlayer(streamUrl)
                 starting = false
             }
         }
@@ -228,8 +233,17 @@ class VideoPlayerActivity : AppCompatActivity() {
             .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
             .setReadTimeoutMs(READ_TIMEOUT_MS)
             .setAllowCrossProtocolRedirects(false)
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 2_500,
+                /* maxBufferMs = */ 30_000,
+                /* bufferForPlaybackMs = */ 1_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_000
+            )
+            .build()
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+            .setLoadControl(loadControl)
             .build()
         player = exo
 
@@ -383,6 +397,14 @@ class VideoPlayerActivity : AppCompatActivity() {
     private inner class PlayerListener : Player.Listener {
 
         override fun onPlaybackStateChanged(state: Int) {
+            val stateName = when (state) {
+                Player.STATE_BUFFERING -> "BUFFERING"
+                Player.STATE_READY -> "READY"
+                Player.STATE_ENDED -> "ENDED"
+                Player.STATE_IDLE -> "IDLE"
+                else -> "$state"
+            }
+            System.err.println("EQ_STREAM_PLAYER: onPlaybackStateChanged -> $stateName")
             when (state) {
                 Player.STATE_BUFFERING ->
                     showLoading(getString(R.string.files_stream_buffering))
@@ -393,6 +415,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            System.err.println("EQ_STREAM_PLAYER: onPlayerError: ${error.errorCodeName} (code=${error.errorCode}) - ${error.message}")
+            error.printStackTrace()
             // The cause is logged, never shown: it contains the URL with the
             // session token in it, and that token is the only thing standing
             // between a loopback port and anyone who could reach it.
@@ -417,8 +441,8 @@ class VideoPlayerActivity : AppCompatActivity() {
         private const val EXTRA_MIME = "mime"
         private const val KEY_POSITION = "position"
         private const val KEY_PLAY_WHEN_READY = "play_when_ready"
-        private const val CONNECT_TIMEOUT_MS = 10_000
-        private const val READ_TIMEOUT_MS = 15_000
+        private const val CONNECT_TIMEOUT_MS = 30_000
+        private const val READ_TIMEOUT_MS = 60_000
 
         /** Result code: the caller should download the file instead. */
         const val RESULT_DOWNLOAD = RESULT_FIRST_USER + 1
