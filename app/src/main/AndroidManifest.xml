@@ -123,6 +123,10 @@
             android:exported="false"
             android:label="@string/security_title" />
         <activity
+            android:name=".ui.sub.KeysActivity"
+            android:exported="false"
+            android:label="@string/keys_title" />
+        <activity
             android:name=".ui.sub.BatteryActivity"
             android:exported="false"
             android:label="@string/settings_battery" />

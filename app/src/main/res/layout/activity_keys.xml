@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eq_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/eq_gutter"
+        android:paddingEnd="@dimen/eq_gutter"
+        android:paddingTop="@dimen/eq_gap_sm"
+        android:paddingBottom="@dimen/eq_gap_xl">
+
+        <!-- ── Section 1: Client Identity Keys ───────────────────────────── -->
+        <LinearLayout style="@style/Widget.Eq.SectionHeader">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/keys_client_section"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnGenerateKey"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/keys_generate_btn"
+                app:icon="@drawable/ic_eq_add" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnImportKey"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/keys_import_btn"
+                app:icon="@drawable/ic_eq_download" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/eq_gap_sm"
+            android:text="@string/keys_client_sub"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+        <LinearLayout
+            android:id="@+id/clientKeysContainer"
+            style="@style/Widget.Eq.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!-- ── Section 2: SFTP Authorized Keys ──────────────────────────── -->
+        <LinearLayout
+            style="@style/Widget.Eq.SectionHeader"
+            android:layout_marginTop="@dimen/eq_gap_lg">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/keys_authorized_section"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAddAuthorizedKey"
+                style="@style/Widget.Eq.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/keys_add_authorized_btn"
+                app:icon="@drawable/ic_eq_add" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/eq_gap_sm"
+            android:text="@string/keys_authorized_sub"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+        <LinearLayout
+            android:id="@+id/authorizedKeysContainer"
+            style="@style/Widget.Eq.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!-- ── Section 3: SFTP Host Key ─────────────────────────────────── -->
+        <LinearLayout
+            style="@style/Widget.Eq.SectionHeader"
+            android:layout_marginTop="@dimen/eq_gap_lg">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/keys_host_section"
+                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/eq_gap_sm"
+            android:text="@string/keys_host_sub"
+            android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
+
+        <LinearLayout
+            style="@style/Widget.Eq.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/eq_card_pad">
+
+            <TextView
+                android:id="@+id/textHostFingerprint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textSize="12sp"
+                android:textColor="@color/eq_text_primary"
+                tools:text="SHA256:abc123def456..." />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_md"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCopyKnownHosts"
+                    style="@style/Widget.Eq.Button.Outlined"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="@dimen/eq_gap_sm"
+                    android:text="@string/keys_copy_known_hosts"
+                    app:icon="@drawable/ic_eq_copy" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShareHostKey"
+                    style="@style/Widget.Eq.Button.Outlined"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/keys_share_host"
+                    app:icon="@drawable/ic_eq_send" />
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="@dimen/eq_card_pad">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/keyIcon"
+            android:layout_width="@dimen/eq_icon"
+            android:layout_height="@dimen/eq_icon"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_eq_key"
+            app:tint="@color/eq_primary" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/eq_gap_md"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/keyTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.Eq.RowTitle"
+                tools:text="earthquack (ECDSA)" />
+
+            <TextView
+                android:id="@+id/keySubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textSize="11sp"
+                android:textColor="@color/eq_text_secondary"
+                tools:text="SHA256:7uK3j..." />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/keyActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/eq_gap_sm"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopyKey"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/action_copy"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_eq_copy" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAuthorizeKey"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/keys_authorize_sftp"
+            android:textSize="12sp"
+            android:visibility="gone"
+            app:icon="@drawable/ic_eq_check" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDeleteKey"
+            style="@style/Widget.Eq.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/eq_error"
+            app:iconTint="@color/eq_error"
+            android:text="@string/keys_delete"
+            android:textSize="12sp"
+            app:icon="@drawable/ic_eq_delete" />
+    </LinearLayout>
+
+</LinearLayout>

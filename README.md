@@ -44,7 +44,7 @@ joins with **zero source changes**: build the binary, add a config file, run it.
 | **Go node** | `cmd/earthquack-node`, `internal/node` | Node API, dashboard, auth, identity, peer discovery/probing, telemetry (system, storage, network), daemon supervision. Stdlib only, Go ≥ 1.24, no external dependencies. |
 | **Wallpaper module** | `internal/wallpaper` | First capability module: provider-independent scan/sync/status/retry for wallpapers, archival state, retry/backoff, and a minimal CLI. The Telegram provider streams `sendDocument` uploads and owns forum topic state. Stdlib only. |
 | **Python daemon** | `daemon/` | The sync services themselves: clipboard broker + SSE, file staging/transfer, desktop clipboard bridge, send-folder watcher, AES-256-GCM crypto, Tailscale discovery, hotkeys. Python 3 stdlib only. |
-| **Android app** | `app/` | Foreground sync service, clipboard IME, file transfer/share, quick-settings tile, server config UI. Kotlin, minSdk 26 (Android 8+), target/compile SDK 34. |
+| **Android app** | `app/` | Tailscale node integration, embedded SFTP server, Termux SSH terminal with overlay keys, multi-cloud storage browser (rclone), transfer manager, foreground sync service with sticky recents persistence, and clipboard sync. Kotlin/Java, minSdk 26 (Android 8+), target SDK 34. |
 | **Shell helpers** | repo root | `clip-send`, `clip-open`, `clip-shot` — send files, open URLs on the phone, screenshot-to-phone from the desktop. |
 | **Examples & docs** | `examples/`, `docs/NODE.md` | Per-machine node declarations; detailed node deployment guide. |
 
@@ -447,27 +447,35 @@ it. The other four are shared with `wallpaper-backup.py`.
 
 ## The Android app
 
-Kotlin, `app/` (package `com.example.earthquack`, Gradle project
-`ClipboardSync`, minSdk 26 / target & compile SDK 34):
+Kotlin & Java, `app/` (package `com.example.earthquack`, Gradle project `ClipboardSync`, minSdk 26 / target SDK 34):
 
-* **`EarthQuackService`** — foreground service running the sync loop:
-  clipboard push/poll + SSE receive with exponential-backoff reconnect,
-  file-ready handling, and battery saver (auto-pause on screen-off, throttled
-  polling, manual pause/resume, resume on unlock).
-* **`ClipboardImeService`** — optional input method that syncs the clipboard
-  while you type. Android 10+ blocks background clipboard reads, so the IME
-  plus a 1.5 s foreground poll cover the gaps.
-* **`FileTransferService` / `FileShareActivity`** — uploads via the share
-  sheet (they land on the desktop in `~/Downloads/from-phone/`) and streaming
-  downloads (256 KB chunks, MediaStore, progress notifications).
-* **`ServerConfig`** — SharedPreferences for host, port, and auth token.
-* **`SyncTileService` / `MainActivity` / `StopReceiver`** — quick-settings
-  toggle, status UI, and stop controls.
-* **`CryptoUtil` / `TailscaleDiscovery`** — mirror the Python AES wire format
-  and peer discovery.
+* **Embedded SFTP Server (`sftp/`)**:
+  - Full SFTP server powered by Apache MINA SSHD.
+  - Serves Android shared storage (`/storage/emulated/0`) securely over Tailscale.
+  - Public-key and password authentication backed by Android Keystore.
+  - Host key fingerprinting, pairing artifacts, and OpenSSH `~/.ssh/config` stanza generation.
+* **Termux Terminal Engine (`ui/TerminalFragment.kt`, `com.termux`)**:
+  - Integrated Termux `TerminalEmulator` and `TerminalView` directly without native JNI/PTY dependencies.
+  - Full VT100/ANSI color terminal emulation with immediate output rendering.
+  - Overlay extra keys bar (`ESC`, `TAB`, `CTRL`, `ALT`, `C-c`, `◀`, `▼`, `▲`, `▶`).
+  - Seamless soft-keyboard window insets and IME viewport resizing.
+* **Multi-Cloud Storage & Transfers (`storage/`, `transfer/`)**:
+  - Embedded rclone engine for browsing local storage and remote cloud providers (Google Drive, Dropbox, SFTP, WebDAV, etc.).
+  - Background transfer queue manager supporting concurrent downloads/uploads, HTTP Range resumable transfers, and SHA-256 integrity verification.
+* **Unified Key Management (`ui/sub/KeysActivity.kt`)**:
+  - Client identity key generator (ECDSA secp256r1) and private key importer with passphrase protection.
+  - SFTP server authorized client public key management.
+  - One-tap local SFTP authorization to bridge client identity keys to the local SFTP server.
+  - Host key verification and `known_hosts` export.
+* **Background Persistence & Battery Exemption**:
+  - `EarthQuackService` runs as a sticky foreground service (`START_STICKY`).
+  - When swiped from recents, Tailscale and SFTP services remain active in the background while clipboard polling idles to conserve battery.
+  - Live battery optimization exemption inspection and universal system settings routing.
+* **Clipboard Sync & Encryption**:
+  - AES-256-GCM end-to-end encrypted sync (`CLIPBOARD_AES_KEY`) with SSE listener and exponential backoff reconnect.
+  - Quick-settings tile (`SyncTileService`) and clipboard IME helper (`ClipboardImeService`).
 
-Permissions: notifications (Android 13+), clipboard access via IME/focus,
-file saving to `Downloads/ClipboardSync`.
+Permissions: notifications (Android 13+), all files access (`MANAGE_EXTERNAL_STORAGE`), overlay, battery exemption.
 
 ## Project layout
 

@@ -10,10 +10,15 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import com.example.earthquack.R
+import com.example.earthquack.ServerConfig
 import com.example.earthquack.databinding.FragmentSettingsBinding
+import com.example.earthquack.sftp.AuthorizedKeysStore
+import com.example.earthquack.ssh.SshServices
 import com.example.earthquack.state.SystemStatusProvider
+import com.example.earthquack.storage.DownloadCache
 import com.example.earthquack.ui.sub.BatteryActivity
 import com.example.earthquack.ui.sub.FilesCacheActivity
+import com.example.earthquack.ui.sub.KeysActivity
 import com.example.earthquack.ui.sub.PermissionsActivity
 import com.example.earthquack.ui.sub.SecurityActivity
 import com.example.earthquack.ui.sub.TransfersActivity
@@ -61,19 +66,20 @@ class SettingsFragment : Fragment() {
             rowIcon.setImageResource(R.drawable.ic_eq_lock)
             rowIcon.imageTintList = tint(R.color.eq_error)
             rowTitle.setText(R.string.settings_security)
-            rowSubtitle.setText(R.string.settings_security_sub)
             root.setOnClickListener { open(SecurityActivity::class.java) }
+        }
+
+        binding.rowKeys.apply {
+            rowIcon.setImageResource(R.drawable.ic_eq_key)
+            rowIcon.imageTintList = tint(R.color.eq_primary)
+            rowTitle.setText(R.string.settings_keys)
+            root.setOnClickListener { open(KeysActivity::class.java) }
         }
 
         binding.rowBattery.apply {
             rowIcon.setImageResource(R.drawable.ic_eq_battery)
             rowIcon.imageTintList = tint(R.color.eq_success)
             rowTitle.setText(R.string.settings_battery)
-            rowSubtitle.text = if (SystemStatusProvider(requireContext()).isIgnoringBatteryOptimisations()) {
-                "Unrestricted (Runs in background)"
-            } else {
-                "Optimized (Restricted)"
-            }
             root.setOnClickListener { open(BatteryActivity::class.java) }
         }
 
@@ -81,7 +87,6 @@ class SettingsFragment : Fragment() {
             rowIcon.setImageResource(R.drawable.ic_eq_shield)
             rowIcon.imageTintList = tint(R.color.eq_primary)
             rowTitle.setText(R.string.settings_permissions)
-            rowSubtitle.setText(R.string.settings_permissions_sub)
             root.setOnClickListener { open(PermissionsActivity::class.java) }
         }
 
@@ -89,13 +94,9 @@ class SettingsFragment : Fragment() {
             rowIcon.setImageResource(R.drawable.ic_eq_storage)
             rowIcon.imageTintList = tint(R.color.eq_primary)
             rowTitle.setText(R.string.settings_files_cache)
-            rowSubtitle.setText(R.string.settings_files_cache_sub)
             root.setOnClickListener { open(FilesCacheActivity::class.java) }
         }
 
-        // Appearance is not a settings screen yet: dark is the only theme. The
-        // row exists so the destination is discoverable rather than absent, and
-        // says so when tapped instead of opening an empty page.
         binding.rowAppearance.apply {
             rowIcon.setImageResource(R.drawable.ic_eq_palette)
             rowIcon.imageTintList = tint(R.color.eq_provider_mega)
@@ -111,6 +112,8 @@ class SettingsFragment : Fragment() {
             rowSubtitle.setText(R.string.settings_about_sub)
             root.setOnClickListener { showAbout() }
         }
+
+        renderStatuses()
     }
 
     private fun tint(colorRes: Int) =
@@ -170,14 +173,43 @@ class SettingsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (_binding != null) {
-            val statusProvider = SystemStatusProvider(requireContext())
-            binding.rowBattery.rowSubtitle.text = if (statusProvider.isIgnoringBatteryOptimisations()) {
-                "Unrestricted (Runs in background)"
-            } else {
-                "Optimized (Restricted)"
-            }
+        renderStatuses()
+    }
+
+    private fun renderStatuses() {
+        if (_binding == null) return
+        val context = context ?: return
+
+        // Battery optimization
+        val statusProvider = SystemStatusProvider(context)
+        binding.rowBattery.rowSubtitle.text = if (statusProvider.isIgnoringBatteryOptimisations()) {
+            "Unrestricted (Runs in background)"
+        } else {
+            "Optimized (Restricted)"
         }
+
+        // Permissions
+        val missing = statusProvider.read().missingPermissions
+        binding.rowPermissions.rowSubtitle.text = if (missing.isEmpty()) {
+            "All required permissions granted"
+        } else {
+            "${missing.size} permission${if (missing.size > 1) "s" else ""} needed"
+        }
+
+        // Security / Encryption
+        val aes = ServerConfig.isAesEnabled(context)
+        binding.rowSecurity.rowSubtitle.text = "Clipboard encryption: ${if (aes) "Active" else "Disabled"}"
+
+        // SSH & SFTP Keys
+        val clientCount = runCatching { SshServices.identityKeys(context).list().size }.getOrDefault(0)
+        val authCount = runCatching { AuthorizedKeysStore(context).list().size }.getOrDefault(0)
+        binding.rowKeys.rowSubtitle.text = "$clientCount client ${if (clientCount == 1) "key" else "keys"} · $authCount authorized"
+
+        // Files cache size
+        val cacheBytes = runCatching {
+            DownloadCache.rootFor(context.cacheDir).walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+        }.getOrDefault(0L)
+        binding.rowFilesCache.rowSubtitle.text = "Cache: ${formatSize(cacheBytes)}"
     }
 
     override fun onDestroyView() {

@@ -300,4 +300,28 @@
     <string name="action_show">Show</string>
     <string name="action_hide">Hide</string>
     <string name="action_copy">Copy</string>
+
+    <!-- Keys & Authentication -->
+    <string name="settings_keys">SSH &amp; SFTP Keys</string>
+    <string name="settings_keys_sub">Client identities and authorized keys</string>
+    <string name="keys_title">Keys &amp; Authentication</string>
+    <string name="keys_subtitle">SSH client identities and SFTP authorized keys</string>
+    <string name="keys_client_section">Client Identity Keys</string>
+    <string name="keys_client_sub">Private keys this device uses to connect to remote SSH/SFTP servers.</string>
+    <string name="keys_generate_btn">Generate Key</string>
+    <string name="keys_import_btn">Import Key</string>
+    <string name="keys_empty_client">No client identity keys found. Generate or import one.</string>
+    <string name="keys_authorized_section">SFTP Authorized Clients</string>
+    <string name="keys_authorized_sub">Public keys allowed to connect to this phone\u2019s SFTP server.</string>
+    <string name="keys_add_authorized_btn">Add Key</string>
+    <string name="keys_empty_authorized">No authorized public keys. External clients cannot connect.</string>
+    <string name="keys_host_section">This Device\u2019s SFTP Host Key</string>
+    <string name="keys_host_sub">Identifies this phone when external computers connect.</string>
+    <string name="keys_copy_pubkey">Copy Public Key</string>
+    <string name="keys_authorize_sftp">Authorize on SFTP Server</string>
+    <string name="keys_delete">Delete</string>
+    <string name="keys_revoke">Revoke</string>
+    <string name="keys_share_host">Share Host Key</string>
+    <string name="keys_copy_known_hosts">Copy known_hosts</string>
+    <string name="keys_sftp_authorized_success">Key authorized on SFTP server</string>
 </resources>
