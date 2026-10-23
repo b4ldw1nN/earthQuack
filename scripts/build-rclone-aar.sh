@@ -31,7 +31,7 @@ export PATH="$PATH:$HOME/go/bin:$(go env GOPATH)/bin"
 
 # -androidapi must be <= the app's minSdk. The app declares minSdk 26.
 ANDROID_API=26
-JAVAPKG="com.example.earthquack"
+JAVAPKG="io.earthquack.app"
 
 die() { echo "error: $*" >&2; exit 1; }
 

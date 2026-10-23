@@ -41,6 +41,8 @@
     <string name="home_row_tailnet">Tailnet</string>
 
     <string name="action_start_sync">Start sync</string>
+    <string name="action_start_network">Start network core</string>
+    <string name="action_stop_network">Stop network core</string>
     <string name="action_stop_sync">Stop sync</string>
 
     <string name="direction_sent">Sent to Desktop</string>

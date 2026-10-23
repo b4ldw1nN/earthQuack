@@ -12,7 +12,7 @@ import android.view.ViewParent;
 import android.view.WindowManager;
 import android.widget.PopupWindow;
 
-import com.example.earthquack.R;
+import io.earthquack.app.R;
 import com.termux.view.TerminalView;
 
 @SuppressLint("ViewConstructor")

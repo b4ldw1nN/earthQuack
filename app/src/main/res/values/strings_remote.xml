@@ -21,6 +21,10 @@
     <string name="remote_oauth_body">Saved without authorisation. Some backends will not work until you sign in, which is a separate flow.</string>
 
     <string name="action_create_remote">Create remote</string>
+    <string name="action_save_remote">Save remote</string>
+    <string name="remote_show_advanced">Show advanced options (%1$d)</string>
+    <string name="remote_hide_advanced">Hide advanced options</string>
     <string name="remote_created">Remote “%1$s” created</string>
+    <string name="remote_saved_unverified">Remote “%1$s” saved (test connection: %2$s)</string>
     <string name="remote_create_failed">Could not create remote: %1$s</string>
 </resources>

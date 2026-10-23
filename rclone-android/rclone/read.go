@@ -58,6 +58,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/rc"
@@ -150,10 +151,17 @@ func rcReadRange(ctx context.Context, in rc.Params) (rc.Params, error) {
 	buf := make([]byte, length)
 	// ErrUnexpectedEOF and EOF are normal here: a range that runs off the end
 	// of the object is a valid short read, not an error.
-	n, err := io.ReadFull(rd, buf)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, err
+	var n int
+	var rerr error
+	if ra, ok := rd.(io.ReaderAt); ok {
+		n, rerr = readFullParallel(ra, buf, offset)
+	} else {
+		n, rerr = io.ReadFull(rd, buf)
 	}
+	if rerr != nil && !errors.Is(rerr, io.EOF) && !errors.Is(rerr, io.ErrUnexpectedEOF) {
+		return nil, rerr
+	}
+	err = rerr
 
 	return rc.Params{
 		"length": int64(n),
@@ -161,4 +169,49 @@ func rcReadRange(ctx context.Context, in rc.Params) (rc.Params, error) {
 		"size":   size,
 		"eof":    size < 0 || offset+int64(n) >= size,
 	}, nil
+}
+
+const parallelReads = 8
+const partSize = 32 * 1024
+
+func readFullParallel(ra io.ReaderAt, buf []byte, off int64) (int, error) {
+	n := len(buf)
+	if n == 0 {
+		return 0, nil
+	}
+	type result struct {
+		off int
+		err error
+	}
+	errCh := make(chan error, (n/partSize)+1)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i += partSize {
+		end := i + partSize
+		if end > n {
+			end = n
+		}
+		wg.Add(1)
+		go func(o int64, b []byte, idx int) {
+			defer wg.Done()
+			m, err := ra.ReadAt(b, o)
+			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				errCh <- err
+				return
+			}
+			if m != len(b) && err == nil {
+				// short read without EOF: treat as unexpected
+				errCh <- io.ErrUnexpectedEOF
+				return
+			}
+			_ = idx
+		}(off+int64(i), buf[i:end], i)
+	}
+	wg.Wait()
+	close(errCh)
+	for e := range errCh {
+		if e != nil {
+			return 0, e
+		}
+	}
+	return n, nil
 }

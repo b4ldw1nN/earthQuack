@@ -120,6 +120,8 @@
     <string name="profiles_terminal">Terminal</string>
     <string name="profiles_files">Files</string>
     <string name="profiles_edit">Edit</string>
+    <string name="action_edit_remote">Edit</string>
+    <string name="remote_edit_title">Edit %1$s</string>
     <string name="profiles_delete">Delete</string>
     <string name="profiles_delete_confirm">Delete this profile? Its recorded host key is forgotten too.</string>
     <string name="profiles_deleted">Profile deleted</string>
@@ -248,6 +250,7 @@
     <string name="clipboard_last_sync">Last synchronized</string>
     <string name="clipboard_current">Current item</string>
     <string name="clipboard_send">Send to Desktop</string>
+    <string name="clipboard_stop">Stop sync</string>
     <string name="clipboard_receive">Receive from Desktop</string>
     <string name="clipboard_clear">Clear</string>
 

@@ -230,6 +230,7 @@
                 Required for specialUse: describe why none of the standard types apply.
                 Clipboard sync requires continuous SSE connection (not dataSync which
                 implies user-initiated file transfers) and reads the Android clipboard
+
                 which has no dedicated foreground-service type.
             -->
             <property
@@ -239,6 +240,17 @@
                     monitors the Android clipboard to push changes to the desktop.
                     No other foreground-service type covers clipboard access." />
         </service>
+        <service
+            android:name=".PersistentNetworkService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent network core: keeps the Tailscale node and SOCKS proxy running independently of clipboard sync." />
+        </service>
+
+
 
         <!-- File transfer service: handles uploads and downloads with progress notifications -->
         <service

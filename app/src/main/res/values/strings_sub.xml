@@ -62,6 +62,7 @@
     <string name="clipboard_copied">Copied to clipboard</string>
     <string name="clipboard_connected_to">Connected to %1$s</string>
     <string name="clipboard_sync_running">Sync is running — clipboard changes transfer automatically</string>
+    <string name="clipboard_sync_stopped">Clipboard sync stopped</string>
     <string name="clipboard_encrypted_title">Clipboard is encrypted</string>
     <string name="clipboard_encrypted_body">Your desktop is sending AES-encrypted text but encryption is off here, so values arrive unreadable. Turn it on and enter the same key you set on the desktop.</string>
     <string name="clipboard_encrypted_action">Open Security</string>

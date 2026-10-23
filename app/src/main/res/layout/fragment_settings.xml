@@ -26,10 +26,6 @@
 
         <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
 
-            <!-- Transfers: the shared queue's live progress and history. -->
-            <include android:id="@+id/rowTransfers" layout="@layout/item_settings_row" />
-            <View style="@style/Widget.Eq.Divider.Inset" />
-
             <include android:id="@+id/rowSecurity" layout="@layout/item_settings_row" />
             <View style="@style/Widget.Eq.Divider.Inset" />
             <include android:id="@+id/rowKeys" layout="@layout/item_settings_row" />

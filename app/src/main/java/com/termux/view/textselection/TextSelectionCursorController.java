@@ -14,7 +14,7 @@ import android.view.View;
 
 import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.WcWidth;
-import com.example.earthquack.R;
+import io.earthquack.app.R;
 import com.termux.view.TerminalView;
 
 public class TextSelectionCursorController implements CursorController {

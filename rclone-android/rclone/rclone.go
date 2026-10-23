@@ -97,11 +97,14 @@ import (
 	_ "github.com/rclone/rclone/backend/chunker" // fixed-size chunks
 	_ "github.com/rclone/rclone/backend/combine" // multi-remote: a/, b:, crypt a:
 	_ "github.com/rclone/rclone/backend/crypt"   // encrypts another remote
+	_ "github.com/rclone/rclone/backend/drime"   // Drime
 	_ "github.com/rclone/rclone/backend/drive"   // Google Drive
 	_ "github.com/rclone/rclone/backend/dropbox"
 	_ "github.com/rclone/rclone/backend/ftp"
-	_ "github.com/rclone/rclone/backend/local" // phone-local filesystem
-	_ "github.com/rclone/rclone/backend/mega"  // MEGA
+	_ "github.com/rclone/rclone/backend/googlephotos" // Google Photos
+	_ "github.com/rclone/rclone/backend/koofr"        // Koofr
+	_ "github.com/rclone/rclone/backend/local"        // phone-local filesystem
+	_ "github.com/rclone/rclone/backend/mega"         // MEGA
 	_ "github.com/rclone/rclone/backend/onedrive"
 	_ "github.com/rclone/rclone/backend/pcloud"
 

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.earthquack"
+    namespace = "io.earthquack.app"
     compileSdk = 34   // Android 14 (SDK 34 already installed)
 
     defaultConfig {
-        applicationId = "com.example.earthquack"
+        applicationId = "io.earthquack.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

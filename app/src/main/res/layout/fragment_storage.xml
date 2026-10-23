@@ -240,34 +240,5 @@
                 android:text="@string/action_retry" />
         </LinearLayout>
 
-        <!-- ── Transfers ───────────────────────────────────────────────────
-             The app has no transfer registry, so this reports the only thing
-             that is actually knowable and says so plainly. A "Completed: 12 ·
-             Failed: 0" line with invented counts would be actively harmful:
-             it looks like a record of work that never happened. -->
-        <LinearLayout style="@style/Widget.Eq.SectionHeader">
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/storage_transfers_header"
-                android:textAppearance="@style/TextAppearance.Eq.SectionHeader" />
-        </LinearLayout>
-
-        <LinearLayout style="@style/Widget.Eq.Card" android:orientation="vertical">
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/state_no_active_transfers"
-                android:textAppearance="@style/TextAppearance.Eq.RowSubtitle" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/eq_gap_xs"
-                android:text="@string/storage_transfers_untracked"
-                android:textAppearance="@style/TextAppearance.Eq.Meta" />
-        </LinearLayout>
-
     </LinearLayout>
 </ScrollView>

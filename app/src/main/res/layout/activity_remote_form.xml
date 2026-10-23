@@ -60,6 +60,23 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToggleAdvanced"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/eq_gap_xs"
+                android:text="@string/remote_show_advanced"
+                android:textColor="@color/eq_primary"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/formFieldsAdvanced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
             <!--
                 Shown only for backends whose OAuth flow cannot run here.
                 nonInteractive=true stops rclone opening a browser, so a backend
