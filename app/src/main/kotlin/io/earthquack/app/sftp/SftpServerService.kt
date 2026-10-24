@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -142,7 +143,15 @@ class SftpServerService : Service() {
                 // Foreground first: Android requires the notification within a
                 // few seconds of startForegroundService, and a server that
                 // cannot start should not be advertised as running.
-                startForeground(NOTIFICATION_ID, buildNotification(settings.port, 0))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        buildNotification(settings.port, 0),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, buildNotification(settings.port, 0))
+                }
 
                 val result = SftpServerHolder.engine(this).start(settings)
                 if (result.isFailure) {

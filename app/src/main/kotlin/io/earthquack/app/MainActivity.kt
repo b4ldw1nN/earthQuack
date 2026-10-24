@@ -106,11 +106,9 @@ class MainActivity : AppCompatActivity() {
             // a tab while inside Connections should return to that tab, not
             // silently discard the pushed screen.
             if (supportFragmentManager.backStackEntryCount > 0) {
-                supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
                 subScreenTitles.clear()
                 subScreenSubtitles.clear()
-                binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                binding.appbar.btnBack.setOnClickListener(null)
+                supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
             }
             showTab(item.itemId)
             true
@@ -119,6 +117,31 @@ class MainActivity : AppCompatActivity() {
         // Re-selecting the current tab should not rebuild it; the old code
         // restarted the top-level screen on every tap.
         binding.bottomNav.setOnItemReselectedListener { /* no-op */ }
+
+        // Sync container visibility and app bar automatically on any backstack change
+        supportFragmentManager.addOnBackStackChangedListener {
+            val count = supportFragmentManager.backStackEntryCount
+            if (count == 0) {
+                subScreenTitles.clear()
+                subScreenSubtitles.clear()
+                binding.subscreenContainer.visibility = View.GONE
+                binding.tabContainer.visibility = View.VISIBLE
+                binding.bottomNav.visibility = View.VISIBLE
+                renderAppBar(currentTabId)
+            } else {
+                binding.tabContainer.visibility = View.GONE
+                binding.subscreenContainer.visibility = View.VISIBLE
+                binding.bottomNav.visibility = View.GONE
+                if (subScreenTitles.isNotEmpty()) {
+                    binding.appbar.title.text = subScreenTitles.last()
+                    val sub = subScreenSubtitles.lastOrNull() ?: ""
+                    binding.appbar.subtitle.text = sub
+                    binding.appbar.subtitle.visibility = if (sub.isBlank()) View.GONE else View.VISIBLE
+                    binding.appbar.btnBack.visibility = View.VISIBLE
+                    binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+                }
+            }
+        }
 
         // One back path for both the toolbar arrow and the system gesture.
         // The deprecated onBackPressed() override is not reliably invoked by
@@ -139,12 +162,32 @@ class MainActivity : AppCompatActivity() {
             showTab(R.id.nav_home)
         } else {
             currentTabId = savedInstanceState.getInt(KEY_CURRENT_TAB, R.id.nav_home)
+            savedInstanceState.getStringArrayList(KEY_SUB_TITLES)?.let {
+                subScreenTitles.clear()
+                subScreenTitles.addAll(it)
+            }
+            savedInstanceState.getStringArrayList(KEY_SUB_SUBTITLES)?.let {
+                subScreenSubtitles.clear()
+                subScreenSubtitles.addAll(it)
+            }
             // Fragments are restored by the system; rebuild only the lookup map.
-            // findFragment returns null for a tab that was never created, so
-            // those ids are simply absent and get lazily created on first use.
             listOf(R.id.nav_home, R.id.nav_storage, R.id.nav_services, R.id.nav_settings)
                 .forEach { id -> findFragment(id)?.let { tabFragments[id] = it } }
+            showTab(currentTabId)
             binding.bottomNav.selectedItemId = currentTabId
+            if (supportFragmentManager.backStackEntryCount > 0) {
+                binding.tabContainer.visibility = View.GONE
+                binding.subscreenContainer.visibility = View.VISIBLE
+                binding.bottomNav.visibility = View.GONE
+                if (subScreenTitles.isNotEmpty()) {
+                    binding.appbar.title.text = subScreenTitles.last()
+                    val sub = subScreenSubtitles.lastOrNull() ?: ""
+                    binding.appbar.subtitle.text = sub
+                    binding.appbar.subtitle.visibility = if (sub.isBlank()) View.GONE else View.VISIBLE
+                    binding.appbar.btnBack.visibility = View.VISIBLE
+                    binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+                }
+            }
         }
 
         // The navigation and the app bar must not be focusable.
@@ -170,6 +213,8 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt(KEY_CURRENT_TAB, currentTabId)
+        outState.putStringArrayList(KEY_SUB_TITLES, ArrayList(subScreenTitles))
+        outState.putStringArrayList(KEY_SUB_SUBTITLES, ArrayList(subScreenSubtitles))
     }
 
     /**
@@ -263,17 +308,17 @@ class MainActivity : AppCompatActivity() {
 
     fun pushSubScreen(fragment: Fragment, title: String, subtitle: String) {
         val fm = supportFragmentManager
+
+        binding.tabContainer.visibility = View.GONE
+        binding.subscreenContainer.visibility = View.VISIBLE
+        binding.subscreenContainer.bringToFront()
+
         // Allow sub-screens to stack (e.g. Connections -> Serve) so Back
         // returns to the previous sub-screen instead of the tab root.
         fm.beginTransaction()
-            .replace(R.id.content, fragment)
+            .replace(R.id.subscreen_container, fragment)
             .addToBackStack(SUB_SCREEN)
             .commit()
-
-        // The overlay sits above the tab container, so it only becomes opaque
-        // while something is pushed. Leaving it opaque unconditionally hid
-        // every tab behind a blank panel.
-        binding.content.setBackgroundColor(getColor(R.color.eq_background))
 
         subScreenTitles.add(title)
         subScreenSubtitles.add(subtitle)
@@ -281,8 +326,8 @@ class MainActivity : AppCompatActivity() {
         binding.appbar.title.text = title
         binding.appbar.subtitle.text = subtitle
         binding.appbar.subtitle.visibility =
-            if (subtitle.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
-        binding.appbar.btnBack.visibility = android.view.View.VISIBLE
+            if (subtitle.isBlank()) View.GONE else View.VISIBLE
+        binding.appbar.btnBack.visibility = View.VISIBLE
         // The back arrow must never hold the IME: a served view that is not an
         // editor takes the keyboard away from the screen that needs it (the
         // terminal could not raise its keyboard at all because of this).
@@ -290,11 +335,7 @@ class MainActivity : AppCompatActivity() {
         binding.appbar.btnBack.isFocusableInTouchMode = false
         binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
-        binding.bottomNav.visibility = android.view.View.GONE
-
-        if (binding.bottomNav.selectedItemId != R.id.nav_services) {
-            binding.bottomNav.selectedItemId = R.id.nav_services
-        }
+        binding.bottomNav.visibility = View.GONE
     }
 
     /** Navigates to one of the Services sub-screens. */
@@ -349,30 +390,16 @@ class MainActivity : AppCompatActivity() {
      */
     private fun popSubScreen(): Boolean {
         if (supportFragmentManager.backStackEntryCount == 0) return false
-        supportFragmentManager.popBackStack()
         if (subScreenTitles.isNotEmpty()) subScreenTitles.removeAt(subScreenTitles.lastIndex)
         if (subScreenSubtitles.isNotEmpty()) subScreenSubtitles.removeAt(subScreenSubtitles.lastIndex)
-        if (subScreenTitles.isNotEmpty()) {
-            binding.appbar.title.text = subScreenTitles.last()
-            val sub = subScreenSubtitles.last()
-            binding.appbar.subtitle.text = sub
-            binding.appbar.subtitle.visibility = if (sub.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
-            binding.appbar.btnBack.visibility = android.view.View.VISIBLE
-            binding.appbar.btnBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
-            binding.content.setBackgroundColor(getColor(R.color.eq_background))
-        } else {
-            renderAppBar(currentTabId)
-            binding.appbar.btnBack.setOnClickListener(null)
-            // Transparent again so the tab underneath is visible.
-            binding.content.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            binding.bottomNav.visibility = android.view.View.VISIBLE
-        }
+        supportFragmentManager.popBackStack()
         return true
     }
 
     private companion object {
         const val KEY_CURRENT_TAB = "current_tab"
+        const val KEY_SUB_TITLES = "sub_titles"
+        const val KEY_SUB_SUBTITLES = "sub_subtitles"
         const val SUB_SCREEN = "sub_screen"
-
     }
 }

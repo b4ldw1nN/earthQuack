@@ -189,7 +189,11 @@ func Start(stateDir, hostname string) string {
 	lc = client
 
 	// Start a no-auth SOCKS5 proxy on loopback that dials over the tailnet.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	// Prefer fixed port 1055 for stability across restarts; fall back to an ephemeral port if occupied.
+	ln, err := net.Listen("tcp", "127.0.0.1:1055")
+	if err != nil {
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		return mustJSON(map[string]any{
 			"state":      "Error",

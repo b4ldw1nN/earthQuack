@@ -11,6 +11,7 @@ import io.earthquack.app.storage.RcloneEngines
 import io.earthquack.app.storage.RcloneEngine
 import io.earthquack.app.storage.RcloneHealthProbe
 import io.earthquack.app.storage.RcloneRemoteManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -161,8 +162,12 @@ class StorageRepository(context: Context) {
             val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
                 RcloneHealthProbe.probe(engine, name, remoteSection(name)?.get("type"))
             } ?: RcloneHealthProbe.Health(RcloneHealthProbe.State.Unreachable, "timed out")
-            onResult(name, health)
+            withContext(Dispatchers.Main) {
+                onResult(name, health)
+            }
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         // A failed probe is a result, not a crash: the list stays usable.
     } }

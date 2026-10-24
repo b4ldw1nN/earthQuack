@@ -254,17 +254,19 @@ class StorageFragment : Fragment() {
         lastProbeWithNode = TailscaleNodeMonitor.state.value is TailscaleLoginState.Running
         viewLifecycleOwner.lifecycleScope.launch {
             repository.probeRemotes(names) { name, result ->
+                if (_binding == null) return@probeRemotes
+                val ctx = context ?: return@probeRemotes
                 remoteHealth[name] = result
                 val row = remoteRows[name] ?: return@probeRemotes
                 row.remoteStatus.text = remoteStatusLabel(remoteBaseLabels[name].orEmpty(), result)
                 row.remoteStatus.setTextColor(
-                    resources.getColor(
+                    androidx.core.content.ContextCompat.getColor(
+                        ctx,
                         when (result.state) {
                             RcloneHealthProbe.State.Ok -> R.color.eq_success
                             RcloneHealthProbe.State.Unknown -> R.color.eq_text_muted
                             else -> R.color.eq_warning
-                        },
-                        requireContext().theme
+                        }
                     )
                 )
             }

@@ -26,29 +26,27 @@
             android:id="@+id/appbar"
             layout="@layout/partial_topbar"/>
 
-        <!-- Two stacked containers, not one. Tabs live in tab_container and are
-             show/hidden; a pushed sub-screen is added on top in content. If
-             both shared a container the tab would have to be hidden, and
-             returning from a sub-screen would lose its state. -->
+        <!-- Two stacked containers: tabs live in tab_container and are
+             show/hidden; a pushed sub-screen is displayed in subscreen_container.
+             Using FragmentContainerView ensures proper FragmentManager transactions,
+             z-ordering, and layout passes. -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <FrameLayout
+            <androidx.fragment.app.FragmentContainerView
                 android:id="@+id/tab_container"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
-            <!-- Pushed sub-screens land here, above the tabs.
-                 Deliberately NO background: this view is always stacked on top
-                 of tab_container, so an opaque background would hide the tabs
-                 permanently. MainActivity sets the background only while a
-                 sub-screen is actually pushed. -->
-            <FrameLayout
-                android:id="@+id/content"
+            <!-- Pushed sub-screens land here, above the tabs. -->
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/subscreen_container"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent" />
+                android:layout_height="match_parent"
+                android:background="@color/eq_background"
+                android:visibility="gone" />
         </FrameLayout>
 
         <!-- Hairline above the bar. Without it the bar's background change is

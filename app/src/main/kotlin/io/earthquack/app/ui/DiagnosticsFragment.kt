@@ -9,7 +9,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import io.earthquack.app.R
 import io.earthquack.app.databinding.FragmentDiagnosticsBinding
 import io.earthquack.app.databinding.PartialDetailRowBinding
@@ -45,6 +47,8 @@ class DiagnosticsFragment : Fragment() {
 
     private val serveManager = ServeManager(NativeServeControl)
 
+    private var probeJob: kotlinx.coroutines.Job? = null
+
     /** The report as last rendered, for the copy action. */
     private var report: String = ""
 
@@ -65,6 +69,14 @@ class DiagnosticsFragment : Fragment() {
 
         binding.btnRefresh.setOnClickListener { refresh() }
         binding.btnCopy.setOnClickListener { copyReport() }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TailscaleNodeMonitor.state.collect {
+                    refreshNodeDetails()
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -72,11 +84,8 @@ class DiagnosticsFragment : Fragment() {
         refresh()
     }
 
-    private fun refresh() {
+    private fun refreshNodeDetails() {
         val b = _binding ?: return
-        val lines = mutableListOf<String>()
-
-        // ── Node ────────────────────────────────────────────────────────────
         val nodeState = TailscaleNodeMonitor.state.value
         val nodeIp = (nodeState as? TailscaleLoginState.Running)?.nodeIp
         val socksPort = io.earthquack.app.tailscale.TailnetRoute.socksPort()
@@ -88,13 +97,31 @@ class DiagnosticsFragment : Fragment() {
         b.rowSocks.label.text = getString(R.string.diagnostics_socks_port)
         b.rowSocks.value.text = if (socksPort > 0) socksPort.toString() else getString(R.string.diagnostics_none)
 
-        lines += "node: ${nodeState}"
+        val peersJson = runCatching { io.earthquack.app.tailscale.Tailscale.peers() }.getOrDefault("[]")
+        val peers = io.earthquack.app.tailscale.TailnetPeer.parseList(peersJson)
+        val exitNode = peers.firstOrNull { it.isExitNode }?.name
+        b.rowExitNode.label.text = getString(R.string.diagnostics_exit_node)
+        b.rowExitNode.value.text = exitNode ?: getString(R.string.diagnostics_none)
+    }
+
+    private fun refresh() {
+        val b = _binding ?: return
+        val lines = mutableListOf<String>()
+
+        // ── Node ────────────────────────────────────────────────────────────
+        refreshNodeDetails()
+        val nodeState = TailscaleNodeMonitor.state.value
+        val nodeIp = (nodeState as? TailscaleLoginState.Running)?.nodeIp
+        val socksPort = io.earthquack.app.tailscale.TailnetRoute.socksPort()
+
+        lines += "node: $nodeState"
         lines += "node ip: ${nodeIp ?: "-"}"
         lines += "socks port: ${if (socksPort > 0) socksPort.toString() else "-"}"
 
         // ── Peers ───────────────────────────────────────────────────────────
-        val peers = runCatching { io.earthquack.app.tailscale.Tailscale.peers() }
+        val peersJson = runCatching { io.earthquack.app.tailscale.Tailscale.peers() }
             .getOrDefault("[]")
+        val peers = io.earthquack.app.tailscale.TailnetPeer.parseList(peersJson)
         renderPeers(peers)
         lines += "peers: ${peerSummary(peers)}"
 
@@ -118,12 +145,12 @@ class DiagnosticsFragment : Fragment() {
         }
         lines += "serves: ${b.rowServes.value.text}"
 
-        val exitNode = runCatching { exitNodes.currentExitNode()?.name }.getOrNull()
+        val exitNode = peers.firstOrNull { it.isExitNode }?.name
         b.rowExitNode.label.text = getString(R.string.diagnostics_exit_node)
         b.rowExitNode.value.text = exitNode ?: getString(R.string.diagnostics_none)
         lines += "exit node: ${exitNode ?: "-"}"
 
-        val desktop = io.earthquack.app.ServerConfig.getHost(requireContext())
+        val desktop = context?.let { io.earthquack.app.ServerConfig.getHost(it) } ?: ""
         b.rowDesktop.label.text = getString(R.string.diagnostics_desktop)
         b.rowDesktop.value.text = desktop
         lines += "desktop: $desktop"
@@ -135,15 +162,27 @@ class DiagnosticsFragment : Fragment() {
         lines += "desktop capabilities: ${capabilities?.summary() ?: "not queried"}"
 
         // ── Remotes ─────────────────────────────────────────────────────────
-        viewLifecycleOwner.lifecycleScope.launch {
+        probeJob?.cancel()
+        probeJob = viewLifecycleOwner.lifecycleScope.launch {
             val remotes = withContext(Dispatchers.IO) { storageRepository.remotesOrNull() }
+            if (_binding == null) return@launch
             val names = remotes?.map { it.name } ?: emptyList()
             val health = mutableMapOf<String, RcloneHealthProbe.Health>()
-            renderRemotes(remotes.orEmpty(), health)
+            val remoteRows = setupRemotes(remotes.orEmpty())
+
             storageRepository.probeRemotes(names) { name, result ->
+                if (_binding == null) return@probeRemotes
                 health[name] = result
-                renderRemotes(remotes.orEmpty(), health)
+                val row = remoteRows[name]
+                if (row != null) {
+                    val remote = remotes?.firstOrNull { it.name == name }
+                    val route = if (remote?.routedViaTailscale == true) " · via Tailscale" else ""
+                    val detail = result.detail?.let { " — ${it.take(80)}" } ?: ""
+                    row.value.text = "$route · ${result.state.name.lowercase()}$detail"
+                }
             }
+
+            if (_binding == null) return@launch
             lines += "remotes:"
             names.forEach { name ->
                 val state = health[name]?.state ?: RcloneHealthProbe.State.Unknown
@@ -153,12 +192,15 @@ class DiagnosticsFragment : Fragment() {
         }
     }
 
-    private fun renderPeers(peersJson: String) {
-        val container = binding.cardPeers
+    private fun renderPeers(peers: List<io.earthquack.app.tailscale.TailnetPeer>) {
+        val b = _binding ?: return
+        val container = b.cardPeers
         container.removeAllViews()
-        val peers = io.earthquack.app.tailscale.TailnetPeer.parseList(peersJson)
         if (peers.isEmpty()) {
-            container.addView(row(container, getString(R.string.diagnostics_no_peers), ""))
+            val rowBinding = PartialDetailRowBinding.inflate(layoutInflater, container, false)
+            rowBinding.label.text = getString(R.string.diagnostics_no_peers)
+            rowBinding.value.text = ""
+            container.addView(rowBinding.root)
             return
         }
         peers.forEach { peer ->
@@ -168,50 +210,68 @@ class DiagnosticsFragment : Fragment() {
                 if (peer.isExitNode) add("in use")
             }.joinToString(", ")
             val address = listOfNotNull(peer.dnsName.takeIf { it.isNotBlank() }, peer.ip).joinToString(" · ")
-            container.addView(row(container, peer.name.ifBlank { peer.ip }, "$address · $flags"))
+            val rowBinding = PartialDetailRowBinding.inflate(layoutInflater, container, false)
+            rowBinding.label.text = peer.name.ifBlank { peer.ip }
+            rowBinding.value.text = "$address · $flags"
+            container.addView(rowBinding.root)
         }
     }
 
-    private fun renderRemotes(
+    private fun setupRemotes(
         remotes: List<StorageRepository.RemoteSummary>,
-        health: Map<String, RcloneHealthProbe.Health>,
-    ) {
-        val container = binding.cardRemotes
+    ): Map<String, PartialDetailRowBinding> {
+        val b = _binding ?: return emptyMap()
+        val container = b.cardRemotes
         container.removeAllViews()
         if (remotes.isEmpty()) {
-            container.addView(row(container, getString(R.string.state_no_remotes), ""))
-            return
+            val emptyRow = PartialDetailRowBinding.inflate(layoutInflater, container, false)
+            emptyRow.label.text = getString(R.string.state_no_remotes)
+            emptyRow.value.text = ""
+            container.addView(emptyRow.root)
+            return emptyMap()
         }
+        val rows = mutableMapOf<String, PartialDetailRowBinding>()
         remotes.forEach { remote ->
-            val result = health[remote.name]
-            val state = result?.state ?: RcloneHealthProbe.State.Unknown
+            val rowBinding = PartialDetailRowBinding.inflate(layoutInflater, container, false)
+            rowBinding.label.text = remote.name
             val route = if (remote.routedViaTailscale) " · via Tailscale" else ""
-            val detail = result?.detail?.let { " — ${it.take(80)}" } ?: ""
-            container.addView(row(container, remote.name, "$route · ${state.name.lowercase()}$detail"))
+            rowBinding.value.text = "$route · probing…"
+            container.addView(rowBinding.root)
+            rows[remote.name] = rowBinding
         }
+        return rows
     }
 
-    private fun row(parent: ViewGroup, label: String, value: String): View {
-        val rowBinding = PartialDetailRowBinding.inflate(layoutInflater, parent, false)
-        rowBinding.label.text = label
-        rowBinding.value.text = value
-        return rowBinding.root
-    }
-
-    private fun peerSummary(peersJson: String): String {
-        val peers = io.earthquack.app.tailscale.TailnetPeer.parseList(peersJson)
+    private fun peerSummary(peers: List<io.earthquack.app.tailscale.TailnetPeer>): String {
         if (peers.isEmpty()) return "none"
         return peers.joinToString(", ") { "${it.name.ifBlank { it.ip }}${if (it.online) "" else " (offline)"}" }
     }
 
     private fun copyReport() {
-        val text = report.ifBlank { getString(R.string.diagnostics_not_queried) }
-        val manager = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val b = _binding
+        val text = report.ifBlank {
+            if (b != null) {
+                listOf(
+                    "node: ${b.rowNodeState.value.text}",
+                    "node ip: ${b.rowNodeIp.value.text}",
+                    "socks port: ${b.rowSocks.value.text}",
+                    "sftp server: ${b.rowSftp.value.text}",
+                    "serves: ${b.rowServes.value.text}",
+                    "exit node: ${b.rowExitNode.value.text}",
+                    "desktop: ${b.rowDesktop.value.text}",
+                    "desktop capabilities: ${b.rowCapabilities.value.text}"
+                ).joinToString("\n")
+            } else getString(R.string.diagnostics_not_queried)
+        }
+        val ctx = context ?: return
+        val manager = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         manager.setPrimaryClip(ClipData.newPlainText("earthQuack diagnostics", text))
-        Toast.makeText(requireContext(), R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
+        Toast.makeText(ctx, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroyView() {
+        probeJob?.cancel()
+        probeJob = null
         super.onDestroyView()
         _binding = null
     }

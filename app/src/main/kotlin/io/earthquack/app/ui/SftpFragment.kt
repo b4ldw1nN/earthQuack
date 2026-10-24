@@ -674,11 +674,13 @@ class SftpFragment : Fragment() {
         if (view != null) toast(message)
     }
 
-    private fun toast(res: Int) =
-        Toast.makeText(requireContext(), res, Toast.LENGTH_SHORT).show()
+    private fun toast(res: Int) {
+        context?.let { Toast.makeText(it, res, Toast.LENGTH_SHORT).show() }
+    }
 
-    private fun toast(msg: String) =
-        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) {
+        context?.let { Toast.makeText(it, msg, Toast.LENGTH_SHORT).show() }
+    }
 
     override fun onDestroyView() {
         super.onDestroyView()
