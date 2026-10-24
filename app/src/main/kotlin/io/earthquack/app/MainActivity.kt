@@ -229,6 +229,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        io.earthquack.app.state.BatteryOptimizationManager.checkAndPublish(this)
         val filter = IntentFilter(ACTION_STATUS_UPDATE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)

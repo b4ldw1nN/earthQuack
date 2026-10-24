@@ -61,7 +61,9 @@ data class SftpSettings(
      * Enforced by the server, not just documented: a connection beyond the
      * limit is closed as soon as it is accepted.
      */
-    val maxConnections: Int = DEFAULT_MAX_CONNECTIONS
+    val maxConnections: Int = DEFAULT_MAX_CONNECTIONS,
+    /** Whether to automatically start this server whenever Tailscale connects. */
+    val autoStartWithTailscale: Boolean = false
 ) {
     /**
      * Everything wrong with these settings, in the order a user should fix it.
@@ -142,6 +144,7 @@ class SftpSettingsStore(context: Context) {
         const val KEY_HOST_KEY = "host_key_fingerprint"
         const val KEY_USERNAME = "username"
         const val KEY_MAX_CONNECTIONS = "max_connections"
+        const val KEY_AUTO_START_TAILSCALE = "auto_start_tailscale"
 
         // 0 is invalid ("any port") and 65536+ is not a port. Being explicit
         // avoids depending on which side of the boundary someone later clamps.
@@ -166,7 +169,8 @@ class SftpSettingsStore(context: Context) {
         hostKeyFingerprint = prefs.getString(KEY_HOST_KEY, null),
         username = prefs.getString(KEY_USERNAME, SftpSettings.DEFAULT_USERNAME)
             ?: SftpSettings.DEFAULT_USERNAME,
-        maxConnections = prefs.getInt(KEY_MAX_CONNECTIONS, SftpSettings.DEFAULT_MAX_CONNECTIONS)
+        maxConnections = prefs.getInt(KEY_MAX_CONNECTIONS, SftpSettings.DEFAULT_MAX_CONNECTIONS),
+        autoStartWithTailscale = prefs.getBoolean(KEY_AUTO_START_TAILSCALE, false)
     )
 
     /**
@@ -188,6 +192,7 @@ class SftpSettingsStore(context: Context) {
             .putBoolean(KEY_PUBKEY_AUTH, settings.publicKeyAuth)
             .putString(KEY_USERNAME, settings.username)
             .putInt(KEY_MAX_CONNECTIONS, settings.maxConnections)
+            .putBoolean(KEY_AUTO_START_TAILSCALE, settings.autoStartWithTailscale)
             .apply {
                 settings.hostKeyFingerprint?.let { putString(KEY_HOST_KEY, it) }
             }

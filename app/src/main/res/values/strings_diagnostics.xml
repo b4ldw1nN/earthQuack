@@ -19,6 +19,7 @@
     <string name="diagnostics_refresh">Refresh</string>
     <string name="diagnostics_copy">Copy report</string>
     <string name="diagnostics_copied">Report copied to the clipboard</string>
+    <string name="diagnostics_self_test">Run Network Self-Test</string>
     <string name="node_needs_signin">Tailscale needs you to sign in again</string>
     <string name="node_failed">Tailscale failed: %1$s</string>
     <string name="profile_peer_suggestion">%1$s — %2$s</string>

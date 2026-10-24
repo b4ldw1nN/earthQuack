@@ -187,6 +187,7 @@
     <string name="sftp_clients">Connected clients</string>
     <string name="sftp_auth_header">Authentication</string>
     <string name="sftp_password_auth">Password authentication</string>
+    <string name="sftp_auto_start_tailscale">Auto-start with Tailscale</string>
     <string name="sftp_pubkey_auth">Public key authentication</string>
     <string name="sftp_advanced">Advanced</string>
     <string name="sftp_port">Port</string>

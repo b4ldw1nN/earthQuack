@@ -24,6 +24,18 @@ object TailnetRoute {
     /** Port of the embedded node's SOCKS5 listener, or 0 if it is not up. */
     fun socksPort(): Int = runCatching { Tailscale.socksPort().toInt() }.getOrDefault(0)
 
+    /** Full SOCKS5 proxy URL for external clients, e.g. "socks5://127.0.0.1:1055", or null when down. */
+    fun proxyUrl(): String? {
+        val port = socksPort()
+        return if (port > 0) "socks5://127.0.0.1:$port" else null
+    }
+
+    /** Shell export command for Termux/cURL/git, e.g. "export all_proxy=socks5h://127.0.0.1:1055", or null when down. */
+    fun exportCommand(): String? {
+        val port = socksPort()
+        return if (port > 0) "export all_proxy=socks5h://127.0.0.1:$port" else null
+    }
+
     /**
      * The SOCKS endpoint (loopback + node port) through which [host] is
      * reachable, or null when the node is down or [host] is not a tailnet

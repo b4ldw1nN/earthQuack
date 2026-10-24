@@ -67,6 +67,17 @@ object TailscaleNodeMonitor {
                         runCatching {
                             ServeManager(NativeServeControl, store = ServeStore(context.applicationContext)).restore()
                         }
+                        // Start SFTP server if user configured it to auto-start with Tailscale
+                        runCatching {
+                            val sftpStore = io.earthquack.app.sftp.SftpSettingsStore(context.applicationContext)
+                            val sftpSettings = sftpStore.load()
+                            if (sftpSettings.autoStartWithTailscale && (sftpSettings.passwordAuth || sftpSettings.publicKeyAuth)) {
+                                val sftpController = io.earthquack.app.sftp.SftpServerControllerImpl(context.applicationContext)
+                                if (sftpController.status() !is io.earthquack.app.sftp.SftpServerStatus.Running) {
+                                    sftpController.start(sftpSettings)
+                                }
+                            }
+                        }
                     }
                 }
             }

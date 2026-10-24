@@ -2,6 +2,7 @@ package io.earthquack.app.ssh
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import java.io.File
 import java.security.Key
 import java.security.KeyStore
@@ -106,8 +107,13 @@ class KeystoreSecretStore(
 
     override fun get(alias: String): ByteArray? {
         val file = File(dir, fileNameFor(alias))
-        if (!file.isFile) return null
-        return runCatching { cipherBox.decrypt(file.readBytes()) }.getOrNull()
+        if (!file.isFile) {
+            Log.w("SecretStore", "Secret file not found for alias $alias: ${file.name}")
+            return null
+        }
+        return runCatching { cipherBox.decrypt(file.readBytes()) }
+            .onFailure { Log.e("SecretStore", "Failed to decrypt secret for alias $alias: ${file.name}", it) }
+            .getOrNull()
     }
 
     override fun delete(alias: String) {

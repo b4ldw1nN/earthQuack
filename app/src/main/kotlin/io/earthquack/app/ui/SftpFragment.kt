@@ -232,6 +232,9 @@ class SftpFragment : Fragment() {
                 update { it.copy(publicKeyAuth = checked) }
             }
         }
+        binding.switchAutoStartTailscale.setOnCheckedChangeListener { _, checked ->
+            update { it.copy(autoStartWithTailscale = checked) }
+        }
     }
 
     override fun onResume() {
@@ -311,6 +314,7 @@ class SftpFragment : Fragment() {
         // resume.
         binding.switchPasswordAuth.isChecked = settings.passwordAuth
         binding.switchPubkeyAuth.isChecked = settings.publicKeyAuth
+        binding.switchAutoStartTailscale.isChecked = settings.autoStartWithTailscale
 
         // Password status
         val passwordSet = secrets.has(PASSWORD_ALIAS)

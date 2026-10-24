@@ -67,8 +67,15 @@ class DiagnosticsFragment : Fragment() {
         sftpController = SftpServerControllerImpl(requireContext())
         exitNodes = ExitNodeManager(NativeExitNodeControl)
 
-        binding.btnRefresh.setOnClickListener { refresh() }
+        binding.btnRefresh.setOnClickListener { refresh(force = true) }
         binding.btnCopy.setOnClickListener { copyReport() }
+        binding.btnSelfTest.setOnClickListener { runSelfTest() }
+        binding.rowSocks.root.setOnClickListener {
+            val url = io.earthquack.app.tailscale.TailnetRoute.proxyUrl() ?: return@setOnClickListener
+            val manager = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            manager.setPrimaryClip(ClipData.newPlainText("SOCKS5 Proxy", url))
+            Toast.makeText(requireContext(), "Copied $url", Toast.LENGTH_SHORT).show()
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -104,7 +111,7 @@ class DiagnosticsFragment : Fragment() {
         b.rowExitNode.value.text = exitNode ?: getString(R.string.diagnostics_none)
     }
 
-    private fun refresh() {
+    private fun refresh(force: Boolean = false) {
         val b = _binding ?: return
         val lines = mutableListOf<String>()
 
@@ -170,7 +177,7 @@ class DiagnosticsFragment : Fragment() {
             val health = mutableMapOf<String, RcloneHealthProbe.Health>()
             val remoteRows = setupRemotes(remotes.orEmpty())
 
-            storageRepository.probeRemotes(names) { name, result ->
+            storageRepository.probeRemotes(names, forceRefresh = force) { name, result ->
                 if (_binding == null) return@probeRemotes
                 health[name] = result
                 val row = remoteRows[name]
@@ -267,6 +274,32 @@ class DiagnosticsFragment : Fragment() {
         val manager = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         manager.setPrimaryClip(ClipData.newPlainText("earthQuack diagnostics", text))
         Toast.makeText(ctx, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun runSelfTest() {
+        val b = _binding ?: return
+        val card = b.cardSelfTest
+        card.visibility = View.VISIBLE
+        card.removeAllViews()
+
+        val runningRow = PartialDetailRowBinding.inflate(layoutInflater, card, false)
+        runningRow.label.text = "Running test…"
+        runningRow.value.text = "Please wait"
+        card.addView(runningRow.root)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
+            val results = io.earthquack.app.diagnostics.NetworkSelfTest.runAll(ctx)
+            if (_binding == null) return@launch
+            card.removeAllViews()
+            results.forEach { res ->
+                val rowBinding = PartialDetailRowBinding.inflate(layoutInflater, card, false)
+                val statusIcon = if (res.passed) "✔ " else "✖ "
+                rowBinding.label.text = "$statusIcon${res.name}"
+                rowBinding.value.text = res.detail
+                card.addView(rowBinding.root)
+            }
+        }
     }
 
     override fun onDestroyView() {

@@ -42,6 +42,7 @@
 
     <!-- Receive connectivity broadcasts so we can reconnect on network change -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
         File sharing: read shared files from other apps (photos, documents, etc.)
@@ -346,6 +347,14 @@
         <receiver
             android:name=".StopReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
 
     </application>

@@ -118,5 +118,20 @@
             android:layout_marginTop="@dimen/eq_gap_sm"
             android:text="@string/diagnostics_copy" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSelfTest"
+            style="@style/Widget.Eq.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:text="@string/diagnostics_self_test" />
+
+        <LinearLayout
+            android:id="@+id/cardSelfTest"
+            style="@style/Widget.Eq.Card"
+            android:layout_marginTop="@dimen/eq_gap_sm"
+            android:orientation="vertical"
+            android:visibility="gone" />
+
     </LinearLayout>
 </ScrollView>

@@ -2,6 +2,7 @@ package io.earthquack.app.ssh
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.apache.sshd.common.config.keys.FilePasswordProvider
 import org.apache.sshd.common.config.keys.KeyUtils
 import org.apache.sshd.common.config.keys.PublicKeyEntry
@@ -136,15 +137,19 @@ class IdentityKeyStore(
         val fingerprint = KeyUtils.getFingerPrint(keyPair.public)
         val existing = list().firstOrNull { it.fingerprint == fingerprint }
         if (existing != null) {
-            // Keep the stored key, but let a newly supplied passphrase update
-            // it, so re-importing with the right passphrase still works.
+            // Write the key bytes so re-importing repairs missing, stale, or undecryptable keys
+            secrets.put(existing.alias + SUFFIX_KEY, pem)
             if (passphrase != null) {
                 secrets.put(
                     existing.alias + SUFFIX_PASS,
                     passphrase.concatToString().toByteArray(Charsets.UTF_8)
                 )
+            } else {
+                secrets.delete(existing.alias + SUFFIX_PASS)
             }
-            return@runCatching existing.copy(hasPassphrase = passphrase != null || existing.hasPassphrase)
+            val updated = existing.copy(hasPassphrase = passphrase != null)
+            writeIndex(list().filterNot { it.alias == existing.alias } + updated)
+            return@runCatching updated
         }
         store(alias, label, keyPair, pem, passphrase, generated = false)
     }
@@ -183,11 +188,19 @@ class IdentityKeyStore(
      * rather than an authentication failure against the server, which is not.
      */
     override fun loadKeyPair(alias: String): KeyPair? {
-        val pem = secrets.get(alias + SUFFIX_KEY) ?: return null
+        val pem = secrets.get(alias + SUFFIX_KEY)
+        if (pem == null) {
+            Log.w("IdentityKeyStore", "loadKeyPair: pem is null for alias $alias (secret missing or undecryptable)")
+            return null
+        }
         val passphrase = secrets.get(alias + SUFFIX_PASS)?.let {
             runCatching { String(it, Charsets.UTF_8) }.getOrNull()?.toCharArray()
         }
-        return parseKeyPair(pem, passphrase)
+        val keyPair = parseKeyPair(pem, passphrase)
+        if (keyPair == null) {
+            Log.w("IdentityKeyStore", "loadKeyPair: parseKeyPair returned null for alias $alias (passphrase present: ${passphrase != null})")
+        }
+        return keyPair
     }
 
     /** The authorized_keys line for [alias], e.g. `ecdsa-sha2-nistp256 AAAA… name`. */

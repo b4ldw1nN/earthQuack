@@ -276,7 +276,7 @@ class KeysActivity : SubScreenActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.profile_key_passphrase_title)
             .setView(input)
-            .setNegativeButton(android.R.string.cancel) { _, _ -> onResult(null) }
+            .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val text = input.text.toString()
                 onResult(if (text.isEmpty()) null else text)

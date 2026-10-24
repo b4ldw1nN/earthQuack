@@ -43,6 +43,8 @@ class StorageRepository(context: Context) {
     private companion object {
         /** Per-remote probe budget; a dead host must not stall the list. */
         const val PROBE_TIMEOUT_MS = 12_000L
+        const val PROBE_CACHE_TTL_MS = 90_000L
+        val probeCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, RcloneHealthProbe.Health>>()
     }
 
     private val appContext = context.applicationContext
@@ -154,14 +156,32 @@ class StorageRepository(context: Context) {
      */
     suspend fun probeRemotes(
         names: List<String>,
+        forceRefresh: Boolean = false,
         onResult: (String, RcloneHealthProbe.Health) -> Unit,
     ) = withContext(Dispatchers.IO) { try {
+        val now = System.currentTimeMillis()
+        val toProbe = mutableListOf<String>()
+
+        names.forEach { name ->
+            val cached = probeCache[name]
+            if (!forceRefresh && cached != null && (now - cached.first) < PROBE_CACHE_TTL_MS) {
+                withContext(Dispatchers.Main) {
+                    onResult(name, cached.second)
+                }
+            } else {
+                toProbe.add(name)
+            }
+        }
+
+        if (toProbe.isEmpty()) return@withContext
+
         configManager.ensureReady()
         val engine = RcloneEngines.getBlocking(configManager.configPath)
-        names.forEach { name ->
+        toProbe.forEach { name ->
             val health = withTimeoutOrNull(PROBE_TIMEOUT_MS) {
                 RcloneHealthProbe.probe(engine, name, remoteSection(name)?.get("type"))
             } ?: RcloneHealthProbe.Health(RcloneHealthProbe.State.Unreachable, "timed out")
+            probeCache[name] = Pair(System.currentTimeMillis(), health)
             withContext(Dispatchers.Main) {
                 onResult(name, health)
             }

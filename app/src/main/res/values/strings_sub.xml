@@ -46,6 +46,7 @@
     <string name="sftp_running_sub">Listening on port %1$d</string>
     <string name="sftp_details_header">Connection Details</string>
     <string name="sftp_pubkey_auth_sub">Stored public keys. Nothing sensitive is kept on the phone.</string>
+    <string name="sftp_auto_start_tailscale_sub">Start server automatically whenever Tailscale connects or on boot</string>
     <string name="sftp_settings_invalid">Those settings cannot be used — check the port and root directory.</string>
     <string name="sftp_start_failed">Could not start the SFTP server</string>
     <string name="sftp_not_implemented_body">The screen is complete and your settings below are saved, but no SFTP server is running: there is no SSH server in this build yet. The settings will be used as-is when it lands — nothing here needs re-entering.</string>
